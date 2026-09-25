@@ -10,7 +10,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$pdo = eplakGetPdo();
+try {
+    $pdo = eplakGetPdo();
+} catch (\Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'اتصال به دیتابیس برقرار نشد. راه‌اندازی و پیکربندی دیتابیس را بررسی کنید.'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $root = $pdo->query('SELECT * FROM departments WHERE parent_id IS NULL OR parent_id = 0 ORDER BY sort_order ASC, name ASC')->fetchAll();
 $departments = [];

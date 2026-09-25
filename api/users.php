@@ -52,11 +52,7 @@ if ($name === '') {
 }
 
 try {
-    $stmt = $pdo->prepare('INSERT INTO users (phone, name, address, nid) VALUES (:phone, :name, :address, :nid)
-        ON DUPLICATE KEY UPDATE
-            name = IF(VALUES(name) != "" AND VALUES(name) != "شهروند", VALUES(name), IF(name != "", name, VALUES(name))),
-            address = IF(VALUES(address) != "", VALUES(address), address),
-            nid = IF(VALUES(nid) != "", VALUES(nid), nid)');
+    $stmt = $pdo->prepare(eplakUsersUpsertSql($pdo, true));
     $stmt->execute([
         ':phone' => $phone,
         ':name' => $name,

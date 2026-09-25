@@ -10,6 +10,34 @@
   var isInitial = true;
   var audioCtx = null;
 
+  /* اگر نشست از طریق URL منتقل می‌شود (حالی که کوکی پذیرفته نشده، مثل
+     پیش‌نمایش جاسازی‌شده)، شناسه را به فراخوانی‌های fetch و پیوندها اضافه کن */
+  function eplakSidPair() {
+    try {
+      var s = new URLSearchParams(window.location.search);
+      var keys = ['eplak_admin', 'eplak_citizen', 'PHPSESSID'];
+      for (var i = 0; i < keys.length; i++) {
+        var sid = s.get(keys[i]);
+        if (sid) { return keys[i] + '=' + encodeURIComponent(sid); }
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
+  function eplakSidQuery() {
+    var pair = eplakSidPair();
+    return pair ? '&' + pair : '';
+  }
+
+  function eplakSidAppend(url) {
+    var pair = eplakSidPair();
+    if (!pair) { return url; }
+    if (url.indexOf('eplak_admin=') !== -1 || url.indexOf('eplak_citizen=') !== -1 || url.indexOf('PHPSESSID=') !== -1) {
+      return url;
+    }
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + pair;
+  }
+
   function playChime(kind) {
     try {
       if (!audioCtx) {
@@ -69,7 +97,7 @@
 
     if (link) {
       toast.onclick = function () {
-        window.location.href = link;
+        window.location.href = eplakSidAppend(link);
       };
     }
 
@@ -107,7 +135,7 @@
 
   async function checkLivePulse() {
     try {
-      var res = await fetch('api_live.php?t=' + Date.now(), { cache: 'no-store' });
+      var res = await fetch('api_live.php?t=' + Date.now() + eplakSidQuery(), { cache: 'no-store' });
       if (!res.ok) return;
       var data = await res.json();
       if (!data || !data.success) return;

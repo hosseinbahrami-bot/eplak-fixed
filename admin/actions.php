@@ -28,13 +28,13 @@ if ($type === 'ticket_delete') {
 
 if ($type === 'report_reply_delete') {
     deleteReportReply($pdo, $id);
-    header('Location: report_detail.php?id=' . $id);
+    eplakRedirect('report_detail.php?id=' . $id);
     exit;
 }
 
 if ($type === 'ticket_reply_delete') {
     deleteTicketReply($pdo, $id);
-    header('Location: ticket_detail.php?id=' . $id);
+    eplakRedirect('ticket_detail.php?id=' . $id);
     exit;
 }
 
