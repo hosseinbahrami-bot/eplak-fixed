@@ -99,11 +99,7 @@ if ($reportType === '') {
 try {
     $pdo->beginTransaction();
 
-    $stmtUser = $pdo->prepare('INSERT INTO users (phone, name, address, nid) VALUES (:phone, :name, :address, :nid)
-        ON DUPLICATE KEY UPDATE
-            name = IF(VALUES(name) = "", name, VALUES(name)),
-            address = IF(VALUES(address) = "", address, VALUES(address)),
-            nid = IF(VALUES(nid) = "", nid, VALUES(nid))');
+    $stmtUser = $pdo->prepare(eplakUsersUpsertSql($pdo, false));
     $stmtUser->execute([
         ':phone'   => $phone,
         ':name'    => $name,

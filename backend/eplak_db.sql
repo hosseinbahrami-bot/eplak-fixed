@@ -290,4 +290,24 @@ INSERT INTO `users` VALUES (7, '09359307540', 'مرتضی بهنامی', 'ادر
 INSERT INTO `users` VALUES (10, '09123947714', 'محمود بهنامی', 'تهران میدان ارژانتین', '04210101010', '2026-08-10 21:13:45');
 INSERT INTO `users` VALUES (19, '09123456789', 'Test User', 'ورامین', '1234567890', '2026-08-19 02:13:29');
 
+-- ----------------------------
+-- Table structure for news
+-- (افزوده شد: این جدول در دامپ اصلی موجود نبود ولی اپلیکیشن به آن نیاز دارد)
+-- ----------------------------
+DROP TABLE IF EXISTS `news`;
+CREATE TABLE `news`  (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `type` varchar(20) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT 'news',
+  `title` varchar(255) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL,
+  `summary` text CHARACTER SET utf8 COLLATE utf8_persian_ci NULL,
+  `body` text CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL,
+  `icon` varchar(50) CHARACTER SET utf8 COLLATE utf8_persian_ci NULL DEFAULT NULL,
+  `image_url` varchar(500) CHARACTER SET utf8 COLLATE utf8_persian_ci NULL DEFAULT NULL,
+  `published` tinyint(1) NOT NULL DEFAULT 1,
+  `sort_order` int NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8 COLLATE = utf8_persian_ci ROW_FORMAT = Dynamic;
+
 SET FOREIGN_KEY_CHECKS = 1;

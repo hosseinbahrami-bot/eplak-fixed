@@ -2,9 +2,10 @@
 /* admin router for dedicated live preview */
 $uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
 
-// If accessing root, redirect to the login page
+// If accessing root, redirect to the login page (absolute path — the
+// preview proxy does not resolve relative Location values)
 if ($uri === '/' || $uri === '') {
-    header('Location: /login.php');
+    header('Location: /admin/login.php');
     exit;
 }
 
