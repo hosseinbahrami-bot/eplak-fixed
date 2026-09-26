@@ -1,20 +1,26 @@
 # ============================================================================
 #  بررسی سایت زنده — از سرورهای گیت‌هاب (دسترسی آزاد به اینترنت)
 #
-#  چه می‌کند؟ فایل‌های عمومی https://eplak.ir/eplak-fixed را می‌خواند و می‌گوید
-#  آیا آخرین نسخه (اعلان فایربیس و اصلاح خوانده‌شدن اعلان‌ها) روی سایت است یا نه.
-#  گزارش در تب Actions و همچنین در Issue «گزارش بررسی سایت زنده» ثبت می‌شود.
+#  چه می‌کند؟ فایل‌های عمومی سایت (مثلاً https://eplak.ir/eplak-fixed) را می‌خواند
+#  و می‌گوید آیا آخرین نسخه (اعلان فایربیس و اصلاح «خوانده شدن» اعلان‌ها) روی
+#  سایت اعمال شده است یا نه.
+#
+#  گزارش کجاست؟ تب Actions → همین اجرا، و همچنین Issue با عنوان
+#  «گزارش بررسی سایت زنده (eplak.ir)».
 # ============================================================================
 name: بررسی سایت زنده
-run-name: "بررسی سایت زنده — ${{ inputs.url || 'https://eplak.ir/eplak-fixed' }}"
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'آدرس پایه‌ی سایت (پیش‌فرض: eplak-fixed روی eplak.ir)'
+        description: 'آدرس پایه‌ی سایت (پیش‌فرض: eplak.ir/eplak-fixed)'
         required: false
         default: 'https://eplak.ir/eplak-fixed'
+  push:
+    paths:
+      - '.github/workflows/live-check.yml'
+      - 'tools/live-check.sh'
 
 permissions:
   contents: read
@@ -28,11 +34,12 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: بررسی سایت
-        id: check
         continue-on-error: true
+        env:
+          SITE_URL: ${{ inputs.url }}
         run: |
-          URL="${{ inputs.url }}"
-          URL="${URL:-https://eplak.ir/eplak-fixed}"
+          URL="${SITE_URL:-https://eplak.ir/eplak-fixed}"
+          echo "آدرس بررسی‌شده: $URL"
           bash tools/live-check.sh "$URL" > report.txt 2>&1 || true
           cat report.txt
           {
@@ -42,16 +49,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: ثبت گزارش در Issue
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TITLE="گزارش بررسی سایت زنده (eplak.ir)"
-          BODY="$(printf '%s\n\n```\n%s\n```\n' "خروجی خودکار بررسی سایت:" "$(cat report.txt)")"
-          NUM=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          BODY_FILE="$(mktemp)"
+          {
+            echo "خروجی خودکار بررسی سایت:"
+            echo ""
+            echo '```'
+            cat report.txt
+            echo '```'
+          } > "$BODY_FILE"
+          NUM="$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')"
           if [ -n "$NUM" ]; then
-            gh issue comment "$NUM" --body "$BODY"
+            gh issue comment "$NUM" --body-file "$BODY_FILE"
           else
-            gh issue create --title "$TITLE" --body "این Issue را ربات بررسی خودکار می‌سازد و هر بار نتیجه‌ی بررسی سایت را این‌جا می‌نویسد.
-
-$BODY"
+            gh issue create --title "$TITLE" --body-file "$BODY_FILE"
           fi
