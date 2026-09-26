@@ -109,6 +109,35 @@ ok('ستون send_id خودکار به دیتابیس قدیمی اضافه شد
 ok('ارسال اعلان روی دیتابیس قدیمی کار می‌کند (خطای قبلی)', legacy?.send_ok === true, JSON.stringify(legacy));
 ok('داده‌های قبلی حفظ شدند', legacy?.old_rows === 1, JSON.stringify(legacy));
 
+console.log('\n=== صفحه‌ی «بررسی نسخه» در پنل ادمین ===');
+const ver = pickJson(await run(`
+$_SESSION = [];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['SCRIPT_NAME'] = '/admin/version.php';
+$_SERVER['PHP_SELF'] = '/admin/login.php';
+require '${APP}/admin/auth.php';
+$_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
+require '${APP}/admin/includes/functions.php';
+require_once '${APP}/shared/fcm.php';
+require_once '${APP}/shared/webpush.php';
+ob_start(); require '${APP}/admin/version.php'; $html = ob_get_clean();
+$stored = (string) eplakAppSetting($pdo, 'schema_version', '');
+echo json_encode([
+  'len' => strlen($html),
+  'fatal' => preg_match('/(Fatal error|Parse error|Warning:|Notice:)/', $html) === 1,
+  'has_schema' => strpos($html, EPLAK_SCHEMA_VERSION) !== false,
+  'schema_in_db' => $stored === EPLAK_SCHEMA_VERSION,
+  'badge_ok' => substr_count($html, 'pill-ok'),
+  'badge_bad' => substr_count($html, 'pill-bad'),
+  'fcm_hint' => strpos($html, 'فایربیس') !== false,
+  'apk_hint' => strpos($html, 'بررسی نسخه') !== false,
+]);`));
+ok('صفحه‌ی بررسی نسخه بدون خطا رندر می‌شود', (ver?.len || 0) > 3000 && ver?.fatal !== true, JSON.stringify(ver));
+ok('نسخه‌ی کد در صفحه نشان داده می‌شود', ver?.has_schema === true);
+ok('هم‌خوانی نسخه‌ی دیتابیس تأیید می‌شود', ver?.schema_in_db === true);
+ok('فایل‌های نسخه‌ی جدید «هست» علامت خورده‌اند', (ver?.badge_ok || 0) >= 5, JSON.stringify({ ok: ver?.badge_ok, bad: ver?.badge_bad }));
+ok('وضعیت فایربیس و اعلان مرورگر نمایش داده می‌شود', ver?.fcm_hint === true);
+
 console.log('\n' + '='.repeat(52));
 console.log(`BACKEND: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));

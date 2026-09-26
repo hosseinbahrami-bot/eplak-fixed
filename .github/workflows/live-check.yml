@@ -1,0 +1,57 @@
+# ============================================================================
+#  بررسی سایت زنده — از سرورهای گیت‌هاب (دسترسی آزاد به اینترنت)
+#
+#  چه می‌کند؟ فایل‌های عمومی https://eplak.ir/eplak-fixed را می‌خواند و می‌گوید
+#  آیا آخرین نسخه (اعلان فایربیس و اصلاح خوانده‌شدن اعلان‌ها) روی سایت است یا نه.
+#  گزارش در تب Actions و همچنین در Issue «گزارش بررسی سایت زنده» ثبت می‌شود.
+# ============================================================================
+name: بررسی سایت زنده
+run-name: "بررسی سایت زنده — ${{ inputs.url || 'https://eplak.ir/eplak-fixed' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'آدرس پایه‌ی سایت (پیش‌فرض: eplak-fixed روی eplak.ir)'
+        required: false
+        default: 'https://eplak.ir/eplak-fixed'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: خواندن فایل‌های سایت و بررسی نسخه
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: بررسی سایت
+        id: check
+        continue-on-error: true
+        run: |
+          URL="${{ inputs.url }}"
+          URL="${URL:-https://eplak.ir/eplak-fixed}"
+          bash tools/live-check.sh "$URL" > report.txt 2>&1 || true
+          cat report.txt
+          {
+            echo "### گزارش بررسی سایت زنده"
+            echo ""
+            cat report.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ثبت گزارش در Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="گزارش بررسی سایت زنده (eplak.ir)"
+          BODY="$(printf '%s\n\n```\n%s\n```\n' "خروجی خودکار بررسی سایت:" "$(cat report.txt)")"
+          NUM=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "این Issue را ربات بررسی خودکار می‌سازد و هر بار نتیجه‌ی بررسی سایت را این‌جا می‌نویسد.
+
+$BODY"
+          fi
