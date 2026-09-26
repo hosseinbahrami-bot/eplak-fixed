@@ -40,15 +40,17 @@
 <script src="assets/js/icons.js?v=12"></script>
 
 <script>
+/* Service Worker دیگر حذف نمی‌شود؛ برای رسیدن «اعلان پس‌زمینه» (نوتیفیکیشن گوشی
+   در حالت قفل/بسته بودن برنامه) باید ثبت شود. ثبت و مدیریت اشتراک در
+   modules/live.js انجام می‌شود و sw.js اعلان‌ها را نمایش می‌دهد. */
 (function() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(regs) {
-      for (var i = 0; i < regs.length; i++) { regs[i].unregister(); }
-    });
-  }
-  if ('caches' in window) {
-    caches.keys().then(function(keys) {
-      for (var i = 0; i < keys.length; i++) { caches.delete(keys[i]); }
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('sw.js').then(function(reg) {
+        console.log('[push] service worker registered:', reg.scope);
+      }).catch(function(err) {
+        console.warn('[push] service worker registration failed:', err && err.message);
+      });
     });
   }
 })();
@@ -1873,7 +1875,7 @@
           <span data-i18n="back">بازگشت</span>
         </button>
         <div style="display:flex; align-items:center; gap:8px;">
-          <span class="form-title" data-i18n="report_header_media">افزودن تصویر</span>
+          <span class="form-title" data-i18n="report_header_media">افزودن عکس یا فیلم</span>
           <span style="font-size:18px;">←</span>
         </div>
       </div>
@@ -1891,10 +1893,10 @@
       <div style="padding:0 16px;">
         <label for="reportPhotoInput" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:130px; border:2px dashed var(--card-border); border-radius:16px; background:var(--step-bg); cursor:pointer;">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:34px;height:34px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="var(--teal)" fill-opacity="0.16"/><circle cx="12" cy="13" r="4" fill="var(--teal)" fill-opacity="0.25"/></svg>
-          <span style="font-size:13px; font-weight:700; color:var(--text-muted);">برای افزودن تصویر ضربه بزنید</span>
-          <span style="font-size:11px; color:var(--text-muted);">حداکثر ۳ تصویر</span>
+          <span style="font-size:13px; font-weight:700; color:var(--text-muted);">برای افزودن عکس یا فیلم ضربه بزنید</span>
+          <span style="font-size:11px; color:var(--text-muted);">حداکثر ۳ فایل — عکس یا فیلم</span>
         </label>
-        <input type="file" id="reportPhotoInput" accept="image/*" multiple style="display:none;" onchange="addReportPhotos(this)">
+        <input type="file" id="reportPhotoInput" accept="image/*,video/*" multiple style="display:none;" onchange="addReportPhotos(this)">
       </div>
 
       <div id="reportPhotosPreview" style="display:flex; gap:10px; padding:0 16px; flex-wrap:wrap;"></div>
@@ -2055,6 +2057,9 @@
         </div>
         <div id="detailReplyWrap" style="display:none; margin-top:8px; padding-top:8px; border-top:1px solid var(--card-border);"></div>
       </div>
+
+      <!-- عکس‌ها و فیلم‌های ارسالی شهروند (modules/reports.js آن را پر می‌کند) -->
+      <div id="detailMediaWrap" style="display:none;"></div>
 
       <div class="section-title" style="padding:0 4px;">روند رسیدگی</div>
       <div class="glass-card" style="padding:18px;">
@@ -2412,32 +2417,9 @@
       <!-- ===== Tab Panel: دانستنی‌های ورامین (Heritage Knowledge) ===== -->
       <div class="news-tab-panel active" id="newsPanelKnowledge">
 
-        <div class="heritage-card" onclick="openHeritageDetail('mosque')">
-          <div class="heritage-photo-layer">
-            <img src="assets/img/varamin-mosque.jpg" alt="مسجد جامع ورامین" class="heritage-photo">
-          </div>
-          <div class="heritage-shade"></div>
-          <span class="heritage-pin" data-i18n="heritage_mosque_pin">۷۲۲ ه.ق · دوره ایلخانی</span>
-          <div class="heritage-info">
-            <h4 data-i18n="heritage_mosque_title">مسجد جامع ورامین</h4>
-            <p data-i18n="heritage_mosque_desc">تنها نمونه کامل مساجد چهارایوانی ایران؛ شاهکاری از کاشی‌کاری معرق، گچ‌بری و آجرکاری دوران ایلخانی که با همت سلطان محمد خدابنده آغاز و در روزگار فرزندش ابوسعید بهادرخان به پایان رسید.</p>
-            <span class="heritage-readmore" data-i18n="read_more_arrow">مطالعه بیشتر ←</span>
-          </div>
-        </div>
-
-        <div class="heritage-card" onclick="openHeritageDetail('tower')">
-          <div class="heritage-photo-layer">
-            <img src="assets/img/varamin-tower.jpg" alt="برج علاءالدوله ورامین" class="heritage-photo heritage-photo-tower">
-          </div>
-          <div class="heritage-shade"></div>
-          <span class="heritage-pin" data-i18n="heritage_tower_pin">۶۸۸ ه.ق · آرامگاهی</span>
-          <div class="heritage-info">
-            <h4 data-i18n="heritage_tower_title">برج علاءالدوله ورامین</h4>
-            <p data-i18n="heritage_tower_desc">برج آرامگاهی استوانه‌ای با گنبدی مخروطی بلند، یادگار فخرالدین برای پدرش حسن علاءالدوله، حاکم ری؛ از قدیمی‌ترین آثار ثبت‌شده ملی ایران با تزئینات آجرکاری و کاشی فیروزه‌ای.</p>
-            <span class="heritage-readmore" data-i18n="read_more_arrow">مطالعه بیشتر ←</span>
-          </div>
-        </div>
-
+        <!-- دانستنی‌های ورامین از پنل مدیریت خوانده می‌شود؛ برای اینکه سایت بدون
+             اینترنت هم خالی نباشد، نسخه‌ی پیش‌فرض همین دو بنا به‌صورت خودکار توسط
+             modules/live.js در همین کانتینر ساخته می‌شود. -->
         <!-- دانستنی‌های قابل مدیریت از پنل ادمین (modules/live.js آن را پر می‌کند) -->
         <div id="knowledgeListWrap" style="display:flex; flex-direction:column; gap:12px; margin-bottom:14px;"></div>
 
@@ -2734,6 +2716,9 @@
     </div>
 
     <div class="screen-content" style="position:relative;z-index:10; gap:10px; padding:0 16px 20px;">
+      <!-- وضعیت اعلان روی همین دستگاه (با جاوااسکریپت پر می‌شود) -->
+      <div id="notifDeviceNotice" style="display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:14px; padding:12px 14px; font-size:12.5px; line-height:1.9; color:#7c2d12;">
+      </div>
       <div class="reports-list" id="notifListWrap"></div>
       <div class="bottom-pad"></div>
     </div>
@@ -3009,19 +2994,19 @@ title="شماره موبایل هویت حساب شماست و قابل تغیی
 
 <!-- ===== Core ===== -->
 <script src="core/sound.js?v=10"></script>
-<script src="core/i18n.js?v=11"></script>
+<script src="core/i18n.js?v=12"></script>
 <script src="core/state.js?v=10"></script>
-<script src="core/storage.js?v=11"></script>
+<script src="core/storage.js?v=12"></script>
 <script src="core/router.js?v=10"></script>
 
 <!-- ===== Modules ===== -->
 <script src="modules/auth.js?v=10"></script>
 <script src="modules/home.js?v=20"></script>
-<script src="modules/reports.js?v=15"></script>
-<script src="modules/dashboard.js?v=10"></script>
+<script src="modules/reports.js?v=16"></script>
+<script src="modules/dashboard.js?v=12"></script>
 <script src="modules/profile.js?v=11"></script>
 <script src="modules/services.js?v=14"></script>
-<script src="modules/live.js?v=10"></script>
+<script src="modules/live.js?v=12"></script>
 <script src="modules/weather-3d.js?v=47"></script>
 <script src="modules/city-live.js?v=57"></script>
 <script src="modules/clock-lux.js?v=4"></script>
@@ -3031,11 +3016,9 @@ title="شماره موبایل هویت حساب شماست و قابل تغیی
 
 <!-- ===== PWA Service Worker & iOS Native Bridge Helper ===== -->
 <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-    for (let r of registrations) { r.unregister(); }
-  });
-}
+/* (قبلاً این‌جا Service Worker حذف می‌شد که باعث می‌شد اعلان‌های پس‌زمینه هیچ‌وقت
+    به گوشی نرسند. اکنون ثبت سرویس‌ورکر در بالای همین صفحه انجام می‌شود و اشتراک
+    اعلان در modules/live.js مدیریت می‌شود.) */
 
 // iOS Native Bridge Support
 window.triggerHaptic = function(style) {

@@ -187,6 +187,144 @@ function eplakSeedDefaultAdmin(PDO $pdo): void {
     }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   «تنظیمات برنامه» — جدول کلید/مقدار برای نگه‌داشتن چیزهایی مثل کلیدهای VAPID
+   اعلان‌های پس‌زمینه (Web Push). این کلیدها خودکار ساخته و در همین جدول
+   ذخیره می‌شوند تا بین درخواست‌ها پایدار بمانند.
+   ───────────────────────────────────────────────────────────────────────────── */
+function eplakAppSetting(PDO $pdo, string $key, ?string $default = null): ?string {
+    try {
+        $stmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = :k LIMIT 1');
+        $stmt->execute([':k' => $key]);
+        $value = $stmt->fetchColumn();
+        return ($value === false || $value === null) ? $default : (string) $value;
+    } catch (\Throwable $e) {
+        return $default;
+    }
+}
+
+function eplakSetAppSetting(PDO $pdo, string $key, string $value): void {
+    $sql = eplakIsSqlite($pdo)
+        ? 'INSERT INTO app_settings (setting_key, setting_value) VALUES (:k, :v)
+           ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = CURRENT_TIMESTAMP'
+        : 'INSERT INTO app_settings (setting_key, setting_value) VALUES (:k, :v)
+           ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP';
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([':k' => $key, ':v' => $value]);
+    } catch (\Throwable $e) {
+        /* بی‌صدا: نبود این جدول نباید جلوی کار اصلی را بگیرد */
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   محتوای پیش‌فرض «اخبار و دانستنی‌ها»
+   همان مطالبی که تا پیش از این به‌صورت ثابت داخل سایت/اپ بود؛ هنگام راه‌اندازی
+   اولیه در جدول news درج می‌شود تا در پنل مدیریت دیده و ویرایش شود.
+   (پس از درج، پنل مدیریت مرجع اصلی است و تغییراتش بلافاصله در سایت/اپ دیده می‌شود.)
+   ───────────────────────────────────────────────────────────────────────────── */
+function eplakDefaultSeedNews(): array {
+    return [
+        [
+            'type' => 'news',
+            'icon' => '🌳',
+            'badge' => null,
+            'sort_order' => 1,
+            'title' => 'افتتاح پارک جدید در منطقه شمالی ورامین',
+            'summary' => 'پارک جدید شهر با امکانات ورزشی و فضای سبز گسترده افتتاح شد.',
+            'body' => 'پارک جدید شهرداری ورامین با مساحت بیش از ۵ هکتار و امکاناتی شامل زمین‌های ورزشی، مسیر پیاده‌روی، فضای بازی کودکان و فضای سبز گسترده، آماده بهره‌برداری شهروندان عزیز شده است. این پروژه با مشارکت شهروندان و در راستای ارتقای کیفیت زندگی شهری اجرا شده است.',
+            'image_url' => null,
+        ],
+        [
+            'type' => 'news',
+            'icon' => '📋',
+            'badge' => null,
+            'sort_order' => 2,
+            'title' => 'اطلاعیه نوبت‌دهی پرداخت عوارض نوسازی',
+            'summary' => 'مهلت پرداخت عوارض نوسازی سال جاری تا پایان خرداد ماه تمدید شد.',
+            'body' => 'به اطلاع شهروندان محترم می‌رساند مهلت پرداخت عوارض نوسازی سال جاری تا پایان خرداد ماه تمدید گردیده است. شهروندان می‌توانند از طریق بخش «پرداخت عوارض» همین برنامه نسبت به پرداخت بدهی خود اقدام نمایند.',
+            'image_url' => null,
+        ],
+        [
+            'type' => 'news',
+            'icon' => '🎉',
+            'badge' => null,
+            'sort_order' => 3,
+            'title' => 'برگزاری جشنواره فرهنگی شهر ورامین',
+            'summary' => 'جشنواره فرهنگی و هنری شهر با حضور هنرمندان محلی برگزار می‌شود.',
+            'body' => 'شهرداری ورامین با همکاری اداره فرهنگ و ارشاد اسلامی، جشنواره فرهنگی و هنری شهر را با حضور هنرمندان محلی و برنامه‌های متنوع برای خانواده‌ها برگزار می‌کند. زمان و مکان دقیق برگزاری متعاقباً اعلام خواهد شد.',
+            'image_url' => null,
+        ],
+        [
+            'type' => 'news',
+            'icon' => '🏗️',
+            'badge' => null,
+            'sort_order' => 4,
+            'title' => 'آغاز طرح بازآفرینی بافت فرسوده مرکز شهر',
+            'summary' => 'طرح نوسازی و بازآفرینی بافت فرسوده مرکز شهر آغاز شد.',
+            'body' => 'با هدف ارتقای کیفیت بصری و کالبدی مرکز شهر، طرح بازآفرینی بافت فرسوده با همکاری شهرداری و سازمان نوسازی شهری آغاز شده و طی فازهای مختلف تا پایان سال ادامه خواهد داشت.',
+            'image_url' => null,
+        ],
+        [
+            'type' => 'tip',
+            'icon' => '🏛️',
+            'badge' => '۷۲۲ ه.ق · دوره ایلخانی',
+            'sort_order' => 1,
+            'title' => 'مسجد جامع ورامین',
+            'summary' => 'تنها نمونه کامل مساجد چهارایوانی ایران؛ شاهکاری از کاشی‌کاری معرق، گچ‌بری و آجرکاری دوران ایلخانی.',
+            'body' => "مسجد جامع ورامین، معروف به مسجد جمعه ورامین، یکی از کهن‌ترین و باشکوه‌ترین بناهای برجامانده از دوره ایلخانی در ایران است. ساخت آن در روزگار سلطان محمد خدابنده (الجایتو) آغاز شد و در دوران فرزند و جانشین او، ابوسعید بهادرخان، در سال ۷۲۲ هجری قمری به پایان رسید.\n\nاین مسجد با نقشه‌ای مستطیلی به ابعاد تقریبی ۶۶ در ۴۳ متر، تنها نمونه کامل و یکپارچه مساجد چهارایوانی در ایران است؛ سبکی که از سلجوقیان آغاز شده و در این بنا به اوج پختگی خود رسیده است. گنبدخانه مسجد با گذر از فیل‌پوش‌ها از مربع به هشت‌ضلعی و سپس شانزده‌ضلعی، به گنبدی باشکوه ختم می‌شود.\n\nسردر بلند و کشیده ورودی، کاشی‌کاری‌های معرق فیروزه‌ای و لاجوردی، گچ‌بری‌های ظریف گرداگرد محراب و کتیبه‌های تاریخی به خط ثلث و کوفی، این بنا را به یکی از مهم‌ترین آثار هنری و معماری دوران اسلامی ایران بدل کرده‌اند. در دوران معاصر، استاد محمدکریم پیرنیا، پدر معماری سنتی ایران، مرمت این اثر گران‌بها را بر عهده داشت.",
+            'image_url' => 'assets/img/varamin-mosque.jpg',
+        ],
+        [
+            'type' => 'tip',
+            'icon' => '🗼',
+            'badge' => '۶۸۸ ه.ق · آرامگاهی',
+            'sort_order' => 2,
+            'title' => 'برج علاءالدوله ورامین',
+            'summary' => 'برج آرامگاهی استوانه‌ای با گنبدی مخروطی بلند؛ از قدیمی‌ترین آثار ثبت‌شده ملی ایران.',
+            'body' => "برج علاءالدوله، که با نام برج علاءالدین نیز شناخته می‌شود، یکی از قدیمی‌ترین برج‌های آرامگاهی به‌جامانده از ایران است. این بنا در سال ۶۸۸ هجری قمری، در اواخر سده هفتم هجری، به دستور فخرالدین بر فراز آرامگاه پدرش، حسن علاءالدوله، حاکم وقت شهر ری، ساخته شد.\n\nبرج از بدنه‌ای استوانه‌ای آجری با چین‌خوردگی‌های عمودی شکل گرفته که در ارتفاعی نزدیک به ۱۷ متر به گنبدی مخروطی و بلند ختم می‌شود؛ ترکیبی که سیمای منحصربه‌فرد و شناخته‌شده این بنا را در میدان مرکزی ورامین رقم زده است. در محل اتصال بخش استوانه‌ای به مخروطی، کتیبه‌ای آجری با خطوط کوفی برگ‌دار حک شده که نام بانی، تاریخ بنا و دعایی برای آرامش روح علاءالدوله را در خود دارد.\n\nنمای بیرونی برج با شمسه‌های آجری و کاشی‌های فیروزه‌ای و لاجوردی تزئین شده است. این اثر در ۱۵ دی ماه ۱۳۱۰ با شماره ثبت ۱۷۷ در فهرست آثار ملی ایران به ثبت رسید و امروزه یکی از نمادهای شناخته‌شده شهر ورامین و مقصد علاقه‌مندان به تاریخ و معماری ایرانی است.",
+            'image_url' => 'assets/img/varamin-tower.jpg',
+        ],
+    ];
+}
+
+/* درج محتوای پیش‌فرض اخبار/دانستنی‌ها فقط زمانی که جدول news کاملاً خالی است
+   (تا هرگز روی محتوای واقعی ادمین نوشته نشود). خروجی: تعداد ردیف درج‌شده. */
+function eplakSeedDefaultNews(PDO $pdo): int {
+    try {
+        $count = (int) $pdo->query('SELECT COUNT(*) FROM news')->fetchColumn();
+    } catch (\Throwable $e) {
+        return 0;
+    }
+    if ($count > 0) {
+        return 0;
+    }
+
+    $inserted = 0;
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO news (type, title, summary, body, icon, image_url, published, sort_order, badge)
+             VALUES (:type, :title, :summary, :body, :icon, :image_url, 1, :sort_order, :badge)'
+        );
+        foreach (eplakDefaultSeedNews() as $item) {
+            $stmt->execute([
+                ':type'       => $item['type'],
+                ':title'      => $item['title'],
+                ':summary'    => $item['summary'],
+                ':body'       => $item['body'],
+                ':icon'       => $item['icon'],
+                ':image_url'  => $item['image_url'],
+                ':sort_order' => $item['sort_order'],
+                ':badge'      => $item['badge'],
+            ]);
+            $inserted++;
+        }
+    } catch (\Throwable $e) {
+        return 0;
+    }
+    return $inserted;
+}
+
 /* واحدهای اداری پیش‌فرض را در صورت خالی بودن جدول می‌سازد */
 function eplakSeedDefaultDepartments(PDO $pdo): void {
     $count = (int) $pdo->query('SELECT COUNT(*) as count FROM departments')->fetch()['count'];
@@ -257,7 +395,7 @@ function eplakRegisterSqliteFunctions(PDO $pdo): void {
 
 /* اسکیمای کامل SQLite — معادل اسکیمای نهایی MySQL (شامل ستون‌های ارتقاء‌یافته) */
 function eplakSqliteBootstrap(PDO $pdo): void {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS admin_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username VARCHAR(100) NOT NULL UNIQUE,
         password_hash VARCHAR(255) NOT NULL,
@@ -265,7 +403,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS tickets (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_phone VARCHAR(20) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -278,7 +416,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         phone VARCHAR(20) NOT NULL UNIQUE,
         name VARCHAR(255) NOT NULL DEFAULT '',
@@ -287,7 +425,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS notifications (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_phone VARCHAR(20) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -297,17 +435,21 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS notification_sends (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_sends (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title VARCHAR(255) NOT NULL,
         body TEXT NOT NULL,
         target_type VARCHAR(50) NOT NULL DEFAULT 'all',
         recipients_count INT NOT NULL DEFAULT 0,
+        push_sent INT NOT NULL DEFAULT 0,
+        push_failed INT NOT NULL DEFAULT 0,
+        fcm_sent INT NOT NULL DEFAULT 0,
+        fcm_failed INT NOT NULL DEFAULT 0,
         created_by VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS reports (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_phone VARCHAR(20) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -321,13 +463,14 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS news (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS news (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         type VARCHAR(20) NOT NULL DEFAULT 'news',
         title VARCHAR(255) NOT NULL,
         summary TEXT,
         body TEXT NOT NULL,
         icon VARCHAR(50),
+        badge VARCHAR(120),
         image_url VARCHAR(500),
         published TINYINT(1) NOT NULL DEFAULT 1,
         sort_order INT NOT NULL DEFAULT 0,
@@ -335,7 +478,79 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS departments (
+    /* اشتراک‌های اعلان پس‌زمینه (Web Push) — برای رسیدن اعلان وقتی گوشی
+       قفل است یا کاربر داخل برنامه نیست. */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        endpoint VARCHAR(500) NOT NULL UNIQUE,
+        p256dh VARCHAR(255) NOT NULL,
+        auth_key VARCHAR(255) NOT NULL,
+        content_encoding VARCHAR(50) NOT NULL DEFAULT 'aes128gcm',
+        user_agent VARCHAR(255) DEFAULT '',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_error VARCHAR(255) DEFAULT '',
+        last_seen_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    /* «خوانده شدن» اعلان به‌ازای هر کاربر.
+       ستون read_flag در جدول notifications یک مقدار برای کل ردیف است؛ اعلان‌های
+       گروهی (user_phone = 'all') یک ردیف مشترک برای همه هستند، پس با آن نمی‌شد
+       فهمید کدام کاربر اعلان را خوانده است. این جدول برای هر (اعلان، خواننده)
+       یک سطر نگه می‌دارد. کلید خواننده برای کاربر وارد‌شده شماره‌ی موبایل و
+       برای کاربر مهمان «guest:<شناسه‌ی دستگاه>» است. */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_reads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notification_id INT NOT NULL,
+        user_phone VARCHAR(60) NOT NULL,
+        read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (notification_id, user_phone)
+    )");
+
+    /* توکن دستگاه‌های اندروید (فایربیس/FCM).
+       در WebView اندروید، «Push API» وجود ندارد؛ پس اعلان سیستمی در حالت بسته
+       بودن اپ از مسیر FCM می‌رود و این جدول توکن هر دستگاه را نگه می‌دارد. */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS device_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        token VARCHAR(400) NOT NULL UNIQUE,
+        platform VARCHAR(20) NOT NULL DEFAULT 'android',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_error VARCHAR(255) DEFAULT '',
+        last_seen_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_media (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INT NOT NULL,
+        kind VARCHAR(20) NOT NULL DEFAULT 'image',
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255) DEFAULT '',
+        mime_type VARCHAR(100) DEFAULT '',
+        size_bytes INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_media_report ON report_media(report_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_subs_phone ON push_subscriptions(user_phone)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_notif_reads_notification ON notification_reads(notification_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_device_tokens_phone ON device_tokens(user_phone)');
+
+    /* تنظیمات کلید/مقدار برنامه (کلیدهای VAPID و …) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key VARCHAR(100) PRIMARY KEY,
+        setting_value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS departments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name VARCHAR(255) NOT NULL,
         parent_id INT,
@@ -354,8 +569,28 @@ function eplakSqliteBootstrap(PDO $pdo): void {
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_department_name_parent ON departments(name, parent_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_department_parent ON departments(parent_id)');
 
+    /* همگام‌سازی اسکیمای دیتابیس‌های قدیمی‌تر: هر ستونی که در کد هست و در
+       دیتابیس موجود نیست، اضافه می‌شود (مثل send_id در جدول notifications). */
+    eplakRunSchemaSync($pdo);
+
     eplakSeedDefaultDepartments($pdo);
     eplakSeedDefaultAdmin($pdo);
+    eplakSeedDefaultNews($pdo);
+}
+
+/* افزودن ستون در صورت نبودن — مخصوص SQLite (برای دیتابیس‌های قبلی) */
+function eplakSqliteAddColumnIfMissing(PDO $pdo, string $table, string $column, string $definition): void {
+    try {
+        $cols = $pdo->query("PRAGMA table_info($table)")->fetchAll();
+        foreach ($cols as $col) {
+            if (isset($col['name']) && strcasecmp((string) $col['name'], $column) === 0) {
+                return;
+            }
+        }
+        $pdo->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+    } catch (\Throwable $e) {
+        /* بی‌صدا — نبود ستون جلوی کار را نمی‌گیرد */
+    }
 }
 
 /* کوئری upsert جدول users — سازگار با هر دو درایور */
@@ -377,6 +612,240 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
             name = ' . $nameExpr . ',
             address = IF(VALUES(address) != "", VALUES(address), address),
             nid = IF(VALUES(nid) != "", VALUES(nid), nid)';
+}
+
+/* ============================================================================
+   همگام‌سازی اسکیما (افزودن ستون‌های تازه به دیتابیس‌های قدیمی)
+   ----------------------------------------------------------------------------
+   مشکل واقعی: روی سرورِ در حال اجرا، جدول‌ها از قبل ساخته شده‌اند؛
+   «CREATE TABLE IF NOT EXISTS» هیچ ستونی به جدول موجود اضافه نمی‌کند. پس اگر
+   نسخه‌ی جدید کد به ستونی نیاز داشته باشد (مثل notifications.send_id)،
+   روی دیتابیس قدیمی خطای «Unknown column» رخ می‌دهد.
+
+   راه‌حل: هر «CREATE TABLE» کد به‌عنوان مرجع اسکیما ثبت می‌شود؛ سپس ستون‌های
+   همان تعریف با دیتابیس مقایسه و ستون‌های نبوده با ALTER TABLE اضافه می‌شوند.
+   برای اینکه روی هر درخواست هزینه‌ی اضافه پرداخت نشود، نتیجه در
+   app_settings.schema_version ذخیره می‌شود و تا نسخه‌ی بعدی تکرار نمی‌شود.
+
+   اگر نسخه‌ی اسکیما را در کد تغییر می‌دهید، فقط EPLAK_SCHEMA_VERSION را
+   یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
+   ============================================================================ */
+if (!defined('EPLAK_SCHEMA_VERSION')) {
+    define('EPLAK_SCHEMA_VERSION', '2026-09-26.4');
+}
+
+/* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
+   تعریف‌ها جدا برای هر درایور نگه داشته می‌شوند؛ وگرنه تعریف مخصوص SQLite
+   (مثل INTEGER PRIMARY KEY AUTOINCREMENT) می‌توانست روی MySQL هم اجرا شود. */
+function eplakSchemaDdl(string $driver = '', ?string $ddl = null): array {
+    static $list = [];
+    if ($ddl !== null && $driver !== '') {
+        $list[$driver][] = $ddl;
+        return $list[$driver];
+    }
+    if ($driver !== '') {
+        return $list[$driver] ?? [];
+    }
+    return $list;
+}
+
+/* ساخت جدول + ثبت تعریف آن برای همگام‌سازی ستون‌ها */
+function eplakCreateTable(PDO $pdo, string $ddl): void {
+    $pdo->exec($ddl);
+    eplakSchemaDdl(eplakIsSqlite($pdo) ? 'sqlite' : 'mysql', $ddl);
+}
+
+/* نام جدول از متن CREATE TABLE */
+function eplakSchemaTableName(string $ddl): string {
+    return preg_match('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?/i', $ddl, $m) ? $m[1] : '';
+}
+
+/* ستون‌ها و تعریف‌شان از متن CREATE TABLE — کلید/ایندکس/قیدها نادیده گرفته می‌شوند */
+function eplakSchemaColumnDefinitions(string $ddl): array {
+    $open  = strpos($ddl, '(');
+    $close = strrpos($ddl, ')');
+    if ($open === false || $close === false || $close <= $open) {
+        return [];
+    }
+    $body = substr($ddl, $open + 1, $close - $open - 1);
+    $out  = [];
+    foreach (preg_split('/\r?\n/', $body) ?: [] as $line) {
+        $line = trim((string) $line);
+        if ($line === '' || strpos($line, '--') === 0) {
+            continue;
+        }
+        $line = rtrim($line, ',');
+        if (!preg_match('/^`?([A-Za-z_][A-Za-z0-9_]*)`?\s+(.+)$/', $line, $m)) {
+            continue;
+        }
+        $name = $m[1];
+        /* سطرهای کلید/ایندکس ستون نیستند */
+        if (preg_match('/^(PRIMARY|UNIQUE|KEY|INDEX|CONSTRAINT|FOREIGN|FULLTEXT|SPATIAL|CHECK)$/i', $name)) {
+            continue;
+        }
+        $out[$name] = trim($m[2]);
+    }
+    return $out;
+}
+
+/* ستون‌های موجود در دیتابیس؛ null یعنی «خواندن ناموفق» (دست به ALTER نمی‌زنیم) */
+function eplakTableColumns(PDO $pdo, string $table): ?array {
+    if ($table === '') {
+        return null;
+    }
+    try {
+        if (eplakIsSqlite($pdo)) {
+            $rows = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+            $names = [];
+            foreach ($rows ?: [] as $row) {
+                $names[] = strtolower((string) ($row['name'] ?? ''));
+            }
+            return $names;
+        }
+        $rows = $pdo->query('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`')->fetchAll();
+        $names = [];
+        foreach ($rows ?: [] as $row) {
+            $names[] = strtolower((string) ($row['Field'] ?? ($row['field'] ?? '')));
+        }
+        return $names;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/* افزودن ستون‌های نبوده‌ی یک جدول؛ نتیجه در $report ثبت می‌شود */
+function eplakSyncTableColumns(PDO $pdo, string $ddl, array &$report): void {
+    $table = eplakSchemaTableName($ddl);
+    $definitions = eplakSchemaColumnDefinitions($ddl);
+    if ($table === '' || !$definitions) {
+        return;
+    }
+    $live = eplakTableColumns($pdo, $table);
+    if ($live === null) {
+        $report['failed'][] = $table . ' — خواندن فهرست ستون‌ها ممکن نشد.';
+        return;
+    }
+
+    $sqlite = eplakIsSqlite($pdo);
+    foreach ($definitions as $column => $definition) {
+        if (in_array(strtolower($column), $live, true)) {
+            continue;
+        }
+        /* SQLite نمی‌تواند ستون کلید/یکتا اضافه کند و ستون NOT NULL بدون مقدار پیش‌فرض را نمی‌پذیرد */
+        if ($sqlite && preg_match('/\b(PRIMARY\s+KEY|UNIQUE|AUTOINCREMENT)\b/i', $definition)) {
+            continue;
+        }
+        if ($sqlite && preg_match('/\bNOT\s+NULL\b/i', $definition) && !preg_match('/\bDEFAULT\b/i', $definition)) {
+            continue;
+        }
+
+        $sql = $sqlite
+            ? "ALTER TABLE {$table} ADD COLUMN {$column} {$definition}"
+            : "ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}";
+        try {
+            $pdo->exec($sql);
+            $report['added'][] = $table . '.' . $column;
+        } catch (\Throwable $e) {
+            $report['failed'][] = $table . '.' . $column . ' — ' . $e->getMessage();
+        }
+    }
+}
+
+/* آیا اسکیمای دیتابیس باید با کد همگام شود؟ */
+function eplakSchemaSyncNeeded(PDO $pdo): bool {
+    try {
+        return (string) eplakAppSetting($pdo, 'schema_version', '') !== EPLAK_SCHEMA_VERSION;
+    } catch (\Throwable $e) {
+        return true;
+    }
+}
+
+/* نتیجه‌ی آخرین همگام‌سازی (برای نمایش در پنل) */
+function eplakSchemaSyncReport(?array $report = null): array {
+    static $last = ['ran' => false, 'added' => [], 'failed' => []];
+    if ($report !== null) {
+        $last = $report;
+    }
+    return $last;
+}
+
+/* اجرای همگام‌سازی کامل؛ $force برای دکمه‌ی «ترمیم اسکیما» در پنل تنظیمات */
+function eplakRunSchemaSync(PDO $pdo, bool $force = false): array {
+    $report = ['ran' => false, 'added' => [], 'failed' => []];
+    if (!$force) {
+        if (!eplakSchemaSyncNeeded($pdo)) {
+            eplakSchemaSyncReport($report);
+            return $report;
+        }
+        /* اگر ترمیم قبلاً شکست خورده باشد (مثلاً کاربر دیتابیس دسترسی ALTER ندارد)
+           تا ۱۰ دقیقه دوباره تلاش نمی‌کنیم تا هر درخواست کند نشود. */
+        try {
+            if ((int) eplakAppSetting($pdo, 'schema_sync_retry_at', '0') > time()) {
+                eplakSchemaSyncReport($report);
+                return $report;
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+
+    $report['ran'] = true;
+    foreach (eplakSchemaDdl(eplakIsSqlite($pdo) ? 'sqlite' : 'mysql') as $ddl) {
+        eplakSyncTableColumns($pdo, $ddl, $report);
+    }
+    /* ستون‌های ویژه‌ی MySQL که تعریف‌شان در متن CREATE TABLE نیست */
+    if (!eplakIsSqlite($pdo)) {
+        eplakMysqlLegacyAlters($pdo, $report);
+    }
+
+    /* نسخه فقط وقتی ثبت می‌شود که هیچ ستونی جا نمانده باشد؛ وگرنه درخواست بعدی
+       (با کمی تأخیر) دوباره تلاش می‌کند. */
+    try {
+        if (!$report['failed']) {
+            eplakSetAppSetting($pdo, 'schema_version', EPLAK_SCHEMA_VERSION);
+            eplakSetAppSetting($pdo, 'schema_sync_retry_at', '0');
+        } else {
+            eplakSetAppSetting($pdo, 'schema_sync_retry_at', (string) (time() + 600));
+        }
+    } catch (\Throwable $e) {
+    }
+    eplakSchemaSyncReport($report);
+    return $report;
+}
+
+/* ── به‌روزرسانی ستون‌های نسخه‌های قدیمی MySQL ──────────────────────────
+   (فقط MySQL — چون در SQLite کل اسکیما در یک‌جا ساخته/همگام می‌شود) */
+function eplakMysqlLegacyAlters(PDO $pdo, array &$report): void {
+    $add = static function (string $table, string $column, string $definition) use ($pdo, &$report): void {
+        try {
+            $found = $pdo->query("SHOW COLUMNS FROM `$table` LIKE '$column'")->fetch();
+            if ($found) {
+                return;
+            }
+            $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+            $report['added'][] = $table . '.' . $column;
+        } catch (\Throwable $e) {
+            $report['failed'][] = $table . '.' . $column . ' — ' . $e->getMessage();
+        }
+    };
+
+    $add('reports', 'reply', 'TEXT NULL');
+    $add('reports', 'department', 'VARCHAR(255) DEFAULT ""');
+    $add('reports', 'sub_department', 'VARCHAR(255) DEFAULT ""');
+    $add('reports', 'location', 'VARCHAR(500) DEFAULT ""');
+    $add('tickets', 'category', 'VARCHAR(100) DEFAULT ""');
+    $add('tickets', 'department', 'VARCHAR(255) DEFAULT ""');
+    $add('tickets', 'priority', 'VARCHAR(20) DEFAULT "medium"');
+    $add('departments', 'slug', 'VARCHAR(255) NULL');
+    $add('departments', 'code', 'VARCHAR(50) NULL');
+    $add('departments', 'description', 'TEXT NULL');
+    $add('departments', 'icon', 'VARCHAR(50) NULL');
+    $add('departments', 'color', 'VARCHAR(7) DEFAULT "#0f766e"');
+    $add('departments', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+    $add('news', 'badge', 'VARCHAR(120) NULL');
+    $add('notification_sends', 'push_sent', 'INT NOT NULL DEFAULT 0');
+    $add('notification_sends', 'push_failed', 'INT NOT NULL DEFAULT 0');
+    $add('notification_sends', 'fcm_sent', 'INT NOT NULL DEFAULT 0');
+    $add('notification_sends', 'fcm_failed', 'INT NOT NULL DEFAULT 0');
 }
 
 function eplakGetPdo(): PDO {
@@ -453,7 +922,7 @@ function eplakGetPdo(): PDO {
         }
     }
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS admin_users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(100) NOT NULL UNIQUE,
         password_hash VARCHAR(255) NOT NULL,
@@ -461,7 +930,7 @@ function eplakGetPdo(): PDO {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS tickets (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS tickets (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_phone VARCHAR(20) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -474,7 +943,7 @@ function eplakGetPdo(): PDO {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         phone VARCHAR(20) NOT NULL UNIQUE,
         name VARCHAR(255) NOT NULL DEFAULT '',
@@ -483,7 +952,7 @@ function eplakGetPdo(): PDO {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS notifications (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notifications (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_phone VARCHAR(20) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -493,17 +962,87 @@ function eplakGetPdo(): PDO {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS notification_sends (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_sends (
         id INT AUTO_INCREMENT PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         body TEXT NOT NULL,
         target_type VARCHAR(50) NOT NULL DEFAULT 'all',
         recipients_count INT NOT NULL DEFAULT 0,
+        push_sent INT NOT NULL DEFAULT 0,
+        push_failed INT NOT NULL DEFAULT 0,
+        fcm_sent INT NOT NULL DEFAULT 0,
+        fcm_failed INT NOT NULL DEFAULT 0,
         created_by VARCHAR(100) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS reports (
+    /* اشتراک‌های اعلان پس‌زمینه (Web Push) — رسیدن اعلان در حالت قفل بودن گوشی
+       و زمانی که کاربر داخل برنامه نیست. */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        endpoint VARCHAR(500) NOT NULL,
+        p256dh VARCHAR(255) NOT NULL,
+        auth_key VARCHAR(255) NOT NULL,
+        content_encoding VARCHAR(50) NOT NULL DEFAULT 'aes128gcm',
+        user_agent VARCHAR(255) DEFAULT '',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_error VARCHAR(255) DEFAULT '',
+        last_seen_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_push_endpoint (endpoint),
+        KEY idx_push_subs_phone (user_phone)
+    )");
+
+    /* «خوانده شدن» اعلان به‌ازای هر کاربر (توضیح کامل در بخش SQLite همین فایل) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_reads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        notification_id INT NOT NULL,
+        user_phone VARCHAR(60) NOT NULL,
+        read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_notification_reader (notification_id, user_phone),
+        KEY idx_notification_reads_notification (notification_id)
+    )");
+
+    /* توکن دستگاه‌های اندروید (فایربیس/FCM) — توضیح کامل در بخش SQLite همین فایل */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS device_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        token VARCHAR(400) NOT NULL,
+        platform VARCHAR(20) NOT NULL DEFAULT 'android',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_error VARCHAR(255) DEFAULT '',
+        last_seen_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_device_token (token),
+        KEY idx_device_tokens_phone (user_phone)
+    )");
+
+    /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_media (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        report_id INT NOT NULL,
+        kind VARCHAR(20) NOT NULL DEFAULT 'image',
+        file_path VARCHAR(500) NOT NULL,
+        original_name VARCHAR(255) DEFAULT '',
+        mime_type VARCHAR(100) DEFAULT '',
+        size_bytes INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_report_media_report (report_id)
+    )");
+
+    /* تنظیمات کلید/مقدار برنامه (کلیدهای VAPID و …) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+        setting_value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )");
+
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS reports (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_phone VARCHAR(20) NOT NULL,
         title VARCHAR(255) NOT NULL,
@@ -517,13 +1056,14 @@ function eplakGetPdo(): PDO {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS news (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS news (
         id INT AUTO_INCREMENT PRIMARY KEY,
         type VARCHAR(20) NOT NULL DEFAULT 'news',
         title VARCHAR(255) NOT NULL,
         summary TEXT NULL,
         body TEXT NOT NULL,
         icon VARCHAR(50) NULL,
+        badge VARCHAR(120) NULL,
         image_url VARCHAR(500) NULL,
         published TINYINT(1) NOT NULL DEFAULT 1,
         sort_order INT NOT NULL DEFAULT 0,
@@ -531,7 +1071,7 @@ function eplakGetPdo(): PDO {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS departments (
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS departments (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         parent_id INT NULL,
@@ -549,52 +1089,14 @@ function eplakGetPdo(): PDO {
         CONSTRAINT fk_department_parent FOREIGN KEY (parent_id) REFERENCES departments(id) ON DELETE CASCADE
     )");
 
-    /* به‌روزرسانی اسکیمای قدیمی (فقط MySQL — در SQLite اسکیمای کامل ساخته می‌شود) */
-    foreach (['reply', 'department', 'sub_department', 'location'] as $column) {
-        $col = $pdo->query("SHOW COLUMNS FROM reports LIKE '$column'")->fetch();
-        if (!$col) {
-            if ($column === 'reply') {
-                $pdo->exec('ALTER TABLE reports ADD COLUMN reply TEXT NULL');
-            } elseif ($column === 'department') {
-                $pdo->exec('ALTER TABLE reports ADD COLUMN department VARCHAR(255) DEFAULT ""');
-            } elseif ($column === 'sub_department') {
-                $pdo->exec('ALTER TABLE reports ADD COLUMN sub_department VARCHAR(255) DEFAULT ""');
-            } else {
-                $pdo->exec('ALTER TABLE reports ADD COLUMN location VARCHAR(500) DEFAULT ""');
-            }
-        }
-    }
-
-    foreach (['category', 'department', 'priority'] as $column) {
-        $col = $pdo->query("SHOW COLUMNS FROM tickets LIKE '$column'")->fetch();
-        if (!$col) {
-            if ($column === 'category') {
-                $pdo->exec('ALTER TABLE tickets ADD COLUMN category VARCHAR(100) DEFAULT ""');
-            } elseif ($column === 'department') {
-                $pdo->exec('ALTER TABLE tickets ADD COLUMN department VARCHAR(255) DEFAULT ""');
-            } else {
-                $pdo->exec('ALTER TABLE tickets ADD COLUMN priority VARCHAR(20) DEFAULT "medium"');
-            }
-        }
-    }
-
-    $departmentColumns = [
-        'slug' => 'VARCHAR(255) NULL',
-        'code' => 'VARCHAR(50) NULL',
-        'description' => 'TEXT NULL',
-        'icon' => 'VARCHAR(50) NULL',
-        'color' => 'VARCHAR(7) DEFAULT "#0f766e"',
-        'updated_at' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
-    ];
-    foreach ($departmentColumns as $column => $definition) {
-        $col = $pdo->query("SHOW COLUMNS FROM departments LIKE '$column'")->fetch();
-        if (!$col) {
-            $pdo->exec("ALTER TABLE departments ADD COLUMN `$column` $definition");
-        }
-    }
+    /* ارتقای اسکیمای دیتابیس‌های قدیمی: ستون‌های تازه (مثل notifications.send_id)
+       به‌صورت خودکار اضافه می‌شوند — بدون این کار روی دیتابیس قدیمی خطای
+       «Unknown column» رخ می‌داد. */
+    eplakRunSchemaSync($pdo);
 
     eplakSeedDefaultDepartments($pdo);
     eplakSeedDefaultAdmin($pdo);
+    eplakSeedDefaultNews($pdo);
 
     return $pdo;
 }

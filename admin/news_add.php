@@ -13,17 +13,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($title === '' || $body === '') {
         $message = '⚠️ عنوان و متن اصلی الزامی هستند.';
     } else {
-        createNews($pdo, [
-            'type'      => ($_POST['type'] ?? 'news') === 'tip' ? 'tip' : 'news',
-            'title'     => $title,
-            'summary'   => trim($_POST['summary'] ?? '') ?: null,
-            'body'      => $body,
-            'icon'      => trim($_POST['icon'] ?? '') ?: null,
-            'image_url' => trim($_POST['image_url'] ?? '') ?: null,
-            'published' => isset($_POST['published']) ? 1 : 0,
-            'sort_order' => (int)($_POST['sort_order'] ?? 0),
-        ]);
-        eplakRedirect('news.php?success=1');
+        /* اگر تصویری از سیستم آپلود شده باشد، جای نشانی تصویر را می‌گیرد
+           (پوشه‌ی uploads/news — بدون نیاز به آپلود دستی روی هاست) */
+        $imageUrl = trim($_POST['image_url'] ?? '');
+        if (!empty($_FILES['image_file']['name'])) {
+            $upload = eplakMediaStoreSimpleFile($_FILES['image_file'], 'news');
+            if ($upload['ok']) {
+                $imageUrl = $upload['path'];
+            } else {
+                $message = '⚠️ ' . $upload['error'];
+            }
+        }
+
+        if ($message === '') {
+            createNews($pdo, [
+                'type'      => ($_POST['type'] ?? 'news') === 'tip' ? 'tip' : 'news',
+                'title'     => $title,
+                'summary'   => trim($_POST['summary'] ?? '') ?: null,
+                'body'      => $body,
+                'icon'      => trim($_POST['icon'] ?? '') ?: null,
+                'badge'     => trim($_POST['badge'] ?? ''),
+                'image_url' => $imageUrl !== '' ? $imageUrl : null,
+                'published' => isset($_POST['published']) ? 1 : 0,
+                'sort_order' => (int)($_POST['sort_order'] ?? 0),
+            ]);
+            eplakRedirect('news.php?success=1');
+        }
     }
 }
 ?>
@@ -82,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       <section class="panel" style="margin: 0 24px 24px;">
         <h2><i class="fas fa-pen"></i> اطلاعات مطلب</h2>
-        <form method="post" style="display:grid; gap:18px; margin-top:16px;">
+        <form method="post" enctype="multipart/form-data" style="display:grid; gap:18px; margin-top:16px;">
 <?= eplakCsrfField() ?>
 
           <div class="form-group">
@@ -125,10 +140,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
           </div>
 
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:18px;">
+            <div class="form-group">
+              <label for="badge">نشان/زیرعنوان (اختیاری)</label>
+              <input class="search-input" style="width:100%;" type="text" id="badge" name="badge" maxlength="120"
+                     placeholder="مثال: ۷۲۲ ه.ق · دوره ایلخانی">
+              <p class="help-text">برای دانستنی‌ها روی کارت و بالای تصویر جزئیات نمایش داده می‌شود.</p>
+            </div>
+            <div class="form-group">
+              <label for="image_file">تصویر شاخص (اختیاری)</label>
+              <input class="search-input" style="width:100%;" type="file" id="image_file" name="image_file"
+                     accept="image/*">
+              <p class="help-text">حداکثر ۱۲ مگابایت — تصویر روی کارت خبر/دانستنی نمایش داده می‌شود.</p>
+            </div>
+          </div>
+
           <div class="form-group">
-            <label for="image_url">نشانی تصویر (اختیاری)</label>
-            <input class="search-input" style="width:100%;" type="url" id="image_url" name="image_url"
-                   placeholder="https://example.com/image.jpg" dir="ltr" style="text-align:left;">
+            <label for="image_url">یا نشانی تصویر (اختیاری)</label>
+            <input class="search-input" style="width:100%;" type="text" id="image_url" name="image_url"
+                   placeholder="https://example.com/image.jpg — یا assets/img/varamin-mosque.jpg" dir="ltr" style="text-align:left;">
+            <p class="help-text">اگر فایلی از سیستم آپلود کنید، همین فیلد نادیده گرفته می‌شود.</p>
           </div>
 
           <div class="form-group">

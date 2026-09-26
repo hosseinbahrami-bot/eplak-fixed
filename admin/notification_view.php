@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/../shared/notification_reads.php';
 
 $id = (int)($_GET['id'] ?? 0);
 $send = $id > 0 ? getNotificationSendById($pdo, $id) : null;
@@ -10,12 +11,34 @@ if (!$send) {
 }
 
 $recipients = getNotificationRecipients($pdo, $id);
+
+/* وضعیت «خوانده شدن» برای هر گیرنده:
+   • ردیف اختصاصی هر شماره → اگر رسید خواندنی با همان شماره ثبت شده باشد یا
+     ستون قدیمی read_flag روشن باشد، خوانده‌شده است.
+   • ردیف مشترک «all» (برای کاربران ثبت‌نام‌نشده) → تعداد خواننده‌های آن اعلان
+     از جدول notification_reads شمرده می‌شود (کلید «guest:<دستگاه>»). */
 $readCount = 0;
+$readCounts = eplakNotificationReadCounts($pdo, array_map(static fn($r) => (int) $r['id'], $recipients));
+$recipientRows = [];
 foreach ($recipients as $r) {
-    if ((int)$r['read_flag'] === 1) {
+    $nid      = (int) $r['id'];
+    $phone    = trim((string) $r['user_phone']);
+    $isShared = ($phone === 'all' || $phone === '');
+    $readers  = (int) ($readCounts[$nid] ?? 0);
+    $isRead   = ((int) $r['read_flag'] === 1) || $readers > 0;
+
+    if ($isRead) {
         $readCount++;
     }
+    $recipientRows[] = [
+        'phone'    => $isShared ? 'همه کاربران (ثبت‌نام‌نشده)' : $phone,
+        'shared'   => $isShared,
+        'readers'  => $readers,
+        'is_read'  => $isRead,
+        'created_at' => (string) $r['created_at'],
+    ];
 }
+$recipientTotal = count($recipientRows);
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -68,9 +91,9 @@ foreach ($recipients as $r) {
         <h3 style="margin-bottom:10px;"><?= htmlspecialchars($send['title']) ?></h3>
         <p style="line-height:1.9; color:var(--dark-600);"><?= nl2br(htmlspecialchars($send['body'])) ?></p>
         <div class="stats-mini" style="margin-top:16px;">
-          <div class="stat-item">گیرندگان <strong><?= count($recipients) ?></strong></div>
+          <div class="stat-item">گیرندگان <strong><?= $recipientTotal ?></strong></div>
           <div class="stat-item">خوانده شده <strong><?= $readCount ?></strong></div>
-          <div class="stat-item">خوانده نشده <strong><?= count($recipients) - $readCount ?></strong></div>
+          <div class="stat-item">خوانده نشده <strong><?= $recipientTotal - $readCount ?></strong></div>
           <div class="stat-item">نوع ارسال
             <strong><?= $send['target_type'] === 'all' ? 'همه کاربران' : 'کاربران انتخابی' ?></strong>
           </div>
@@ -90,16 +113,25 @@ foreach ($recipients as $r) {
             </tr>
           </thead>
           <tbody>
-            <?php if (!$recipients): ?>
+            <?php if (!$recipientRows): ?>
               <tr><td colspan="4" style="text-align:center; padding:24px; color:var(--dark-400);">گیرنده‌ای ثبت نشده است.</td></tr>
             <?php else: ?>
-              <?php foreach ($recipients as $i => $r): ?>
+              <?php foreach ($recipientRows as $i => $r): ?>
                 <tr>
                   <td><?= $i + 1 ?></td>
-                  <td dir="ltr" style="text-align:right;"><?= htmlspecialchars($r['user_phone']) ?></td>
+                  <td dir="ltr" style="text-align:right;">
+                    <?php if ($r['shared']): ?>
+                      <span style="color:var(--dark-500); font-size:12px;"><?= htmlspecialchars($r['phone']) ?></span>
+                    <?php else: ?>
+                      <?= htmlspecialchars($r['phone']) ?>
+                    <?php endif; ?>
+                  </td>
                   <td>
-                    <?php if ((int)$r['read_flag'] === 1): ?>
+                    <?php if ($r['is_read']): ?>
                       <span class="status-done" style="padding:3px 10px; border-radius:999px; font-size:12px;">خوانده شده</span>
+                      <?php if ($r['shared'] && $r['readers'] > 0): ?>
+                        <span style="font-size:11px; color:var(--dark-500);">(<?= (int) $r['readers'] ?> کاربر)</span>
+                      <?php endif; ?>
                     <?php else: ?>
                       <span class="status-pending" style="padding:3px 10px; border-radius:999px; font-size:12px;">خوانده نشده</span>
                     <?php endif; ?>

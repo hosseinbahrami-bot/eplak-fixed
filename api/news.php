@@ -37,7 +37,7 @@ if ($type === 'news' || $type === 'tip') {
 
 try {
     $stmt = $pdo->prepare(
-        "SELECT id, type, title, summary, body, icon, image_url, sort_order, updated_at
+        "SELECT id, type, title, summary, body, icon, badge, image_url, sort_order, updated_at
          FROM news $where
          ORDER BY sort_order ASC, id DESC
          LIMIT $limit"
@@ -53,6 +53,7 @@ try {
             'summary'   => $row['summary'] ?: mb_substr($row['body'], 0, 80),
             'body'      => $row['body'],
             'icon'      => $row['icon'] ?: ($row['type'] === 'tip' ? '🏛️' : '📰'),
+            'badge'     => $row['badge'] ?? '',
             'image_url' => $row['image_url'],
             'sort_order' => (int)$row['sort_order'],
             'updated_at' => $row['updated_at'],

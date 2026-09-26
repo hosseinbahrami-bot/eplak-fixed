@@ -169,8 +169,6 @@
     }
 
     try {
-      const apiBase = window.EPLAK_API_BASE_URL ||
-        (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
       const response = await fetch(`${apiBase}/departments.php`);
       if (!response.ok) throw new Error('bad response');
       const data = await response.json();
@@ -283,8 +281,6 @@
   }
 
   async function requestBackendDelete(backendId, phone) {
-    const apiBase = window.EPLAK_API_BASE_URL ||
-      (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
     const response = await fetch(`${apiBase}/reports.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -354,8 +350,6 @@
       await flushPendingDeletes(phone);
       await flushPendingCreates(phone);
 
-      const apiBase = window.EPLAK_API_BASE_URL ||
-        (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
       const response = await fetch(`${apiBase}/reports.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('reports fetch failed');
       const data = await response.json();
@@ -377,6 +371,14 @@
         department: item.department || '',
         subDepartment: item.sub_department || '',
         reply: item.reply || '',
+        /* عکس/فیلم‌های ذخیره‌شده روی سرور (از جدول report_media) */
+        media: Array.isArray(item.media) ? item.media.map(m => ({
+          id: m.id,
+          kind: m.kind,
+          url: mediaUrlOf(m.url || m.path),
+          name: m.name,
+          size: m.size
+        })) : [],
         timeline: Array.isArray(item.timeline) ? item.timeline : []
       }));
 
@@ -411,6 +413,16 @@
   }
 
   window.loadReportsFromBackend = loadReportsFromBackend;
+
+  /* پاک کردن تصاویر پیش‌نویس و آزادکردن حافظه‌ی پیش‌نمایش‌ها */
+  function clearReportPhotos() {
+    (reportDraft.photos || []).forEach(entry => {
+      if (entry && entry.previewUrl) {
+        try { URL.revokeObjectURL(entry.previewUrl); } catch (e) {}
+      }
+    });
+    reportDraft.photos = [];
+  }
 
   function resetReportDraft() {
     reportDraft = { type: 'سایر', department: '', subDepartment: '', desc: '', location: '', photos: [] };
@@ -486,28 +498,92 @@
     showScreen('screen-report-step3');
   }
 
+  /* آدرس پایه‌ی API — فقط از منبع واحد (core/storage.js) خوانده می‌شود */
+  function apiBase() {
+    if (typeof window.eplakApiBase === 'function') {
+      return window.eplakApiBase();
+    }
+    return String(window.EPLAK_API_BASE_URL || 'api').replace(/\/+$/, '');
+  }
+
+  /* آدرس پیوست‌ها: در اپ اندروید (file://) باید به دامنه‌ی سرور وصل شود */
+  function mediaUrlOf(path) {
+    return (typeof window.eplakResolveMediaUrl === 'function')
+      ? window.eplakResolveMediaUrl(path)
+      : String(path || '');
+  }
+
+  /* حداکثر حجم مجاز برای هر فایل — هم‌راستا با محدودیت سرور (shared/media.php) */
+  const REPORT_MEDIA_MAX_IMAGE_MB = 12;
+  const REPORT_MEDIA_MAX_VIDEO_MB = 60;
+
+  /* تشخیص عکس/فیلم — در برخی گوشی‌ها file.type خالی است، پس پسوند هم بررسی می‌شود */
+  function detectMediaKind(file) {
+    const type = (file.type || '').toLowerCase();
+    if (type.indexOf('video/') === 0) return 'video';
+    if (type.indexOf('image/') === 0) return 'image';
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (['mp4', 'mov', 'webm', '3gp', 'mkv', 'avi', 'mpg'].indexOf(ext) > -1) return 'video';
+    return 'image';
+  }
+
+  /* افزودن عکس/فیلم انتخاب‌شده به پیش‌نویس — فایل واقعی نگه داشته می‌شود تا
+     هنگام ثبت گزارش به سرور آپلود شود (قبلاً فقط نام فایل ذخیره می‌شد و هیچ
+     فایلی به سرور نمی‌رفت، بنابراین در پنل مدیریت چیزی دیده نمی‌شد). */
   function addReportPhotos(input) {
     const files = Array.from(input.files || []);
     const remaining = 3 - reportDraft.photos.length;
+    if (remaining <= 0) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+      input.value = '';
+      return;
+    }
+
+    let rejected = 0;
     files.slice(0, remaining).forEach(file => {
-      reportDraft.photos.push(file.name);
+      const kind = detectMediaKind(file);
+      const maxMb = kind === 'video' ? REPORT_MEDIA_MAX_VIDEO_MB : REPORT_MEDIA_MAX_IMAGE_MB;
+      if (file.size > maxMb * 1024 * 1024) {
+        rejected++;
+        showToast('حجم ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' «' + file.name + '» بیش از ' + maxMb + ' مگابایت است');
+        return;
+      }
+      reportDraft.photos.push({
+        file: file,
+        name: file.name,
+        kind: kind,
+        size: file.size,
+        previewUrl: URL.createObjectURL(file)
+      });
     });
+
+    if (files.length > remaining + rejected) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+    }
     renderReportPhotosPreview();
     input.value = '';
   }
 
   function renderReportPhotosPreview() {
     const wrap = document.getElementById('reportPhotosPreview');
-    wrap.innerHTML = reportDraft.photos.map((name, idx) => `
-      <div style="position:relative; width:64px; height:64px; border-radius:12px; background:var(--card-bg); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; font-size:22px;">
-        🖼️
-        <span onclick="removeReportPhoto(${idx})" style="position:absolute; top:-6px; left:-6px; width:20px; height:20px; background:rgba(255,60,60,0.9); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; color:white; cursor:pointer;">✕</span>
-      </div>
-    `).join('');
+    if (!wrap) return;
+    wrap.innerHTML = reportDraft.photos.map((item, idx) => {
+      const preview = (item.kind === 'video')
+        ? '<span style="font-size:24px;">🎬</span>'
+        : '<img src="' + item.previewUrl + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:11px;">';
+      return `
+      <div style="position:relative; width:68px; height:68px; border-radius:12px; background:var(--card-bg); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; font-size:22px; overflow:hidden;">
+        ${preview}
+        <span onclick="removeReportPhoto(${idx})" style="position:absolute; top:2px; left:2px; width:20px; height:20px; background:rgba(255,60,60,0.92); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; color:white; cursor:pointer; z-index:2;">✕</span>
+      </div>`;
+    }).join('');
   }
 
   function removeReportPhoto(idx) {
-    reportDraft.photos.splice(idx, 1);
+    const removed = reportDraft.photos.splice(idx, 1)[0];
+    if (removed && removed.previewUrl) {
+      try { URL.revokeObjectURL(removed.previewUrl); } catch (e) {}
+    }
     renderReportPhotosPreview();
   }
 
@@ -516,7 +592,7 @@
       ? (reportDraft.department + ' / ' + reportDraft.subDepartment) : '—';
     document.getElementById('confirmDescText').textContent = reportDraft.desc || '—';
     document.getElementById('confirmLocationText').textContent = reportDraft.location || '—';
-    document.getElementById('confirmPhotoCount').textContent = `${toPersianDigits(reportDraft.photos.length)} تصویر`;
+    document.getElementById('confirmPhotoCount').textContent = `${toPersianDigits(reportDraft.photos.length)} فایل (عکس/فیلم)`;
     showScreen('screen-report-step4');
   }
 
@@ -543,6 +619,14 @@
       subDepartment: reportDraft.subDepartment || '',
       reply: '',
       timeline: [],
+      /* پیش‌نمایش محلی فایل‌های پیوست تا در جزئیات گزارش هم بلافاصله دیده شوند */
+      media: (reportDraft.photos || []).map(item => ({
+        kind: item.kind,
+        url: item.previewUrl,
+        local: true,
+        name: item.name,
+        size: item.size
+      })),
       pendingSync: true   // تا زمان تأیید سرور؛ در صورت قطع اینترنت بعداً ارسال می‌شود
     };
 
@@ -562,7 +646,8 @@
     // 4. نمایش فوری صفحه موفقیت بدون معطلی شبکه
     showScreen('screen-report-success');
 
-    // 5. پاک‌سازی فرم پیش‌نویس
+    // 5. پاک‌سازی فرم پیش‌نویس (فایل‌ها قبل از پاک‌سازی در متغیر نگه داشته می‌شوند)
+    const draftPhotos = (reportDraft.photos || []).slice();
     const draftPayload = {
       userPhone: currentPhone,
       title: newReport.title,
@@ -575,8 +660,23 @@
     resetReportDraft();
 
     // 6. ارسال ناهمگام به سرور در پس‌زمینه (کاملاً موازی بدون قفل کردن رابط کاربری)
-    if (currentPhone && typeof window.syncDataToBackend === 'function') {
-      window.syncDataToBackend('reports', draftPayload)
+    if (currentPhone) {
+      /* اگر عکس/فیلمی انتخاب شده باشد، همان‌ها با FormData آپلود می‌شوند؛
+         در غیر این صورت مسیر سبک JSON قبلی طی می‌شود. */
+      const filesToUpload = (draftPhotos || []).map(item => item.file).filter(Boolean);
+
+      const sendReport = (filesToUpload.length && typeof window.syncFormDataToBackend === 'function')
+        ? (() => {
+            const form = new FormData();
+            Object.keys(draftPayload).forEach(key => form.append(key, draftPayload[key] == null ? '' : draftPayload[key]));
+            filesToUpload.forEach(file => form.append('media[]', file, file.name));
+            return window.syncFormDataToBackend('reports', form);
+          })()
+        : (typeof window.syncDataToBackend === 'function'
+            ? window.syncDataToBackend('reports', draftPayload)
+            : Promise.resolve(null));
+
+      sendReport
         .then(backendRes => {
           if (backendRes && backendRes.tracking_code) {
             newReport.code = backendRes.tracking_code;
@@ -587,6 +687,21 @@
               newReport.id = String(backendRes.id);
             }
             delete newReport.pendingSync;
+
+            /* فایل‌های تأییدشده‌ی سرور جای پیش‌نمایش‌های محلی را می‌گیرند تا در
+               جزئیات گزارش، همان فایل واقعی ذخیره‌شده روی سرور نمایش داده شود. */
+            if (Array.isArray(backendRes.media) && backendRes.media.length) {
+              newReport.media = backendRes.media.map(item => ({
+                kind: item.kind,
+                url: mediaUrlOf(item.url),
+                name: item.name,
+                size: item.size
+              }));
+            }
+            if (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length) {
+              showToast('برخی فایل‌ها ذخیره نشد: ' + backendRes.media_errors[0]);
+            }
+
             const currentTrackElem = document.getElementById('successTrackCode');
             if (currentTrackElem && (currentTrackElem.textContent === code || !currentTrackElem.textContent)) {
               currentTrackElem.textContent = backendRes.tracking_code;
@@ -883,6 +998,33 @@
     document.getElementById('detailDept').textContent = (r.department && r.subDepartment)
       ? (r.department + ' / ' + r.subDepartment) : '—';
     document.getElementById('detailDesc').textContent = r.desc;
+
+    /* عکس‌ها و فیلم‌های ارسالی برای این گزارش */
+    const mediaWrap = document.getElementById('detailMediaWrap');
+    if (mediaWrap) {
+      const mediaList = Array.isArray(r.media) ? r.media : [];
+      if (!mediaList.length) {
+        mediaWrap.style.display = 'none';
+        mediaWrap.innerHTML = '';
+      } else {
+        mediaWrap.style.display = 'block';
+        mediaWrap.innerHTML = `
+          <div class="section-title" style="padding:0 4px;">${translateText('تصاویر و فیلم‌های ارسالی')}</div>
+          <div class="glass-card" style="padding:14px;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              ${mediaList.map(m => (m.kind === 'video')
+                ? `<video src="${escapeHtml(mediaUrlOf(m.url || ''))}" controls preload="metadata" playsinline
+                          style="width:100%; max-width:320px; border-radius:12px; background:#000;"></video>`
+                : `<a href="${escapeHtml(mediaUrlOf(m.url || ''))}" target="_blank" rel="noopener"
+                      style="display:block; width:86px; height:86px; border-radius:12px; overflow:hidden; border:1px solid var(--card-border);">
+                     <img src="${escapeHtml(mediaUrlOf(m.url || ''))}" alt="${escapeHtml(m.name || '')}" loading="lazy"
+                          style="width:100%; height:100%; object-fit:cover;"
+                          onerror="this.closest('a').style.display='none';">
+                   </a>`).join('')}
+            </div>
+          </div>`;
+      }
+    }
 
     const replyWrap = document.getElementById('detailReplyWrap');
     if (replyWrap) {
@@ -1592,8 +1734,6 @@
     } catch (e) { /* ignore */ }
   }
   async function requestTicketBackendDelete(backendId, phone) {
-    const apiBase = window.EPLAK_API_BASE_URL ||
-      (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
     const response = await fetch(`${apiBase}/tickets.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1625,8 +1765,6 @@
     ticketsSyncInFlight = (async () => {
     try {
       await flushPendingTicketDeletes(phone);
-      const apiBase = window.EPLAK_API_BASE_URL ||
-        (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
       const response = await fetch(`${apiBase}/tickets.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('tickets fetch failed');
       const data = await response.json();
@@ -1670,8 +1808,6 @@
     const phone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
     if (!phone) { toast(isEn ? 'Please login first' : 'برای ثبت تیکت ابتدا وارد حساب خود شوید'); return; }
 
-    const apiBase = window.EPLAK_API_BASE_URL ||
-      (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
 
     const btnBusy = (isEn ? 'Sending…' : 'در حال ارسال…');
     const sendBtn = document.querySelector('#screen-ticket-new .btn-teal span');

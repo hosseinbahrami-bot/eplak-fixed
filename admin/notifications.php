@@ -38,6 +38,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $sends = getNotificationSends($pdo, 30);
 $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
+$pushSubscribers = eplakPushCount($pdo);
+$pushReady = eplakPushEnabled();
+require_once __DIR__ . '/../shared/fcm.php';
+$fcmReady   = eplakFcmConfig($pdo)['ready'];
+$fcmDevices = eplakFcmCount($pdo);
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -110,7 +115,42 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
 
       <?php if ($sentCount >= 0): ?>
         <div class="alert alert-success" style="margin: 0 24px 16px;">
-          <i class="fas fa-paper-plane"></i> اعلان با موفقیت برای <strong><?= $sentCount ?></strong> کاربر ارسال شد.
+          <i class="fas fa-paper-plane"></i> اعلان با موفقیت برای <strong><?= $sentCount ?></strong> کاربر ارسال شد
+          <span style="opacity:.85;">(این پیام داخل اپلیکیشن همه‌ی گیرندگان نمایش داده می‌شود. برای کسانی که اعلان گوشی را فعال کرده‌اند، به‌صورت نوتیفیکیشن سیستمی — حتی در حالت قفل — هم می‌رسد.)</span>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($fcmReady): ?>
+        <div class="alert alert-success" style="margin: 0 24px 16px;">
+          <i class="fas fa-mobile-screen-button"></i>
+          <strong>اعلان اپ اندروید (فایربیس) فعال است</strong> —
+          <strong><?= (int) $fcmDevices ?></strong> دستگاه ثبت شده است؛ اعلان‌های این صفحه روی گوشی این کاربران
+          حتی وقتی اپ بسته باشد نمایش داده می‌شود.
+        </div>
+      <?php endif; ?>
+
+      <?php if ($pushReady && $pushSubscribers === 0): ?>
+        <div class="alert alert-info" style="margin: 0 24px 16px; line-height:1.9;">
+          <i class="fas fa-circle-info"></i>
+          <strong>هنوز هیچ دستگاهی برای «اعلان گوشی» ثبت نشده است.</strong>
+          تا وقتی شهروندان اجازه‌ی اعلان را تأیید نکنند، پیام‌ها فقط داخل خود برنامه دیده می‌شوند.
+          <div style="margin-top:8px; font-size:13px;">
+            <strong>شهروند چطور اعلان گوشی را فعال کند؟</strong>
+            <ol style="margin:6px 0 0; padding-inline-start:20px;">
+              <li>سایت <code dir="ltr">eplak.ir/eplak-fixed</code> را در <strong>مرورگر کروم گوشی</strong> باز کند
+                  (داخل اپ اندروید، سیستم‌عامل اجازه‌ی اعلان پس‌زمینه به WebView نمی‌دهد).</li>
+              <li>از منوی مرورگر گزینه‌ی <strong>«افزودن به صفحه اصلی»</strong> را انتخاب کند و اجازه‌ی اعلان را تأیید کند.</li>
+              <li>در اپ اندروید هم اعلان‌های تازه تا وقتی برنامه باز است، در نوار اعلان گوشی نمایش داده می‌شوند.</li>
+            </ol>
+          </div>
+          <a href="settings.php" style="font-weight:600;">ارسال اعلان آزمایشی و بررسی وضعیت</a>
+        </div>
+      <?php elseif ($pushReady && $pushSubscribers > 0): ?>
+        <div class="alert alert-info" style="margin: 0 24px 16px;">
+          <i class="fas fa-bell"></i>
+          <strong><?= $pushSubscribers ?></strong> دستگاه آماده‌ی دریافت اعلان پس‌زمینه (نوتیفیکیشن گوشی) است —
+          اعلان‌های این صفحه برای آن‌ها روی صفحه‌ی قفل هم نمایش داده می‌شود.
+          <a href="settings.php" style="font-weight:600;">ارسال آزمایشی</a>
         </div>
       <?php endif; ?>
       <?php if ($message): ?>
@@ -204,6 +244,8 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
               <th>عنوان</th>
               <th>نوع ارسال</th>
               <th>تعداد گیرنده</th>
+              <th>اعلان گوشی (وبپوش)</th>
+              <th>اعلان اپ (فایربیس)</th>
               <th>فرستنده</th>
               <th>زمان</th>
               <th>عملیات</th>
@@ -212,7 +254,7 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
           <tbody>
             <?php if (!$sends): ?>
               <tr>
-                <td colspan="7" style="text-align:center; padding:26px; color:var(--dark-400);">
+                <td colspan="9" style="text-align:center; padding:26px; color:var(--dark-400);">
                   هنوز اعلانی ارسال نشده است.
                 </td>
               </tr>
@@ -229,6 +271,24 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
                     <?php endif; ?>
                   </td>
                   <td><?= (int)$s['recipients_count'] ?> نفر</td>
+                  <td>
+                    <?php if ((int)($s['push_sent'] ?? 0) === 0 && (int)($s['push_failed'] ?? 0) === 0): ?>
+                      <span style="color: var(--dark-400); font-size: 12px;">—</span>
+                    <?php else: ?>
+                      <span style="color: var(--success); font-weight: 600;"><?= (int)($s['push_sent'] ?? 0) ?></span>
+                      <span style="color: var(--dark-400);">/</span>
+                      <span style="color: <?= (int)($s['push_failed'] ?? 0) > 0 ? 'var(--danger)' : 'var(--dark-400)' ?>; font-weight: 600;"><?= (int)($s['push_failed'] ?? 0) ?></span>
+                    <?php endif; ?>
+                  </td>
+                  <td>
+                    <?php if ((int)($s['fcm_sent'] ?? 0) === 0 && (int)($s['fcm_failed'] ?? 0) === 0): ?>
+                      <span style="color: var(--dark-400); font-size: 12px;">—</span>
+                    <?php else: ?>
+                      <span style="color: var(--success); font-weight: 600;"><?= (int)($s['fcm_sent'] ?? 0) ?></span>
+                      <span style="color: var(--dark-400);">/</span>
+                      <span style="color: <?= (int)($s['fcm_failed'] ?? 0) > 0 ? 'var(--danger)' : 'var(--dark-400)' ?>; font-weight: 600;"><?= (int)($s['fcm_failed'] ?? 0) ?></span>
+                    <?php endif; ?>
+                  </td>
                   <td><?= htmlspecialchars($s['created_by'] ?: '—') ?></td>
                   <td style="font-size:12px; color:var(--dark-500);"><?= htmlspecialchars($s['created_at']) ?></td>
                   <td>

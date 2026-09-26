@@ -1,8 +1,10 @@
 <?php
 /* api/reports.php — گزارش‌های شهروندی
 
-   GET    ?phone=09xxxxxxxxx                      → گزارش‌های همان شماره
-   POST   {phone,title,description,...}          → ثبت گزارش جدید
+   GET    ?phone=09xxxxxxxxx                      → گزارش‌های همان شماره (همراه فایل‌های پیوست)
+   POST   {phone,title,description,…}             → ثبت گزارش جدید
+          • JSON:  آرایه‌ی اختیاری media = [{name, mime, data(base64)}]
+          • multipart/form-data با فیلدهای media[] (عکس/فیلم)
    POST   ?action=delete&id=..&phone=..  (یا بدنه‌ی JSON با action=delete)
    DELETE ?id=..&phone=..                        → حذف گزارش (فقط توسط مالک)
 
@@ -10,12 +12,24 @@
    فهرست‌کردن یا حذف گزارش‌های سایر کاربران وجود ندارد.
 */
 require_once __DIR__ . '/_common.php';
+require_once __DIR__ . '/../shared/media.php';
 
 eplakApiHeaders();
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $query  = $_GET;
+$isMultipart = stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data') !== false;
 
+/* خطای «حجم بالای post_max_size»: PHP در این حالت $_POST را خالی می‌کند و
+   بدون این بررسی، کاربر پیام نامفهوم «Invalid JSON» می‌گیرد. */
+if ($isMultipart && !$_POST && !$_FILES && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    $limit = ini_get('post_max_size');
+    if ($limit) {
+        eplakJsonError('حجم فایل‌های ارسالی بیش از حد مجاز سرور است (post_max_size = ' . $limit . '). فایل‌های سبک‌تری انتخاب کنید.', 413);
+    }
+}
+
+/* ── فهرست گزارش‌های کاربر ─────────────────────────────────────────── */
 if ($method === 'GET') {
     $phone = eplakNormalizePhone($query['phone'] ?? '');
     if ($phone === '') {
@@ -25,18 +39,37 @@ if ($method === 'GET') {
         $stmt = $pdo->prepare('SELECT id, user_phone, title, description, category, department, sub_department, location, status, reply, created_at
                                FROM reports WHERE user_phone = :phone ORDER BY created_at DESC, id DESC LIMIT 200');
         $stmt->execute([':phone' => $phone]);
-        eplakJson(['success' => true, 'reports' => $stmt->fetchAll()]);
+        $rows = $stmt->fetchAll();
+
+        $ids = array_map(static fn($r) => (int) $r['id'], $rows);
+        $mediaMap = eplakMediaGroupedByReport($pdo, $ids);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $row['id']   = $id;
+            $row['code'] = 'EP-1403-' . str_pad((string) ($id + 1000), 4, '0', STR_PAD_LEFT);
+            $row['media'] = $mediaMap[$id] ?? [];
+            $row['media_count'] = count($row['media']);
+            $out[] = $row;
+        }
+
+        eplakJson(['success' => true, 'reports' => $out]);
     } catch (Throwable $e) {
         eplakServerError($e, 'reports.get');
     }
 }
 
-$input = eplakReadJsonBody();
+/* ── خواندن ورودی (JSON یا فرم چندبخشی) ───────────────────────────── */
+$input = $isMultipart ? $_POST : eplakReadJsonBody();
+if ($isMultipart && !is_array($input)) {
+    $input = [];
+}
 
 /* ── حذف (DELETE یا POST با action=delete) ─────────────────────────── */
 $isDelete = $method === 'DELETE'
     || (($query['action'] ?? '') === 'delete')
-    || (($input['action'] ?? '') === 'delete');
+    || ((($input['action'] ?? '')) === 'delete');
 
 if ($isDelete) {
     $id = (int) ($query['id'] ?? 0);
@@ -60,6 +93,8 @@ if ($isDelete) {
             // یا وجود ندارد، یا متعلق به این کاربر نیست — هر دو 404 (بدون افشای وجود رکورد)
             eplakJson(['success' => false, 'error' => 'گزارش یافت نشد', 'deleted_id' => $id], 404);
         }
+        /* فایل‌های پیوست هم پاک می‌شوند تا فضای سرور اشغال نماند */
+        eplakMediaDeleteForReport($pdo, $id);
         eplakJson(['success' => true, 'deleted_id' => $id]);
     } catch (Throwable $e) {
         eplakServerError($e, 'reports.delete');
@@ -122,14 +157,82 @@ try {
     $insertId = (int) $pdo->lastInsertId();
 
     $pdo->commit();
-    eplakJson([
-        'success'       => true,
-        'id'            => $insertId,
-        'tracking_code' => 'EP-1403-' . str_pad((string) $insertId, 4, '0', STR_PAD_LEFT),
-    ]);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
     eplakServerError($e, 'reports.create');
 }
+
+/* ── ذخیره‌ی عکس/فیلم‌های گزارش ─────────────────────────────────────── */
+$savedMedia = [];
+$mediaErrors = [];
+
+try {
+    if ($isMultipart) {
+        $files = eplakMediaNormalizeFiles($_FILES['media'] ?? ($_FILES['photos'] ?? null));
+        $count = 0;
+        foreach ($files as $file) {
+            if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            if ($count >= EPLAK_MEDIA_MAX_PER_REPORT) {
+                $mediaErrors[] = 'حداکثر ' . EPLAK_MEDIA_MAX_PER_REPORT . ' فایل برای هر گزارش پذیرفته می‌شود.';
+                break;
+            }
+            $result = eplakMediaStoreFile($pdo, $insertId, $file);
+            if ($result['ok']) {
+                $savedMedia[] = $result['media'];
+            } else {
+                $mediaErrors[] = $result['error'];
+            }
+            $count++;
+        }
+    } else {
+        $mediaInput = $input['media'] ?? [];
+        if (is_array($mediaInput)) {
+            $count = 0;
+            foreach ($mediaInput as $item) {
+                if (!is_array($item) || $count >= EPLAK_MEDIA_MAX_PER_REPORT) {
+                    continue;
+                }
+                $data = (string) ($item['data'] ?? ($item['base64'] ?? ''));
+                if ($data === '') {
+                    continue;
+                }
+                /* پشتیبانی از data URL: data:image/jpeg;base64,xxxx */
+                $declaredMime = (string) ($item['mime'] ?? ($item['type'] ?? ''));
+                if (strpos($data, 'data:') === 0 && strpos($data, 'base64,') !== false) {
+                    [$meta, $data] = explode('base64,', $data, 2);
+                    if (preg_match('#data:([^;]+)#', $meta, $m)) {
+                        $declaredMime = $m[1];
+                    }
+                }
+                $binary = base64_decode(preg_replace('/\s+/', '', $data) ?? '', true);
+                if ($binary === false || $binary === '') {
+                    $mediaErrors[] = 'محتوای فایل «' . eplakStr($item['name'] ?? 'پیوست', 80) . '» قابل خواندن نبود.';
+                    continue;
+                }
+                $result = eplakMediaStoreBinary($pdo, $insertId, $binary, (string) ($item['name'] ?? 'file'), $declaredMime);
+                if ($result['ok']) {
+                    $savedMedia[] = $result['media'];
+                } else {
+                    $mediaErrors[] = $result['error'];
+                }
+                $count++;
+            }
+        }
+    }
+} catch (Throwable $e) {
+    error_log('[eplak-api:reports.media] ' . $e->getMessage());
+    $mediaErrors[] = 'ذخیره‌ی برخی فایل‌ها ناموفق بود.';
+}
+
+eplakJson([
+    'success'       => true,
+    'id'            => $insertId,
+    'tracking_code' => 'EP-1403-' . str_pad((string) $insertId, 4, '0', STR_PAD_LEFT),
+    'media'         => $savedMedia,
+    'media_count'   => count($savedMedia),
+    'media_errors'  => $mediaErrors,
+]);

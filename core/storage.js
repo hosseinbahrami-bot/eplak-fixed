@@ -21,6 +21,37 @@
     (window.location.protocol === 'file:' ? 'https://eplak.ir/eplak-fixed/api' : 'api');
   window.EPLAK_API_BASE_URL = BACKEND_BASE_URL;
 
+  /* ─── آدرس پایه‌ی API ─────────────────────────────────────────────
+     همه‌ی ماژول‌ها باید از همین یک تابع استفاده کنند (قبلاً چند ماژول آدرس
+     IP کامپیوتر توسعه‌دهنده را هاردکد کرده بودند و روی سایت/اپ کار نمی‌کرد). */
+  function apiBase() {
+    const configured = (typeof window.EPLAK_API_BASE_URL === 'string' && window.EPLAK_API_BASE_URL)
+      ? window.EPLAK_API_BASE_URL
+      : BACKEND_BASE_URL;
+    return String(configured || 'api').replace(/\/+$/, '');
+  }
+  window.eplakApiBase = apiBase;
+
+  /* ─── آدرس فایل‌های پیوست (عکس/فیلم گزارش) ────────────────────────
+     روی وب، آدرس‌ها نسبی‌اند (uploads/reports/…) و درست کار می‌کنند.
+     در اپ اندروید صفحه با file:///android_asset/index.html باز می‌شود؛ آنجا
+     آدرس نسبی به خود گوشی اشاره می‌کند، پس باید به دامنه‌ی سرور وصل شود. */
+  function resolveMediaUrl(path) {
+    const value = String(path || '').trim();
+    if (value === '') return '';
+    if (/^(https?:)?\/\//i.test(value) || value.indexOf('data:') === 0 || value.indexOf('blob:') === 0) {
+      return value;
+    }
+    if (window.location.protocol === 'file:') {
+      const base = String(BACKEND_BASE_URL || '').replace(/\/+$/, '').replace(/\/api$/i, '');
+      if (/^(https?:)?\/\//i.test(base)) {
+        return base + '/' + value.replace(/^\/+/, '');
+      }
+    }
+    return value;
+  }
+  window.eplakResolveMediaUrl = resolveMediaUrl;
+
   /* ─── کمکی‌های خام localStorage ─────────────────────────────────── */
   function lsGet(key) {
     try { return localStorage.getItem(key); } catch(e) { return null; }
@@ -60,6 +91,27 @@
       return null;
     }
   }
+
+  /* ارسال فرم چندبخشی (برای آپلود عکس/فیلم گزارش‌ها).
+     نکته: هدر Content-Type عمداً تنظیم نمی‌شود تا مرورگر خودش boundary بگذارد. */
+  async function syncFormDataToBackend(endpoint, formData) {
+    if (!formData || typeof FormData === 'undefined' || !(formData instanceof FormData)) return null;
+    try {
+      const response = await fetch(BACKEND_BASE_URL + '/' + endpoint + '.php', {
+        method: 'POST',
+        body: formData
+      });
+      if (!response.ok) {
+        console.warn('[backend] form request failed', endpoint, await response.text());
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      console.warn('[backend] form unavailable', endpoint, error.message);
+      return null;
+    }
+  }
+  window.syncFormDataToBackend = syncFormDataToBackend;
 
   function syncUserProfileToBackend(phone = getCurrentPhone()) {
     if (!phone) return;
