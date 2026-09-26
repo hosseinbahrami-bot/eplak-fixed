@@ -51,7 +51,8 @@ jobs:
         run: |
           rm -rf .git .github android-app backend docs views node_modules
           rm -f .gitignore .gitattributes
-          rm -rf data uploads shared/config.php
+          rm -rf data uploads shared/config.php tools
+          rm -f *.zip          # بسته‌ی آپلود دستی لازم نیست روی هاست برود
           echo "files to deploy:" && find . -type f | wc -l
 
       - name: Upload via FTP
