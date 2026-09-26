@@ -232,3 +232,16 @@ encryption + VAPID signature), `fcm` (Google token, message send, dead-token
 deactivation) and `backend` (tables, seeds, photo upload, self-healing schema,
 panel pages). The same tests also run automatically on GitHub:
 **Actions → «آزمون‌های خودکار (Regression)»**.
+
+### 8) Checking whether the changes are live
+**Option 1 (inside the panel):** after uploading the package open
+`Admin → بررسی نسخه (Version check)`. If every line is green ("درست/هست"),
+the upload landed correctly. Anything red means those files are missing.
+
+**Option 2 (automatic, from GitHub):** **Actions → «بررسی سایت زنده» → Run workflow**.
+A bot reads the public site and writes the result into the Issue titled
+«گزارش بررسی سایت زنده (eplak.ir)». You can also run it locally:
+
+```bash
+bash tools/live-check.sh https://eplak.ir/eplak-fixed
+```
