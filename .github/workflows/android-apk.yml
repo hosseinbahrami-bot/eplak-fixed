@@ -65,13 +65,30 @@ jobs:
 
       - name: ساخت APK
         working-directory: android-app
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
         run: |
+          set -o pipefail
+          # مسیر SDKای که خود سرور گیت‌هاب فراهم می‌کند
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK" > local.properties
+          echo "استفاده از SDK: $SDK"
           chmod +x ./gradlew
-          ./gradlew --version
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew --version 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
+
+      - name: انتشار خلاصه‌ی خطا (برای پیگیری)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG="$RUNNER_TEMP/gradle.log"
+          {
+            echo "## ❌ ساخت APK ناموفق بود — ۸۰ خط آخر لاگ"
+            echo ''
+            echo '```'
+            tail -n 80 "$LOG" 2>/dev/null || echo '(لاگی ثبت نشد)'
+            echo '```'
+          } > /tmp/fail-comment.md
+          gh pr comment 2 --body-file /tmp/fail-comment.md 2>/dev/null || true
 
       - name: نام‌گذاری فایل خروجی
         id: apk
