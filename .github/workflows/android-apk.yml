@@ -94,10 +94,10 @@ jobs:
         id: apk
         run: |
           SRC=$(find android-app/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
-          echo "path=$SRC" >> "$GITHUB_OUTPUT"
-          STAMP=$(date +%Y%m%d-%H%M)
-          echo "name=eplak-${STAMP}.apk" >> "$GITHUB_OUTPUT"
-          ls -la "$SRC"
+          # نام ثابت و خوانا: لینک دانلود همیشه یکی می‌ماند
+          cp "$SRC" eplak-app.apk
+          echo "path=eplak-app.apk" >> "$GITHUB_OUTPUT"
+          ls -la eplak-app.apk
 
       - name: بارگذاری فایل APK (Artifacts)
         uses: actions/upload-artifact@v4
@@ -112,7 +112,7 @@ jobs:
         with:
           tag_name: v2.0-eplak-update
           name: بسته‌ی به‌روزرسانی سایت و پنل ادمین (v2.0)
-          files: ${{ steps.apk.outputs.path }}
+          files: eplak-app.apk
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
