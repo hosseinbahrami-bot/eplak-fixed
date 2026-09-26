@@ -70,6 +70,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ? '✅ کلیدهای تازه‌ی اعلان ساخته شد. کاربران باید یک‌بار اپلیکیشن را باز کنند تا اشتراک‌شان دوباره ثبت شود.'
             : '⚠️ ساخت کلید ناموفق بود: ' . $vapid['error'];
         $messageType = $vapid['ready'] ? 'success' : 'danger';
+    } elseif ($action === 'repair_schema') {
+        $report = eplakRunSchemaSync($pdo, true);
+        if ($report['failed']) {
+            $message = '⚠️ برخی ستون‌ها اضافه نشد: ' . implode(' | ', array_slice($report['failed'], 0, 4));
+            $messageType = 'danger';
+        } elseif ($report['added']) {
+            $message = '✅ ساختار دیتابیس ترمیم شد. ستون‌های اضافه‌شده: ' . implode('، ', $report['added']);
+            $messageType = 'success';
+        } else {
+            $message = '✅ ساختار دیتابیس کامل است؛ چیزی برای ترمیم نبود.';
+            $messageType = 'success';
+        }
     } elseif ($action === 'save_push_subject') {
         $subject = trim((string) ($_POST['vapid_subject'] ?? ''));
         if ($subject !== '' && strpos($subject, 'mailto:') !== 0 && strpos($subject, 'https://') !== 0) {
@@ -82,6 +94,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $admin = getAdminById($pdo, $adminId);
 }
+
+$schemaReport  = eplakSchemaSyncReport();
+$schemaVersion = (string) eplakAppSetting($pdo, 'schema_version', '');
 
 $vapid        = eplakVapidKeys($pdo, false);
 $vapidReady   = $vapid['ready'];
@@ -364,6 +379,41 @@ $httpsOn = eplakIsHttpsRequest();
           <div class="kv-row"><span class="kv-key">تعداد مطالب اخبار/دانستنی‌ها</span><span class="kv-val"><?= (int) getDashboardStats($pdo)['news_count'] ?> مورد</span></div>
           <div class="kv-row"><span class="kv-key">گزارش‌های دارای عکس/فیلم</span><span class="kv-val"><?= (int) getDashboardStats($pdo)['reports_with_media'] ?> مورد</span></div>
         </div>
+
+        <h3 style="margin-top: 22px; font-size: 15px;">ساختار دیتابیس (جدول‌ها و ستون‌ها)</h3>
+        <p class="field-hint">
+          اگر نسخه‌ی جدید به ستون تازه‌ای نیاز داشته باشد، هنگام باز شدن پنل خودکار به دیتابیس اضافه می‌شود.
+          در صورت دیدن خطای «Unknown column»، دکمه‌ی ترمیم را بزنید.
+        </p>
+        <div class="kv-list">
+          <div class="kv-row">
+            <span class="kv-key">نسخه‌ی ساختار دیتابیس</span>
+            <span class="kv-val" style="direction:ltr"><?= htmlspecialchars($schemaVersion !== '' ? $schemaVersion : '—') ?></span>
+          </div>
+          <?php if ($schemaReport['ran']): ?>
+            <div class="kv-row">
+              <span class="kv-key">آخرین همگام‌سازی</span>
+              <span class="kv-val">
+                <?php if ($schemaReport['failed']): ?>
+                  <span class="pill pill-bad"><?= count($schemaReport['failed']) ?> مورد ناموفق</span>
+                <?php else: ?>
+                  <span class="pill pill-ok"><?= count($schemaReport['added']) ?> ستون اضافه شد</span>
+                <?php endif; ?>
+              </span>
+            </div>
+            <?php if ($schemaReport['added']): ?>
+              <div class="kv-row">
+                <span class="kv-key">ستون‌های تازه</span>
+                <span class="kv-val" style="direction:ltr; text-align:left; word-break:break-all;"><?= htmlspecialchars(implode('، ', $schemaReport['added'])) ?></span>
+              </div>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
+        <form method="post" style="margin-top: 12px;">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="repair_schema">
+          <button type="submit" class="btn btn-outline"><i class="fas fa-screwdriver-wrench"></i> بررسی و ترمیم ساختار دیتابیس</button>
+        </form>
 
         <h3 style="margin-top: 22px; font-size: 15px;">چطور مطمئن شوم اعلان در حالت قفل می‌رسد؟</h3>
         <ol class="steps">
