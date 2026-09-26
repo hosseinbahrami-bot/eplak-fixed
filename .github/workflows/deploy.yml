@@ -1,0 +1,67 @@
+# ============================================================================
+#  انتشار خودکار روی هاست (اختیاری)
+#  ----------------------------------------------------------------------------
+#  اگر این چهار مورد را در تنظیمات ریپو اضافه کنید، هر بار که تغییری روی
+#  شاخه‌ی main مرج شود، فایل‌ها خودکار روی هاست آپلود می‌شوند و دیگر نیازی به
+#  آپلود دستی نیست:
+#
+#    GitHub → Settings → Secrets and variables → Actions → New repository secret
+#      FTP_SERVER    : مثلاً ftp.eplak.ir  یا  eplak.ir
+#      FTP_USERNAME  : نام کاربری FTP (همان اکانت cPanel)
+#      FTP_PASSWORD  : رمز FTP
+#      FTP_DIR       : مسیر پوشه‌ی سایت، مثلاً  public_html/eplak-fixed/
+#      (اختیاری) FTP_PORT : اگر 21 نیست، مثلاً 22 برای SFTP
+#
+#  تا وقتی این مقادیر اضافه نشده باشند، این ورک‌فلو بدون خطا رد می‌شود
+#  (فقط یک پیام راهنما ثبت می‌کند) و آپلود دستی مثل قبل کار می‌کند.
+#
+#  ⚠️ این ورک‌فلو این‌ها را آپلود نمی‌کند: data/، uploads/، shared/config.php
+#     (چون داده‌های سایت و تنظیمات سرور شما هستند).
+# ============================================================================
+name: Deploy to host
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check FTP secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.FTP_SERVER }}" ] || [ -z "${{ secrets.FTP_USERNAME }}" ] || [ -z "${{ secrets.FTP_PASSWORD }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Not configured yet
+        if: steps.check.outputs.configured != 'true'
+        run: |
+          echo "::notice title=انتشار خودکار غیرفعال است::برای فعال شدن، مقادیر FTP_SERVER / FTP_USERNAME / FTP_PASSWORD / FTP_DIR را در Settings → Secrets and variables → Actions اضافه کنید."
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.configured == 'true'
+
+      - name: Prepare files (بدون داده‌های کاربران)
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          rm -rf .git .github android-app backend docs views node_modules
+          rm -f .gitignore .gitattributes
+          rm -rf data uploads shared/config.php
+          echo "files to deploy:" && find . -type f | wc -l
+
+      - name: Upload via FTP
+        if: steps.check.outputs.configured == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT || 21 }}
+          protocol: ${{ secrets.FTP_PORT == '22' && 'sftp' || 'ftp' }}
+          server-dir: ${{ secrets.FTP_DIR || 'public_html/eplak-fixed/' }}
+          local-dir: ./

@@ -21,6 +21,17 @@
     (window.location.protocol === 'file:' ? 'https://eplak.ir/eplak-fixed/api' : 'api');
   window.EPLAK_API_BASE_URL = BACKEND_BASE_URL;
 
+  /* ─── آدرس پایه‌ی API ─────────────────────────────────────────────
+     همه‌ی ماژول‌ها باید از همین یک تابع استفاده کنند (قبلاً چند ماژول آدرس
+     IP کامپیوتر توسعه‌دهنده را هاردکد کرده بودند و روی سایت/اپ کار نمی‌کرد). */
+  function apiBase() {
+    const configured = (typeof window.EPLAK_API_BASE_URL === 'string' && window.EPLAK_API_BASE_URL)
+      ? window.EPLAK_API_BASE_URL
+      : BACKEND_BASE_URL;
+    return String(configured || 'api').replace(/\/+$/, '');
+  }
+  window.eplakApiBase = apiBase;
+
   /* ─── آدرس فایل‌های پیوست (عکس/فیلم گزارش) ────────────────────────
      روی وب، آدرس‌ها نسبی‌اند (uploads/reports/…) و درست کار می‌کنند.
      در اپ اندروید صفحه با file:///android_asset/index.html باز می‌شود؛ آنجا

@@ -603,7 +603,7 @@ if (!defined('EPLAK_SCHEMA_VERSION')) {
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
    تعریف‌ها جدا برای هر درایور نگه داشته می‌شوند؛ وگرنه تعریف مخصوص SQLite
    (مثل INTEGER PRIMARY KEY AUTOINCREMENT) می‌توانست روی MySQL هم اجرا شود. */
-function eplakSchemaDdl(string $driver = '', string $ddl = null): array {
+function eplakSchemaDdl(string $driver = '', ?string $ddl = null): array {
     static $list = [];
     if ($ddl !== null && $driver !== '') {
         $list[$driver][] = $ddl;

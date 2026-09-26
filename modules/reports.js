@@ -169,8 +169,6 @@
     }
 
     try {
-      const apiBase = window.EPLAK_API_BASE_URL ||
-        (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
       const response = await fetch(`${apiBase}/departments.php`);
       if (!response.ok) throw new Error('bad response');
       const data = await response.json();
@@ -283,8 +281,6 @@
   }
 
   async function requestBackendDelete(backendId, phone) {
-    const apiBase = window.EPLAK_API_BASE_URL ||
-      (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
     const response = await fetch(`${apiBase}/reports.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -354,8 +350,6 @@
       await flushPendingDeletes(phone);
       await flushPendingCreates(phone);
 
-      const apiBase = window.EPLAK_API_BASE_URL ||
-        (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
       const response = await fetch(`${apiBase}/reports.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('reports fetch failed');
       const data = await response.json();
@@ -502,6 +496,14 @@
       return;
     }
     showScreen('screen-report-step3');
+  }
+
+  /* آدرس پایه‌ی API — فقط از منبع واحد (core/storage.js) خوانده می‌شود */
+  function apiBase() {
+    if (typeof window.eplakApiBase === 'function') {
+      return window.eplakApiBase();
+    }
+    return String(window.EPLAK_API_BASE_URL || 'api').replace(/\/+$/, '');
   }
 
   /* آدرس پیوست‌ها: در اپ اندروید (file://) باید به دامنه‌ی سرور وصل شود */
@@ -1732,8 +1734,6 @@
     } catch (e) { /* ignore */ }
   }
   async function requestTicketBackendDelete(backendId, phone) {
-    const apiBase = window.EPLAK_API_BASE_URL ||
-      (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
     const response = await fetch(`${apiBase}/tickets.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1765,8 +1765,6 @@
     ticketsSyncInFlight = (async () => {
     try {
       await flushPendingTicketDeletes(phone);
-      const apiBase = window.EPLAK_API_BASE_URL ||
-        (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
       const response = await fetch(`${apiBase}/tickets.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('tickets fetch failed');
       const data = await response.json();
@@ -1810,8 +1808,6 @@
     const phone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
     if (!phone) { toast(isEn ? 'Please login first' : 'برای ثبت تیکت ابتدا وارد حساب خود شوید'); return; }
 
-    const apiBase = window.EPLAK_API_BASE_URL ||
-      (window.location && window.location.protocol === 'file:' ? 'http://192.168.98.133/eplak-fixed/api' : 'api');
 
     const btnBusy = (isEn ? 'Sending…' : 'در حال ارسال…');
     const sendBtn = document.querySelector('#screen-ticket-new .btn-teal span');
