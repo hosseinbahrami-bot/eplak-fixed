@@ -82,6 +82,7 @@ say "- کد پاسخ فایل: \`$CODE_LIVE\` • حجم: $(wc -c < "$LIVE" 2>/d
 say "- تعداد اشاره به fcm در فایل: \`$(countof "$LIVE" 'fcm')\`"
 
 NEW_WEB="no"
+ENGINE_OK="no"
 if has "$LIVE" "registerAppDevice"; then NEW_WEB="yes"; fi
 
 # ── ۳) سرویس اعلان سرور ────────────────────────────────────────────────────
@@ -102,6 +103,25 @@ fi
 if [ "$NEW_API" = "no" ] && [ "$NEW_WEB" = "no" ]; then
   STATUS="fail"
   ISSUES+=("سایت هنوز نسخه‌ی قدیم را اجرا می‌کند (بسته‌ی به‌روزرسانی آپلود نشده)")
+fi
+
+# ── ۳-۲) سرویس اعلان‌های کاربر (وضعیت خوانده‌شدن برای هر کاربر) ─────────────
+hdr "۳-۲) فهرست اعلان‌های کاربر — \`api/notifications.php\`"
+NOTIF="$TMP/notif.json"
+CODE_NOTIF=$(grab "$BASE/api/notifications.php?phone=09000000000&device=probe-device" "$NOTIF")
+say "| مورد | نتیجه |"
+say "|---|---|"
+say "| کد پاسخ | \`$CODE_NOTIF\` |"
+HEADNOTIF="$(head -c 300 "$NOTIF" 2>/dev/null)"
+say "| پاسخ | \`$HEADNOTIF\` |"
+if has "$NOTIF" "\"unread\"" && has "$NOTIF" "notifications"; then
+  say "| وضعیت | ✅ سرویس اعلان‌های کاربر بالاست |"
+  NEW_NOTIF="yes"
+else
+  say "| وضعیت | ❌ پاسخ مورد انتظار نبود |"
+  NEW_NOTIF="no"
+  STATUS="fail"
+  ISSUES+=("سرویس api/notifications.php پاسخ درست نداد")
 fi
 
 # ── ۴) نسخه‌ی فایل‌های اصلی سایت (کش‌باستر) ────────────────────────────────
@@ -127,41 +147,59 @@ else
   say "⚠️ مقایسه‌ی کش‌باستر انجام نشد (یکی از فایل‌ها خوانده نشد)."
 fi
 
-# ── ۵) فایل‌های جدید نسخه ─────────────────────────────────────────────────
-hdr "۵) فایل‌های تازه‌ی نسخه (دسترسی مستقیم معمولاً بسته است)"
-say "| فایل | کد پاسخ | توضیح |"
+# ── ۵) بررسی وجود موتور فایربیس (بدون دسترسی مستقیم) ─────────────────────
+hdr "۵) فایل‌های جدید نسخه"
+say "> پوشه‌ی \`shared/\` در فایل \`.htaccess\` عمداً مسدود شده است (امنیت)؛ پس"
+say "> ۴۰۴ گرفتن از آن **طبیعی** است و نشانه‌ی نبودن فایل نیست."
+say ""
+say "| فایل | کد پاسخ | تفسیر |"
 say "|---|---|---|"
-for f in "shared/fcm.php" "shared/notification_reads.php" "admin/version.php" "admin/notification_view.php"; do
-  # صفحه‌ی بررسی نسخه: پشت ورود پنل است؛ اگر ۳۰۲ به صفحه‌ی ورود بدهد یعنی فایل هست
-  if [ "$f" = "admin/version.php" ]; then
-    pc=$(grab "$BASE/$f" "$TMP/v.out")
-    if [ "$pc" = "404" ]; then
-      say "| $f | $pc | ❌ پیدا نشد → نسخه‌ی جدید آپلود نشده |"
-      STATUS="fail"; ISSUES+=("صفحه‌ی بررسی نسخه روی سرور نیست")
-    elif has "$TMP/v.out" "بررسی نسخه"; then
-      say "| $f | $pc | ✅ هست و باز می‌شود |"
-    elif has "$TMP/v.out" "ورود"; then
-      say "| $f | $pc | ✅ هست (پشت ورود پنل) |"
-    else
-      say "| $f | $pc | ✅ هست |"
-    fi
-    continue
-  fi
+
+# shared/* → ۴۰۴ طبیعی است؛ وجود واقعی‌شان از روی api/push.php فهمیده می‌شود
+for f in "shared/fcm.php" "shared/notification_reads.php"; do
   c=$(grab "$BASE/$f" "$TMP/x.out")
-  note="—"
   case "$c" in
-    200) if [ ! -s "$TMP/x.out" ]; then note="✅ فایل هست (بدون خروجی مستقیم)"; else note="⚠️ خروجی داد — بررسی دستی لازم است"; fi ;;
-    403|401) note="✅ فایل هست (دسترسی بسته است)"; ;;
-    404) note="❌ پیدا نشد → نسخه‌ی جدید آپلود نشده"; STATUS="fail";;
-    500) note="❌ خطای سرور"; STATUS="fail";;
-    000) note="❓ پاسخ نداد";;
-    *) note="کد $c";;
+    404) note="✅ طبیعی است (پوشه‌ی محافظت‌شده)" ;;
+    200) note="✅ فایل هست و مستقیم هم باز می‌شود (محافظت غیرفعال)" ;;
+    403|401) note="✅ طبیعی است (پوشه‌ی محافظت‌شده)" ;;
+    000) note="❓ پاسخ نداد" ;;
+    *) note="کد $c" ;;
   esac
   say "| $f | $c | $note |"
 done
 
+# بررسی واقعی وجود موتور فایربیس از روی پاسخ سرور
+if has "$PUSH" "fcm_ready"; then
+  say "| موتور فایربیس (از روی \`api/push.php\`) | $CODE_PUSH | ✅ نصب است و اجرا می‌شود |"
+  ENGINE_OK="yes"
+else
+  say "| موتور فایربیس (از روی \`api/push.php\`) | $CODE_PUSH | ❌ نصب نشده |"
+  ENGINE_OK="no"
+fi
+
+# صفحه‌ی بررسی نسخه‌ی پنل (پشت ورود) و دیگر صفحات پنل
+for f in "admin/version.php" "admin/notification_view.php" "admin/notifications.php" "admin/settings.php"; do
+  pc=$(grab "$BASE/$f" "$TMP/p.out")
+  if [ "$pc" = "404" ]; then
+    note="❌ روی سرور نیست"
+    if [ "$f" = "admin/version.php" ]; then ISSUES+=("صفحه‌ی «بررسی نسخه» هنوز آپلود نشده است (بسته‌ی قدیمی‌تر روی هاست است)"); fi
+  elif has "$TMP/p.out" "Fatal error" || has "$TMP/p.out" "Parse error"; then
+    note="❌ خطای PHP"
+    STATUS="fail"; ISSUES+=("صفحه‌ی $f خطای PHP می‌دهد")
+  elif has "$TMP/p.out" "پنل مدیریت" || has "$TMP/p.out" "ورود"; then
+    note="✅ هست (پشت ورود پنل)"
+  else
+    note="✅ هست"
+  fi
+  say "| $f | $pc | $note |"
+done
+
 # ── نتیجه‌ی نهایی ─────────────────────────────────────────────────────────
 hdr "نتیجه"
+NEW_WEB="no"; NEW_API="no"
+if has "$LIVE" "registerAppDevice"; then NEW_WEB="yes"; fi
+if has "$PUSH" "fcm_ready"; then NEW_API="yes"; fi
+
 if [ "$CODE_LIVE" = "000" ] && [ "$CODE_LOGIN" = "000" ]; then
   say "❓ **سایت از بیرون پاسخ نداد** — یا موقتاً پایین است، یا فقط از داخل ایران در دسترس است."
   say ""
@@ -170,6 +208,14 @@ if [ "$CODE_LIVE" = "000" ] && [ "$CODE_LOGIN" = "000" ]; then
   STATUS="unreachable"
 elif [ "$NEW_WEB" = "yes" ] && [ "$NEW_API" = "yes" ]; then
   say "✅ **نسخه‌ی جدید روی سایت اعمال شده است.** موتور اعلان‌ها (فایربیس) و کد سرور تازه روی سایت فعال است."
+  if [ "$ENGINE_OK" = "yes" ] && has "$PUSH" '"fcm_ready":false'; then
+    say ""
+    say "ℹ️ فایربیس روی سرور آماده است ولی **کلید سرویس هنوز وارد نشده**؛ برای فعال شدن:"
+    say "پنل ادمین → تنظیمات → «اعلان گوشی برای اپ اندروید (فایربیس)» → چسباندن فایل JSON کلید سرویس."
+  fi
+elif [ "$NEW_WEB" = "yes" ] && [ "$NEW_API" = "no" ]; then
+  say "⚠️ **بخشی از تغییرات اعمال شده است.** کد سایت (\`modules/live.js\`) تازه است ولی موتور سرور فایربیس پاسخ نمی‌دهد."
+  say "یعنی \`shared/fcm.php\` و \`shared/bootstrap.php\` جدید آپلود نشده‌اند."
 else
   say "❌ **نسخه‌ی جدید هنوز روی سایت اعمال نشده است.**"
   say ""
