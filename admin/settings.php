@@ -6,6 +6,7 @@
 */
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/../shared/fcm.php';
 
 $adminId  = (int) ($_SESSION['admin_id'] ?? 0);
 $admin    = getAdminById($pdo, $adminId);
@@ -78,6 +79,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ? '✅ کلیدهای تازه‌ی اعلان ساخته شد. کاربران باید یک‌بار اپلیکیشن را باز کنند تا اشتراک‌شان دوباره ثبت شود.'
             : '⚠️ ساخت کلید ناموفق بود: ' . $vapid['error'];
         $messageType = $vapid['ready'] ? 'success' : 'danger';
+    } elseif ($action === 'save_fcm') {
+        /* کلید سرویس فایربیس (JSON) — از Firebase Console → Project settings →
+           Service accounts → Generate new private key */
+        $raw = trim((string) ($_POST['fcm_service_account'] ?? ''));
+        if ($raw === '') {
+            eplakSetAppSetting($pdo, 'fcm_service_account', '');
+            $message = '✅ کلید سرویس فایربیس پاک شد. اعلان اپ اندروید غیرفعال می‌شود.';
+            $messageType = 'success';
+        } else {
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded) || empty($decoded['project_id']) || empty($decoded['client_email']) || empty($decoded['private_key'])) {
+                $message = '⚠️ محتوای کلید سرویس نامعتبر است. کل فایل JSON را (از { تا }) کپی کنید.';
+                $messageType = 'danger';
+            } else {
+                eplakSetAppSetting($pdo, 'fcm_service_account', (string) json_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                /* توکن دسترسی قبلی باطل می‌شود تا با کلید تازه ساخته شود */
+                eplakSetAppSetting($pdo, 'fcm_access_token', '');
+                eplakSetAppSetting($pdo, 'fcm_access_token_exp', '0');
+
+                $cfg = eplakFcmConfig($pdo);
+                $auth = eplakFcmAccessToken($pdo, true);
+                if ($cfg['ready'] && $auth['token'] !== '') {
+                    $message = '✅ کلید سرویس فایربیس ذخیره شد و اتصال به گوگل برقرار است (پروژه: ' . htmlspecialchars($cfg['project_id']) . ').';
+                    $messageType = 'success';
+                } else {
+                    $message = '⚠️ کلید ذخیره شد ولی اتصال به گوگل برقرار نشد: ' . htmlspecialchars($auth['error'] !== '' ? $auth['error'] : $cfg['error']);
+                    $messageType = 'danger';
+                }
+            }
+        }
+    } elseif ($action === 'test_fcm') {
+        $phone = trim((string) ($_POST['fcm_test_phone'] ?? ''));
+        $phone = str_replace(
+            ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹','٠','١','٢','٣','٤','٥','٦','٧','٨','٩',' ','-','(',')'],
+            ['0','1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9','','','',''],
+            $phone
+        );
+        if ($phone === '') {
+            $message = '⚠️ شماره موبایل را وارد کنید.';
+            $messageType = 'danger';
+        } else {
+            $tokens = eplakFcmTokens($pdo, [$phone]);
+            if (!$tokens) {
+                $message = '⚠️ برای شماره‌ی ' . htmlspecialchars($phone) . ' هیچ دستگاهی از اپ اندروید ثبت نشده است. اپ باید یک‌بار با این شماره باز شود تا توکن دستگاه ثبت گردد.';
+                $messageType = 'danger';
+            } else {
+                $result = eplakFcmSend(
+                    $pdo,
+                    $tokens,
+                    'اعلان آزمایشی — ای‌پلاک',
+                    'این پیام از پنل مدیریت برای بررسی اعلان اپ اندروید فرستاده شده است.',
+                    ['url' => 'index.html', 'tag' => 'eplak-fcm-test-' . time()]
+                );
+                $message = $result['sent'] > 0
+                    ? '✅ اعلان آزمایشی فایربیس برای ' . (int) $result['sent'] . ' دستگاه از ' . count($tokens) . ' دستگاه ارسال شد.'
+                    : '⚠️ ارسال ناموفق بود: ' . htmlspecialchars(implode(' | ', array_slice($result['errors'], 0, 2)) . ' ' . $result['skipped']);
+                $messageType = $result['sent'] > 0 ? 'success' : 'danger';
+            }
+        }
     } elseif ($action === 'repair_schema') {
         $report = eplakRunSchemaSync($pdo, true);
         if ($report['failed']) {
@@ -112,6 +172,11 @@ $pushPossible = eplakPushEnabled();
 $pushStats    = getPushStats($pdo);
 $pushErrors   = getPushLastErrors($pdo, 5);
 $vapidSubject = (string) eplakAppSetting($pdo, 'vapid_subject', '');
+
+/* وضعیت اعلان اپ اندروید (فایربیس/FCM) */
+$fcmConfig  = eplakFcmConfig($pdo);
+$fcmDevices = eplakFcmCount($pdo);
+$fcmTokensTotal = eplakFcmCount($pdo, false);
 
 /* وضعیت فنی سرور */
 $uploadRoot = EPLAK_ROOT . '/uploads';
@@ -362,6 +427,80 @@ $httpsOn = eplakIsHttpsRequest();
           <?= eplakCsrfField() ?>
           <input type="hidden" name="action" value="regen_vapid">
           <button type="submit" class="btn btn-outline"><i class="fas fa-rotate"></i> ساخت مجدد کلیدهای اعلان</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2><i class="fas fa-mobile-screen-button"></i> اعلان گوشی برای اپ اندروید (فایربیس)</h2>
+        <p class="field-hint" style="line-height:2; margin-bottom:14px;">
+          اپ اندروید سایت را داخل WebView نشان می‌دهد و اندروید در WebView اجازه‌ی «اعلان پس‌زمینه‌ی مرورگر»
+          نمی‌دهد. برای رسیدن اعلان وقتی <strong>اپ کاملاً بسته است</strong>، از سرویس فایربیس گوگل استفاده می‌شود.
+          <br>
+          <strong>راه‌اندازی یک‌باره (۵ دقیقه):</strong>
+          <ol style="margin:6px 0 0; padding-inline-start:20px; font-size:13px;">
+            <li>در <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>
+                یک پروژه بسازید (رایگان).</li>
+            <li>در همان پروژه، یک اپ اندروید با نام بسته‌ی
+                <code dir="ltr">com.example.eplakfixed</code> اضافه کنید و فایل
+                <code dir="ltr">google-services.json</code> را دانلود و در پوشه‌ی
+                <code dir="ltr">android-app/app/</code> قرار دهید (قبل از ساخت APK).</li>
+            <li>در Firebase: ⚙️ Project settings → <strong>Service accounts</strong> →
+                دکمه‌ی <strong>Generate new private key</strong> → فایل JSON دانلود می‌شود.</li>
+            <li>محتوای کامل همان فایل JSON را در کادر زیر بچسبانید و ذخیره کنید.</li>
+          </ol>
+        </p>
+
+        <div class="kv-list" style="margin-bottom:16px;">
+          <div class="kv-row">
+            <span class="kv-key">وضعیت کلید سرویس</span>
+            <span class="kv-val">
+              <?php if ($fcmConfig['ready']): ?>
+                <span class="pill pill-ok">آماده</span>
+                <span style="font-size:12px; color:var(--dark-500);" dir="ltr"><?= htmlspecialchars($fcmConfig['project_id']) ?></span>
+              <?php else: ?>
+                <span class="pill pill-bad">تنظیم نشده</span>
+                <span style="font-size:12px; color:var(--dark-500);"><?= htmlspecialchars($fcmConfig['error']) ?></span>
+              <?php endif; ?>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">دستگاه‌های ثبت‌شده‌ی اپ</span>
+            <span class="kv-val">
+              <strong><?= (int) $fcmDevices ?></strong> دستگاه فعال
+              <?php if ($fcmTokensTotal > $fcmDevices): ?>
+                <span style="font-size:12px; color:var(--dark-500);">(از <?= (int) $fcmTokensTotal ?> دستگاه ثبت‌شده)</span>
+              <?php endif; ?>
+            </span>
+          </div>
+        </div>
+
+        <form method="post" style="display:grid; gap:14px;">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="save_fcm">
+          <div class="form-group">
+            <label for="fcm_service_account"><i class="fas fa-key" style="color: var(--primary-500); margin-left: 6px;"></i> کلید سرویس فایربیس (محتوای فایل JSON)</label>
+            <textarea class="form-control" id="fcm_service_account" name="fcm_service_account" rows="6"
+                      dir="ltr" style="text-align:left; font-family:monospace; font-size:12px;"
+                      placeholder='{"type":"service_account","project_id":"...","private_key":"-----BEGIN PRIVATE KEY-----
+...","client_email":"..."}'><?= htmlspecialchars((string) eplakAppSetting($pdo, 'fcm_service_account', '')) ?></textarea>
+            <p class="field-hint">این کلید محرمانه است؛ فقط روی سرور شما ذخیره می‌شود و در گیت‌هاب قرار نمی‌گیرد. برای پاک کردن، کادر را خالی کنید و ذخیره بزنید.</p>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> ذخیره و بررسی اتصال</button>
+          </div>
+        </form>
+
+        <form method="post" class="settings-grid" style="margin-top:18px;">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="test_fcm">
+          <div class="form-group">
+            <label for="fcm_test_phone"><i class="fas fa-paper-plane" style="color: var(--primary-500); margin-left: 6px;"></i> ارسال آزمایشی به اپ اندروید</label>
+            <input class="form-control" type="tel" id="fcm_test_phone" name="fcm_test_phone" placeholder="09xxxxxxxxx" required>
+            <p class="field-hint">شماره‌ای که کاربر با آن در اپ وارد شده است. گوشی را ببندید و ببینید اعلان می‌رسد.</p>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-success"><i class="fas fa-mobile-screen"></i> ارسال آزمایشی فایربیس</button>
+          </div>
         </form>
       </section>
 

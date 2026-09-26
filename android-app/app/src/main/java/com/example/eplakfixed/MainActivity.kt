@@ -1,6 +1,7 @@
 package com.example.eplakfixed
 
 import android.Manifest
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.webkit.JavascriptInterface
@@ -141,6 +142,60 @@ class MainActivity : AppCompatActivity() {
         fun showNotification(title: String, body: String, id: String) {
             activity.runOnUiThread {
                 NotificationBridge.show(activity, title, body, id)
+            }
+        }
+
+        /* ── توکن فایربیس (برای اعلان در حالت بسته بودن کامل اپ) ─────────────
+           لایه‌ی وب این توکن را می‌گیرد و همراه شماره‌ی کاربر به سرور می‌فرستد
+           (api/push.php?action=register_fcm). اگر پروژه‌ی فایربیس راه‌اندازی
+           نشده باشد، رشته‌ی خالی برمی‌گردد و هیچ خطایی رخ نمی‌دهد. */
+
+        /** توکن فایربیس این دستگاه (اگر آماده باشد) */
+        @JavascriptInterface
+        fun getFcmToken(): String {
+            val prefs = activity.getSharedPreferences(EplakMessagingService.PREFS, Context.MODE_PRIVATE)
+
+            /* توکن قبلی که خود فایربیس ساخته و در دستگاه ذخیره شده است */
+            val cached = prefs.getString(EplakMessagingService.KEY_TOKEN, "") ?: ""
+            if (cached.isNotEmpty()) return cached
+
+            /* درخواست توکن تازه؛ نتیجه غیرهمگام است و دفعه‌ی بعد خوانده می‌شود.
+               اگر پروژه‌ی فایربیس راه‌اندازی نشده باشد، رشته‌ی خالی برمی‌گردد. */
+            return try {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { fresh ->
+                        prefs.edit().putString(EplakMessagingService.KEY_TOKEN, fresh).apply()
+                    }
+                ""
+            } catch (e: Throwable) {
+                ""
+            }
+        }
+
+        /** آیا اعلان فایربیس روی این دستگاه آماده است؟ */
+        @JavascriptInterface
+        fun isFcmReady(): Boolean {
+            val prefs = activity.getSharedPreferences(EplakMessagingService.PREFS, Context.MODE_PRIVATE)
+            if (!(prefs.getString(EplakMessagingService.KEY_TOKEN, "") ?: "").isEmpty()) return true
+            return try {
+                com.google.firebase.FirebaseApp.getInstance()
+                true
+            } catch (e: Throwable) {
+                false
+            }
+        }
+
+        /** درخواست تازه‌سازی توکن (اگر کاربر بعداً اجازه‌ی اعلان داد) */
+        @JavascriptInterface
+        fun refreshFcmToken() {
+            try {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { fresh ->
+                        activity.getSharedPreferences(EplakMessagingService.PREFS, Context.MODE_PRIVATE)
+                            .edit().putString(EplakMessagingService.KEY_TOKEN, fresh).apply()
+                    }
+            } catch (e: Throwable) {
+                /* فایربیس فعال نیست */
             }
         }
     }

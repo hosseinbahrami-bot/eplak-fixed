@@ -28,12 +28,21 @@
             </intent-filter>
         </activity>
 
-        <!-- سایر Activityهای برنامه -->
+        <!-- دریافت اعلان‌های فایربیس (وقتی اپ در پس‌زمینه یا بسته است) -->
+        <service
+            android:name=".EplakMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <activity android:name=".LoginActivity" android:exported="false" />
         <activity android:name=".HomeActivity" android:exported="false" />
         <activity android:name=".PaymentActivity" android:exported="false" />
         <activity android:name=".ProfileActivity" android:exported="false" />
         <activity android:name=".ReportActivity" android:exported="false" />
+        <!-- (سرویس اعلان فایربیس در بالا ثبت شده است) -->
 
     </application>
 

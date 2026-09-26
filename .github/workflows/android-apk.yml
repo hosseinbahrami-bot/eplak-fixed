@@ -1,0 +1,91 @@
+# ============================================================================
+#  ساخت خودکار فایل APK اپ اندروید (در سرورهای گیت‌هاب — نیازی به Android Studio نیست)
+#
+#  چرا این‌جا؟ فایل‌های سایت (index.html و پوشه‌های core/ و modules/) هنگام ساخت
+#  APK داخل خودش بسته‌بندی می‌شوند؛ پس برای دیدن تغییرات در اپ، باید APK تازه
+#  ساخته و نصب شود. این ورک‌فلو همان کار را انجام می‌دهد.
+#
+#  نتیجه کجاست؟ Actions → آخرین اجرا → بخش Artifacts → فایل
+#  «eplak-apk» (یا در صفحه‌ی Releases به‌عنوان پیوست).
+# ============================================================================
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+    paths:
+      - 'android-app/**'
+      - 'index.html'
+      - 'app.js'
+      - 'core/**'
+      - 'modules/**'
+      - 'views/**'
+      - 'assets/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: آماده‌سازی Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: بررسی وجود کلید فایربیس
+        id: firebase
+        run: |
+          if [ -f android-app/app/google-services.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=فایربیس::فایل google-services.json موجود است — اعلان گوشی (FCM) فعال ساخته می‌شود."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=فایربیس تنظیم نشده::فایل android-app/app/google-services.json وجود ندارد؛ APK ساخته می‌شود ولی اعلان در حالت بسته بودن اپ کار نمی‌کند (راهنما: docs/DEPLOY_UPDATE_FA.md بخش ۶)."
+          fi
+
+      - name: ساخت APK
+        working-directory: android-app
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: نام‌گذاری فایل خروجی
+        id: apk
+        run: |
+          SRC=$(find android-app/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          echo "path=$SRC" >> "$GITHUB_OUTPUT"
+          STAMP=$(date +%Y%m%d-%H%M)
+          echo "name=eplak-${STAMP}.apk" >> "$GITHUB_OUTPUT"
+          ls -la "$SRC"
+
+      - name: بارگذاری فایل APK (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: eplak-apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: پیوست کردن APK به Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0-eplak-update
+          name: بسته‌ی به‌روزرسانی سایت و پنل ادمین (v2.0)
+          files: ${{ steps.apk.outputs.path }}
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

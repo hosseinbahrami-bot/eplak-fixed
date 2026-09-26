@@ -664,6 +664,10 @@ function toggleNewsPublished(PDO $pdo, int $id): void {
  * returns: تعداد گیرندگان
  */
 function sendNotification(PDO $pdo, string $title, string $body, string $targetType, array $phones, ?string $createdBy = null): int {
+    /* موتور اعلان پس‌زمینه (مرورگر) و اعلان اپ اندروید (فایربیس) */
+    require_once __DIR__ . '/../../shared/webpush.php';
+    require_once __DIR__ . '/../../shared/fcm.php';
+
     if ($targetType === 'all') {
         $stmt = $pdo->query('SELECT phone FROM users');
         $phones = array_column($stmt->fetchAll(), 'phone');
@@ -739,6 +743,38 @@ function sendNotification(PDO $pdo, string $title, string $body, string $targetT
         }
     } catch (Throwable $e) {
         error_log('[eplak-push] dispatch failed: ' . $e->getMessage());
+    }
+
+    /* ── اعلان گوشی برای اپ اندروید (فایربیس/FCM) ──────────────────────────
+       اندروید در WebView اجازه‌ی Web Push نمی‌دهد؛ این مسیر اعلان را در حالت
+       «بسته بودن کامل اپ» هم به گوشی می‌رساند. */
+    try {
+        $devices = $targetType === 'all'
+            ? eplakFcmTokens($pdo, [], true)
+            : eplakFcmTokens($pdo, $phones, false);
+
+        if ($devices) {
+            $fcmSummary = eplakFcmSend(
+                $pdo,
+                $devices,
+                $title,
+                $body,
+                ['url' => 'index.html', 'tag' => 'eplak-send-' . $sendId, 'id' => $sendId]
+            );
+
+            try {
+                $upd = $pdo->prepare('UPDATE notification_sends SET fcm_sent = :sent, fcm_failed = :failed WHERE id = :id');
+                $upd->execute([
+                    ':sent'   => (int) $fcmSummary['sent'],
+                    ':failed' => (int) $fcmSummary['failed'],
+                    ':id'     => $sendId,
+                ]);
+            } catch (Throwable $e) {
+                /* ستون‌های شمارش فایربیس در دیتابیس‌های قدیمی ممکن است نباشند */
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-fcm] dispatch failed: ' . $e->getMessage());
     }
 
     return count($phones);

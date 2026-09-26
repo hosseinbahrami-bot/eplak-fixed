@@ -5,7 +5,9 @@
    GET  ?action=status&phone=09xxxxxxxxx      → تعداد دستگاه‌های ثبت‌شده‌ی این شماره
    POST action=subscribe  {phone, subscription:{endpoint, keys:{p256dh, auth}}}
    POST action=unsubscribe {endpoint}
-   POST action=test {phone}                   → ارسال اعلان آزمایشی به دستگاه‌های این شماره
+   POST action=register_fcm {phone, token}    → ثبت توکن فایربیس اپ اندروید
+   POST action=unregister_fcm {token}
+   POST action=test {phone}                   → ارسال اعلان آزمایشی (وب‌پوش + فایربیس)
 
    نکته: اعلان‌های «درون‌برنامه‌ای» (in-app) همیشه کار می‌کنند؛ این اندپوینت مسیر
    «نوتیفیکیشن سیستمی گوشی» را اضافه می‌کند تا اعلان حتی در حالت قفل بودن صفحه و
@@ -13,6 +15,7 @@
 */
 require_once __DIR__ . '/_common.php';
 require_once __DIR__ . '/../shared/webpush.php';
+require_once __DIR__ . '/../shared/fcm.php';
 
 eplakApiHeaders();
 
@@ -38,12 +41,16 @@ try {
     switch ($action) {
         case 'config': {
             $vapid = eplakVapidKeys($pdo);
+            $fcm   = eplakFcmConfig($pdo);
             eplakJson([
                 'success'         => true,
                 'enabled'         => $vapid['ready'] && eplakPushEnabled(),
                 'vapid_public_key' => $vapid['public'],
                 'reason'          => $vapid['ready'] ? '' : $vapid['error'],
                 'secure_context_required' => true,
+                /* مسیر اعلان سیستمی برای اپ اندروید (فایربیس) */
+                'fcm_ready'       => $fcm['ready'],
+                'fcm_reason'      => $fcm['ready'] ? '' : $fcm['error'],
             ]);
         }
 
@@ -51,11 +58,15 @@ try {
             if ($phone === '') {
                 eplakJsonError('شماره موبایل معتبر الزامی است', 400);
             }
-            $subs = eplakPushSubscriptions($pdo, [$phone]);
+            $subs   = eplakPushSubscriptions($pdo, [$phone]);
+            $tokens = eplakFcmTokens($pdo, [$phone]);
             eplakJson([
                 'success'       => true,
-                'devices'       => count($subs),
+                'devices'       => count($subs) + count($tokens),
+                'browser_devices' => count($subs),
+                'app_devices'   => count($tokens),
                 'push_enabled'  => eplakPushEnabled(),
+                'fcm_ready'     => eplakFcmConfig($pdo)['ready'],
             ]);
         }
 
@@ -83,6 +94,35 @@ try {
             ]);
         }
 
+        case 'register_fcm': {
+            /* ثبت دستگاه اپ اندروید. برخلاف مرورگر، اپ شماره‌ی کاربر را می‌داند
+               و توکن فایربیس را از خود اندروید می‌گیرد. */
+            $token = trim((string) ($input['token'] ?? ($_GET['token'] ?? '')));
+            if ($token === '') {
+                eplakJsonError('توکن دستگاه الزامی است', 400);
+            }
+            if (!eplakFcmSaveToken($pdo, $phone, $token, (string) ($input['platform'] ?? 'android'))) {
+                eplakJsonError('ذخیره‌ی توکن دستگاه ناموفق بود', 400);
+            }
+            $fcm = eplakFcmConfig($pdo);
+            eplakJson([
+                'success'   => true,
+                'saved'     => true,
+                'devices'   => count(eplakFcmTokens($pdo, $phone === '' ? [] : [$phone], $phone === '')),
+                'fcm_ready' => $fcm['ready'],
+                'fcm_reason' => $fcm['ready'] ? '' : $fcm['error'],
+            ]);
+        }
+
+        case 'unregister_fcm': {
+            $token = trim((string) ($input['token'] ?? ($_GET['token'] ?? '')));
+            if ($token === '') {
+                eplakJsonError('توکن دستگاه الزامی است', 400);
+            }
+            eplakFcmDeleteToken($pdo, $token);
+            eplakJson(['success' => true, 'removed' => true]);
+        }
+
         case 'unsubscribe': {
             $endpoint = trim((string) ($input['endpoint'] ?? ($_GET['endpoint'] ?? '')));
             if ($endpoint === '') {
@@ -96,23 +136,43 @@ try {
             if ($phone === '') {
                 eplakJsonError('برای ارسال آزمایشی، شماره موبایل الزامی است', 400);
             }
+
+            $title = 'اعلان آزمایشی — ای‌پلاک';
+            $body  = 'این پیام برای بررسی رسیدن اعلان در حالت قفل/بسته بودن برنامه ارسال شده است.';
+            $meta  = ['url' => 'index.html', 'tag' => 'eplak-test-' . time()];
+
+            /* مسیر ۱: مرورگر / افزودن به صفحه اصلی (Web Push) */
             $subscriptions = eplakPushSubscriptions($pdo, [$phone]);
-            if (!$subscriptions) {
-                eplakJson(['success' => false, 'error' => 'برای این شماره هیچ دستگاهی ثبت نشده است. ابتدا در اپلیکیشن، اجازه‌ی اعلان را فعال کنید.', 'devices' => 0], 200);
+            $browser = $subscriptions
+                ? eplakWebPushSend($pdo, $subscriptions, $title, $body, $meta)
+                : ['sent' => 0, 'failed' => 0, 'errors' => []];
+
+            /* مسیر ۲: اپ اندروید (فایربیس/FCM) */
+            $tokens = eplakFcmTokens($pdo, [$phone]);
+            $app    = $tokens
+                ? eplakFcmSend($pdo, $tokens, $title, $body, $meta)
+                : ['sent' => 0, 'failed' => 0, 'errors' => [], 'skipped' => ''];
+
+            $sent  = (int) $browser['sent'] + (int) $app['sent'];
+            $total = count($subscriptions) + count($tokens);
+
+            if ($total === 0) {
+                eplakJson([
+                    'success' => false,
+                    'error'   => 'برای این شماره هیچ دستگاهی ثبت نشده است. ابتدا در اپلیکیشن اجازه‌ی اعلان را فعال کنید.',
+                    'devices' => 0,
+                ], 200);
             }
-            $result = eplakWebPushSend(
-                $pdo,
-                $subscriptions,
-                'اعلان آزمایشی — ای‌پلاک',
-                'این پیام برای بررسی رسیدن اعلان در حالت قفل/بسته بودن برنامه ارسال شده است.',
-                ['url' => 'index.html', 'tag' => 'eplak-test-' . time()]
-            );
+
             eplakJson([
-                'success' => $result['sent'] > 0,
-                'sent'    => $result['sent'],
-                'failed'  => $result['failed'],
-                'devices' => count($subscriptions),
-                'errors'  => $result['errors'],
+                'success' => $sent > 0,
+                'sent'    => $sent,
+                'failed'  => (int) $browser['failed'] + (int) $app['failed'],
+                'devices' => $total,
+                'browser_devices' => count($subscriptions),
+                'app_devices'     => count($tokens),
+                'errors'  => array_merge($browser['errors'], $app['errors']),
+                'fcm_skipped' => $app['skipped'] ?? '',
             ]);
         }
 

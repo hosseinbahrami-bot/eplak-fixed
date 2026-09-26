@@ -443,6 +443,8 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         recipients_count INT NOT NULL DEFAULT 0,
         push_sent INT NOT NULL DEFAULT 0,
         push_failed INT NOT NULL DEFAULT 0,
+        fcm_sent INT NOT NULL DEFAULT 0,
+        fcm_failed INT NOT NULL DEFAULT 0,
         created_by VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
@@ -508,6 +510,22 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         UNIQUE (notification_id, user_phone)
     )");
 
+    /* توکن دستگاه‌های اندروید (فایربیس/FCM).
+       در WebView اندروید، «Push API» وجود ندارد؛ پس اعلان سیستمی در حالت بسته
+       بودن اپ از مسیر FCM می‌رود و این جدول توکن هر دستگاه را نگه می‌دارد. */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS device_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        token VARCHAR(400) NOT NULL UNIQUE,
+        platform VARCHAR(20) NOT NULL DEFAULT 'android',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_error VARCHAR(255) DEFAULT '',
+        last_seen_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
     /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_media (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -523,6 +541,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_media_report ON report_media(report_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_subs_phone ON push_subscriptions(user_phone)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_notif_reads_notification ON notification_reads(notification_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_device_tokens_phone ON device_tokens(user_phone)');
 
     /* تنظیمات کلید/مقدار برنامه (کلیدهای VAPID و …) */
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS app_settings (
@@ -612,7 +631,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-09-26.3');
+    define('EPLAK_SCHEMA_VERSION', '2026-09-26.4');
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -825,6 +844,8 @@ function eplakMysqlLegacyAlters(PDO $pdo, array &$report): void {
     $add('news', 'badge', 'VARCHAR(120) NULL');
     $add('notification_sends', 'push_sent', 'INT NOT NULL DEFAULT 0');
     $add('notification_sends', 'push_failed', 'INT NOT NULL DEFAULT 0');
+    $add('notification_sends', 'fcm_sent', 'INT NOT NULL DEFAULT 0');
+    $add('notification_sends', 'fcm_failed', 'INT NOT NULL DEFAULT 0');
 }
 
 function eplakGetPdo(): PDO {
@@ -949,6 +970,8 @@ function eplakGetPdo(): PDO {
         recipients_count INT NOT NULL DEFAULT 0,
         push_sent INT NOT NULL DEFAULT 0,
         push_failed INT NOT NULL DEFAULT 0,
+        fcm_sent INT NOT NULL DEFAULT 0,
+        fcm_failed INT NOT NULL DEFAULT 0,
         created_by VARCHAR(100) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
@@ -981,6 +1004,22 @@ function eplakGetPdo(): PDO {
         read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_notification_reader (notification_id, user_phone),
         KEY idx_notification_reads_notification (notification_id)
+    )");
+
+    /* توکن دستگاه‌های اندروید (فایربیس/FCM) — توضیح کامل در بخش SQLite همین فایل */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS device_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        token VARCHAR(400) NOT NULL,
+        platform VARCHAR(20) NOT NULL DEFAULT 'android',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_error VARCHAR(255) DEFAULT '',
+        last_seen_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_device_token (token),
+        KEY idx_device_tokens_phone (user_phone)
     )");
 
     /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */

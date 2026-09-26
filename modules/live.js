@@ -110,7 +110,13 @@
   /* آیا اعلان سیستمی روی این دستگاه ممکن است؟ */
   function pushCapability() {
     if (nativeBridge()) {
-      return { can: true, kind: 'android_native' };
+      var fcmReady = false;
+      try {
+        if (typeof nativeBridge().isFcmReady === 'function') {
+          fcmReady = !!nativeBridge().isFcmReady();
+        }
+      } catch (e) {}
+      return { can: true, kind: 'android_native', fcm: fcmReady };
     }
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
       return { can: false, kind: 'unsupported' };
@@ -691,6 +697,68 @@
     return out;
   }
 
+  /* ───────────────────────────────────────────────────────────
+     ثبت دستگاه اندروید روی سرور (برای اعلان در حالت بسته بودن اپ)
+
+     توکن فایربیس را خود اندروید می‌سازد؛ ما آن را با شماره‌ی کاربر به
+     api/push.php می‌فرستیم تا پنل مدیریت بتواند اعلان را حتی وقتی اپ بسته است
+     به گوشی برساند. اگر پروژه‌ی فایربیس راه‌اندازی نشده باشد، این تابع
+     بی‌صدا هیچ کاری نمی‌کند.
+  ─────────────────────────────────────────────────────────── */
+  async function registerAppDevice(force) {
+    var bridge = nativeBridge();
+    if (!bridge || typeof bridge.getFcmToken !== 'function') {
+      return { ok: false, reason: 'not_android_app' };
+    }
+
+    var token = '';
+    try {
+      token = String(bridge.getFcmToken() || '');
+      if (token === '' && force && typeof bridge.refreshFcmToken === 'function') {
+        try { bridge.refreshFcmToken(); } catch (e) {}
+        token = String(bridge.getFcmToken() || '');
+      }
+    } catch (e) {
+      return { ok: false, reason: 'bridge_error' };
+    }
+
+    if (token === '') {
+      return { ok: false, reason: 'no_fcm_token' };
+    }
+
+    /* ثبت تکراری لازم نیست */
+    var lastSent = '';
+    try { lastSent = window.localStorage.getItem('eplak_fcm_registered') || ''; } catch (e) {}
+    var signature = token + '|' + currentPhoneSafe();
+    if (!force && lastSent === signature) {
+      return { ok: true, reason: 'already_registered' };
+    }
+
+    try {
+      var body = new URLSearchParams();
+      body.append('action', 'register_fcm');
+      body.append('phone', currentPhoneSafe());
+      body.append('token', token);
+      body.append('platform', 'android');
+
+      var res = await fetch(apiBase() + '/push.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: body.toString()
+      });
+      var data = await res.json().catch(function () { return null; });
+      if (data && data.success === true) {
+        try { window.localStorage.setItem('eplak_fcm_registered', signature); } catch (e) {}
+        console.log('[fcm] دستگاه اپ ثبت شد');
+        return { ok: true, devices: data.devices, fcm_ready: data.fcm_ready };
+      }
+      return { ok: false, reason: 'server', details: data && data.error };
+    } catch (e) {
+      return { ok: false, reason: 'network', details: e && e.message };
+    }
+  }
+  window.registerAppDevice = registerAppDevice;
+
   async function markNotificationsRead(ids, all) {
     var payload = {
       action: 'read',
@@ -746,8 +814,11 @@
           enabled = !!window.AndroidApp.notificationsEnabled();
         }
       } catch (e) {}
-      if (enabled) {
-        text = '🔔 اعلان‌های این اپ روی گوشی شما فعال است. اعلان‌های تازه در نوار اعلان‌های گوشی هم نمایش داده می‌شوند.';
+      if (enabled && cap.fcm) {
+        text = '🔔 اعلان‌های این گوشی کامل فعال است (فایربیس): حتی وقتی برنامه بسته باشد، اعلان به دست شما می‌رسد.';
+      } else if (enabled) {
+        text = '🔔 اعلان‌های این اپ روی گوشی شما فعال است. اعلان‌های تازه در نوار اعلان‌های گوشی هم نمایش داده می‌شوند. '
+             + 'برای رسیدن اعلان در حالت «بسته بودن کامل برنامه»، مدیر سامانه باید فایربیس (FCM) را فعال کند.';
       } else {
         text = '🔕 برای دریافت اعلان روی گوشی، اجازه‌ی اعلان را به این برنامه بدهید. '
              + '<button type="button" onclick="requestPushPermission()" style="border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">فعال‌سازی اعلان</button>';
@@ -822,6 +893,8 @@
       /* اگر کاربر قبلاً اجازه داده، اشتراک بی‌صدا تازه می‌شود تا اعلان در حالت
          قفل هم برسد؛ درخواست مجوز فقط با اولین تعامل کاربر انجام می‌شود. */
       syncPushSubscription();
+      /* در اپ اندروید: ثبت دستگاه برای اعلان فایربیس */
+      registerAppDevice(false);
     });
 
     // Request notification permission gracefully on first user interaction
@@ -843,6 +916,8 @@
         syncPushSubscription();
         syncNotifications();
         renderDeviceNotice();
+        /* اگر کاربر در این فاصله وارد شده یا توکن تازه ساخته شده، دوباره ثبت می‌کنیم */
+        registerAppDevice(false);
       }
     });
 

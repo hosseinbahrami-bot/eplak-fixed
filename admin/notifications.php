@@ -40,6 +40,9 @@ $sends = getNotificationSends($pdo, 30);
 $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
 $pushSubscribers = eplakPushCount($pdo);
 $pushReady = eplakPushEnabled();
+require_once __DIR__ . '/../shared/fcm.php';
+$fcmReady   = eplakFcmConfig($pdo)['ready'];
+$fcmDevices = eplakFcmCount($pdo);
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -114,6 +117,15 @@ $pushReady = eplakPushEnabled();
         <div class="alert alert-success" style="margin: 0 24px 16px;">
           <i class="fas fa-paper-plane"></i> اعلان با موفقیت برای <strong><?= $sentCount ?></strong> کاربر ارسال شد
           <span style="opacity:.85;">(این پیام داخل اپلیکیشن همه‌ی گیرندگان نمایش داده می‌شود. برای کسانی که اعلان گوشی را فعال کرده‌اند، به‌صورت نوتیفیکیشن سیستمی — حتی در حالت قفل — هم می‌رسد.)</span>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($fcmReady): ?>
+        <div class="alert alert-success" style="margin: 0 24px 16px;">
+          <i class="fas fa-mobile-screen-button"></i>
+          <strong>اعلان اپ اندروید (فایربیس) فعال است</strong> —
+          <strong><?= (int) $fcmDevices ?></strong> دستگاه ثبت شده است؛ اعلان‌های این صفحه روی گوشی این کاربران
+          حتی وقتی اپ بسته باشد نمایش داده می‌شود.
         </div>
       <?php endif; ?>
 
@@ -232,7 +244,8 @@ $pushReady = eplakPushEnabled();
               <th>عنوان</th>
               <th>نوع ارسال</th>
               <th>تعداد گیرنده</th>
-              <th>اعلان گوشی (موفق/ناموفق)</th>
+              <th>اعلان گوشی (وبپوش)</th>
+              <th>اعلان اپ (فایربیس)</th>
               <th>فرستنده</th>
               <th>زمان</th>
               <th>عملیات</th>
@@ -241,7 +254,7 @@ $pushReady = eplakPushEnabled();
           <tbody>
             <?php if (!$sends): ?>
               <tr>
-                <td colspan="8" style="text-align:center; padding:26px; color:var(--dark-400);">
+                <td colspan="9" style="text-align:center; padding:26px; color:var(--dark-400);">
                   هنوز اعلانی ارسال نشده است.
                 </td>
               </tr>
@@ -265,6 +278,15 @@ $pushReady = eplakPushEnabled();
                       <span style="color: var(--success); font-weight: 600;"><?= (int)($s['push_sent'] ?? 0) ?></span>
                       <span style="color: var(--dark-400);">/</span>
                       <span style="color: <?= (int)($s['push_failed'] ?? 0) > 0 ? 'var(--danger)' : 'var(--dark-400)' ?>; font-weight: 600;"><?= (int)($s['push_failed'] ?? 0) ?></span>
+                    <?php endif; ?>
+                  </td>
+                  <td>
+                    <?php if ((int)($s['fcm_sent'] ?? 0) === 0 && (int)($s['fcm_failed'] ?? 0) === 0): ?>
+                      <span style="color: var(--dark-400); font-size: 12px;">—</span>
+                    <?php else: ?>
+                      <span style="color: var(--success); font-weight: 600;"><?= (int)($s['fcm_sent'] ?? 0) ?></span>
+                      <span style="color: var(--dark-400);">/</span>
+                      <span style="color: <?= (int)($s['fcm_failed'] ?? 0) > 0 ? 'var(--danger)' : 'var(--dark-400)' ?>; font-weight: 600;"><?= (int)($s['fcm_failed'] ?? 0) ?></span>
                     <?php endif; ?>
                   </td>
                   <td><?= htmlspecialchars($s['created_by'] ?: '—') ?></td>
