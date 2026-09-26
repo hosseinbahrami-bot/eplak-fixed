@@ -39,7 +39,8 @@ for f in .htaccess index.html index.php sw.js manifest.json shared/bootstrap.php
          admin/settings.php admin/login.php admin/report_detail.php admin/notification_view.php \
          admin/version.php \
          core/storage.js modules/reports.js modules/live.js modules/dashboard.js \
-         docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md; do
+         docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md \
+         docs/FIREBASE_SETUP_FA.md docs/FIREBASE_SETUP_EN.md; do
   if has "$f"; then echo "   ✅ $f"; else echo "   ❌ $f گم شده!"; exit 1; fi
 done
 for f in shared/config.php data/eplak.sqlite uploads/.htaccess; do

@@ -146,7 +146,9 @@ The app's Notifications screen shows this device's status and offers an
 **“Enable notifications”** button when permission has not been granted yet.
 
 ### 6.1.3) Notifications while the app is fully closed — Firebase (implemented ✅)
-One-time setup:
+> 📘 **Full step-by-step guide: `docs/FIREBASE_SETUP_EN.md` (Persian: `docs/FIREBASE_SETUP_FA.md`)**
+
+Summary:
 
 **A) Create a free Firebase project**
 1. <https://console.firebase.google.com> → **Add project**.

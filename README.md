@@ -24,6 +24,8 @@
 
 ## 📚 راهنماها
 
+- `docs/FIREBASE_SETUP_FA.md` — 🔥 **آموزش گام‌به‌گام فایربیس** (ساخت پروژه، گرفتن دو فایل، فعال‌سازی اعلان اپ بسته).
+- `docs/FIREBASE_SETUP_EN.md` — the same Firebase guide in English.
 - `docs/DEPLOY_UPDATE_FA.md` — راهنمای فارسی: آپلود روی هاست، ساخت دیتابیس، اعلان فایربیس، دانلود APK.
 - `docs/DEPLOY_UPDATE_EN.md` — same guide in English.
 - `docs/README.md` — معرفی ساختار پروژه.

@@ -436,6 +436,13 @@ $httpsOn = eplakIsHttpsRequest();
           اپ اندروید سایت را داخل WebView نشان می‌دهد و اندروید در WebView اجازه‌ی «اعلان پس‌زمینه‌ی مرورگر»
           نمی‌دهد. برای رسیدن اعلان وقتی <strong>اپ کاملاً بسته است</strong>، از سرویس فایربیس گوگل استفاده می‌شود.
           <br>
+          <span style="display:inline-block; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; padding:8px 12px; margin:6px 0;">
+            📘 آموزش گام‌به‌گام کامل، همراه با عیب‌یابی:
+            <code dir="ltr">docs/FIREBASE_SETUP_FA.md</code> (فارسی) و
+            <code dir="ltr">docs/FIREBASE_SETUP_EN.md</code> (انگلیسی) —
+            همین دو فایل داخل بسته‌ی آپلود سایت هستند.
+          </span>
+          <br>
           <strong>راه‌اندازی یک‌باره (۵ دقیقه):</strong>
           <ol style="margin:6px 0 0; padding-inline-start:20px; font-size:13px;">
             <li>در <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>
