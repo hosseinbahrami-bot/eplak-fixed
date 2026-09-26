@@ -102,6 +102,20 @@ foreach ($chartSegments as $i => $seg) {
           <h3>تیکت‌های در انتظار</h3>
           <p><?= $stats['pending_tickets_count'] ?></p>
         </div>
+        <div class="card">
+          <h3><i class="fas fa-paperclip"></i> گزارش‌های دارای عکس/فیلم</h3>
+          <p><?= (int) ($stats['reports_with_media'] ?? 0) ?></p>
+        </div>
+        <div class="card">
+          <h3><i class="fas fa-bell"></i> دستگاه‌های اعلان پس‌زمینه</h3>
+          <p><?= (int) ($stats['push_subscribers'] ?? 0) ?></p>
+          <a href="settings.php" style="font-size:12px;">تنظیمات و ارسال آزمایشی</a>
+        </div>
+        <div class="card">
+          <h3><i class="fas fa-newspaper"></i> مطالب اخبار و دانستنی‌ها</h3>
+          <p><?= (int) ($stats['news_count'] ?? 0) ?></p>
+          <a href="news.php" style="font-size:12px;">مدیریت مطالب</a>
+        </div>
       </section>
 
       <section class="panel chart-panel">

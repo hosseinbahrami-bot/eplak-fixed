@@ -3,6 +3,10 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 
 $reports = getAllReports($pdo);
+
+/* تعداد عکس/فیلم هر گزارش — برای نشان دادن پیوست‌های ارسالی شهروند در فهرست */
+$reportIds = array_map(static fn($r) => (int) $r['id'], $reports);
+$mediaCounts = getReportMediaCounts($pdo, $reportIds);
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -86,6 +90,7 @@ $reports = getAllReports($pdo);
                 <th>واحد</th>
                 <th>موقعیت</th>
                 <th>وضعیت</th>
+                <th>پیوست</th>
                 <th>تاریخ</th>
                 <th>عملیات</th>
               </tr>
@@ -105,6 +110,25 @@ $reports = getAllReports($pdo);
                     <span class="<?= $statusClass ?>">
                       <?= htmlspecialchars($report['status']) ?>
                     </span>
+                  </td>
+                  <td>
+                    <?php
+                      $media = $mediaCounts[(int) $report['id']] ?? ['image' => 0, 'video' => 0, 'total' => 0];
+                    ?>
+                    <?php if ((int) $media['total'] > 0): ?>
+                      <?php if ((int) $media['image'] > 0): ?>
+                        <span class="media-badge" title="<?= (int) $media['image'] ?> عکس">
+                          <i class="fas fa-image"></i> <?= (int) $media['image'] ?>
+                        </span>
+                      <?php endif; ?>
+                      <?php if ((int) $media['video'] > 0): ?>
+                        <span class="media-badge" title="<?= (int) $media['video'] ?> فیلم">
+                          <i class="fas fa-video"></i> <?= (int) $media['video'] ?>
+                        </span>
+                      <?php endif; ?>
+                    <?php else: ?>
+                      <span class="media-badge none">—</span>
+                    <?php endif; ?>
                   </td>
                   <td><?= htmlspecialchars($report['created_at']) ?></td>
                   <td>

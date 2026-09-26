@@ -21,9 +21,10 @@ if ($report && !isset($report['code'])) {
     $report['code'] = 'EP-1403-' . str_pad((string)((int)$report['id'] + 1000), 4, '0', STR_PAD_LEFT);
 }
 
-if ($report && !isset($report['image_path'])) {
-    $report['image_path'] = null;
-}
+/* پیوست‌های ارسالی شهروند (عکس و فیلم) — از جدول report_media خوانده می‌شوند */
+$reportMedia  = $report ? getReportMedia($pdo, (int) $report['id']) : [];
+$mediaImages  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') !== 'video'));
+$mediaVideos  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') === 'video'));
 
 // دریافت اطلاعات کاربر
 $userInfo = null;
@@ -206,14 +207,59 @@ if ($report && !empty($report['user_phone'])) {
             <span class="detail-label"><i class="fas fa-align-left" style="color: var(--dark-400); margin-left: 6px;"></i>توضیحات:</span>
             <div class="text-block"><?= nl2br(htmlspecialchars($report['description'])) ?></div>
           </div>
-          <?php if (!empty($report['image_path'])): ?>
+          <?php if ($reportMedia): ?>
           <div class="detail-item full-width">
-            <span class="detail-label"><i class="fas fa-image" style="color: var(--dark-400); margin-left: 6px;"></i>تصویر:</span>
-            <div class="image-preview">
-              <a href="<?= htmlspecialchars((string)$report['image_path']) ?>" target="_blank">
-                <img src="<?= htmlspecialchars((string)$report['image_path']) ?>" alt="تصویر گزارش" class="report-image">
-              </a>
-            </div>
+            <span class="detail-label">
+              <i class="fas fa-paperclip" style="color: var(--dark-400); margin-left: 6px;"></i>
+              فایل‌های پیوست شهروند (<?= count($reportMedia) ?> فایل):
+            </span>
+
+            <?php if ($mediaImages): ?>
+              <div class="media-gallery">
+                <?php foreach ($mediaImages as $media): ?>
+                  <figure class="media-thumb">
+                    <a href="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>" target="_blank" rel="noopener">
+                      <img src="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>"
+                           alt="<?= htmlspecialchars($media['name'] ?: 'عکس گزارش') ?>" loading="lazy">
+                    </a>
+                    <figcaption>
+                      <i class="fas fa-image"></i>
+                      <?= htmlspecialchars(formatBytesFa((int) $media['size'])) ?>
+                      <a class="media-dl" href="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>" download title="دانلود">
+                        <i class="fas fa-download"></i>
+                      </a>
+                    </figcaption>
+                  </figure>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+
+            <?php if ($mediaVideos): ?>
+              <div class="media-videos">
+                <?php foreach ($mediaVideos as $media): ?>
+                  <figure class="media-video">
+                    <video controls preload="metadata" playsinline
+                           src="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>"></video>
+                    <figcaption>
+                      <i class="fas fa-video"></i>
+                      <?= htmlspecialchars(formatBytesFa((int) $media['size'])) ?>
+                      <a class="media-dl" href="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>" download title="دانلود فیلم">
+                        <i class="fas fa-download"></i>
+                      </a>
+                    </figcaption>
+                  </figure>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+
+            <p class="help-text" style="margin-top: 10px;">
+              اگر فایلی نمایش داده نشد، دسترسی پوشه‌ی <code>uploads</code> را بررسی کنید (باید قابل خواندن باشد).
+            </p>
+          </div>
+          <?php else: ?>
+          <div class="detail-item full-width">
+            <span class="detail-label"><i class="fas fa-paperclip" style="color: var(--dark-400); margin-left: 6px;"></i>فایل‌های پیوست:</span>
+            <div class="text-block">شهروند برای این گزارش عکس یا فیلمی ارسال نکرده است.</div>
           </div>
           <?php endif; ?>
         </div>

@@ -1,5 +1,106 @@
 <?php
+/* admin/settings.php — تنظیمات پنل مدیریت
+   • تغییر نام کاربری و رمز عبور مدیر
+   • وضعیت و آزمایش «اعلان پس‌زمینه» (Web Push) برای رسیدن اعلان در حالت قفل/بسته بودن برنامه
+   • وضعیت فنی سرور (ماژول‌های لازم، سقف حجم آپلود، مسیر فایل‌های پیوست)
+*/
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/includes/functions.php';
+
+$adminId  = (int) ($_SESSION['admin_id'] ?? 0);
+$admin    = getAdminById($pdo, $adminId);
+$message  = '';
+$messageType = 'danger';
+$pushTestResult = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    eplakRequireCsrf();
+    $action = (string) ($_POST['action'] ?? '');
+
+    if ($action === 'update_username') {
+        $error = updateAdminUsername($pdo, $adminId, (string) ($_POST['username'] ?? ''));
+        if ($error === '') {
+            $_SESSION['admin_username'] = trim((string) ($_POST['username'] ?? ''));
+            $message = '✅ نام کاربری با موفقیت تغییر کرد. از این پس با نام کاربری جدید وارد شوید.';
+            $messageType = 'success';
+        } else {
+            $message = '⚠️ ' . $error;
+        }
+    } elseif ($action === 'update_password') {
+        $error = updateAdminPassword(
+            $pdo,
+            $adminId,
+            (string) ($_POST['current_password'] ?? ''),
+            (string) ($_POST['new_password'] ?? ''),
+            (string) ($_POST['confirm_password'] ?? '')
+        );
+        if ($error === '') {
+            /* شناسه‌ی نشست پس از تغییر رمز نو می‌شود (جلوگیری از تثبیت نشست) */
+            session_regenerate_id(true);
+            $message = '✅ رمز عبور با موفقیت تغییر کرد. از این پس با رمز جدید وارد می‌شوید.';
+            $messageType = 'success';
+        } else {
+            $message = '⚠️ ' . $error;
+        }
+    } elseif ($action === 'test_push') {
+        $phone  = trim((string) ($_POST['test_phone'] ?? ''));
+        $subs   = eplakPushSubscriptions($pdo, [$phone]);
+        if ($phone === '') {
+            $message = '⚠️ شماره موبایل را وارد کنید.';
+        } elseif (!$subs) {
+            $message = '⚠️ برای این شماره هیچ دستگاهی ثبت نشده است. ابتدا در اپلیکیشن (روی گوشی همین شماره) اجازه‌ی اعلان را فعال کنید.';
+        } else {
+            $pushTestResult = eplakWebPushSend(
+                $pdo,
+                $subs,
+                'اعلان آزمایشی — ای‌پلاک',
+                'اگر این پیام را روی گوشی می‌بینید، اعلان پس‌زمینه درست کار می‌کند.',
+                ['url' => 'index.html', 'tag' => 'eplak-test-' . time()]
+            );
+            $message = $pushTestResult['sent'] > 0
+                ? '✅ اعلان آزمایشی برای ' . (int) $pushTestResult['sent'] . ' دستگاه ارسال شد.'
+                : '⚠️ ارسال آزمایشی ناموفق بود. جزئیات خطا در پایین همین صفحه آمده است.';
+            $messageType = $pushTestResult['sent'] > 0 ? 'success' : 'danger';
+        }
+    } elseif ($action === 'regen_vapid') {
+        eplakSetAppSetting($pdo, 'vapid_pem', '');
+        eplakSetAppSetting($pdo, 'vapid_public', '');
+        $vapid = eplakVapidKeys($pdo);
+        $message = $vapid['ready']
+            ? '✅ کلیدهای تازه‌ی اعلان ساخته شد. کاربران باید یک‌بار اپلیکیشن را باز کنند تا اشتراک‌شان دوباره ثبت شود.'
+            : '⚠️ ساخت کلید ناموفق بود: ' . $vapid['error'];
+        $messageType = $vapid['ready'] ? 'success' : 'danger';
+    } elseif ($action === 'save_push_subject') {
+        $subject = trim((string) ($_POST['vapid_subject'] ?? ''));
+        if ($subject !== '' && strpos($subject, 'mailto:') !== 0 && strpos($subject, 'https://') !== 0) {
+            $subject = 'mailto:' . $subject;
+        }
+        eplakSetAppSetting($pdo, 'vapid_subject', $subject);
+        $message = '✅ نشانی تماس اعلان‌ها ذخیره شد.';
+        $messageType = 'success';
+    }
+
+    $admin = getAdminById($pdo, $adminId);
+}
+
+$vapid        = eplakVapidKeys($pdo, false);
+$vapidReady   = $vapid['ready'];
+$pushPossible = eplakPushEnabled();
+$pushStats    = getPushStats($pdo);
+$pushErrors   = getPushLastErrors($pdo, 5);
+$vapidSubject = (string) eplakAppSetting($pdo, 'vapid_subject', '');
+
+/* وضعیت فنی سرور */
+$uploadRoot = EPLAK_ROOT . '/uploads';
+$uploadRootWritable = is_dir($uploadRoot) ? is_writable($uploadRoot) : is_writable(EPLAK_ROOT);
+$driver = 'MySQL/MariaDB';
+try {
+    if (eplakIsSqlite($pdo)) {
+        $driver = 'SQLite (حالت توسعه/پیش‌نمایش)';
+    }
+} catch (Throwable $e) {
+}
+$httpsOn = eplakIsHttpsRequest();
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -11,6 +112,22 @@ require_once __DIR__ . '/auth.php';
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
+  <style>
+    .settings-grid { display: grid; gap: 20px; }
+    .field-hint { font-size: 12px; color: var(--dark-500); margin-top: 6px; line-height: 1.9; }
+    .kv-list { display: grid; gap: 10px; margin-top: 12px; }
+    .kv-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between;
+              padding: 10px 14px; border: 1px solid var(--dark-200); border-radius: 12px; background: var(--dark-50); }
+    .kv-key { font-size: 13px; font-weight: 600; color: var(--dark-600); }
+    .kv-val { font-size: 13px; color: var(--dark-700); }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill-ok { background: var(--success-bg, #ecfdf5); color: var(--success, #047857); }
+    .pill-bad { background: var(--danger-bg, #fef2f2); color: var(--danger, #b91c1c); }
+    .key-box { direction: ltr; text-align: left; font-family: monospace; font-size: 12px; word-break: break-all;
+               background: var(--dark-50); border: 1px dashed var(--dark-300); border-radius: 10px; padding: 10px 12px; }
+    .two-col { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .steps { padding-right: 18px; line-height: 2.2; font-size: 13px; color: var(--dark-600); }
+  </style>
 </head>
 <body>
   <div class="layout">
@@ -20,28 +137,241 @@ require_once __DIR__ . '/auth.php';
         <img class="logo-dark" src="assets/img/logo-light.png" alt="ای‌پلاک">
       </div>
       <nav>
-        <a href="index.php">داشبورد</a>
-        <a href="reports.php">گزارش‌ها</a>
-        <a href="users.php">کاربران</a>
-        <a href="departments.php">واحدها</a>
+        <a href="index.php"><i class="fas fa-chart-pie"></i> <span>داشبورد</span></a>
+        <a href="reports.php"><i class="fas fa-flag"></i> <span>گزارش‌ها</span></a>
+        <a href="tickets.php"><i class="fas fa-ticket-alt"></i> <span>تیکت‌ها</span></a>
+        <a href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
+        <a href="departments.php"><i class="fas fa-sitemap"></i> <span>واحدها</span></a>
+        <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+        <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
-        <a class="active" href="settings.php">تنظیمات</a>
+        <a class="active" href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+        <a href="logout.php"><i class="fas fa-sign-out-alt"></i> <span>خروج</span></a>
       </nav>
     </aside>
     <main class="main">
       <header class="topbar">
-        <h1>تنظیمات پنل</h1>
-        <p>مکان توسعه و تنظیمات آینده</p>
+        <div class="topbar-left">
+          <h1><i class="fas fa-cog" style="color: var(--primary-500); margin-left: 12px;"></i> تنظیمات پنل</h1>
+          <p>حساب مدیر، اعلان پس‌زمینه (نوتیفیکیشن گوشی) و وضعیت فنی سرور</p>
+        </div>
       </header>
 
+      <?php if ($message): ?>
+        <div class="alert alert-<?= $messageType === 'success' ? 'success' : 'danger' ?>">
+          <?= htmlspecialchars($message) ?>
+        </div>
+      <?php endif; ?>
+
       <section class="panel">
-        <h2>امکانات پیش‌رو</h2>
-        <ul>
-          <li>افزودن احراز هویت مدیر</li>
-          <li>ویرایش وضعیت گزارش‌ها</li>
-          <li>افزودن دسترسی‌های چندسطحی</li>
-          <li>اتصال به دیتابیس واقعی و API</li>
-        </ul>
+        <h2><i class="fas fa-user-shield"></i> حساب مدیر</h2>
+        <div class="kv-list">
+          <div class="kv-row">
+            <span class="kv-key">نام کاربری فعلی</span>
+            <span class="kv-val"><strong><?= htmlspecialchars((string) ($admin['username'] ?? '')) ?></strong></span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">نقش</span>
+            <span class="kv-val"><?= htmlspecialchars((string) ($admin['role'] ?? 'admin')) ?></span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">تاریخ ایجاد حساب</span>
+            <span class="kv-val"><?= htmlspecialchars((string) ($admin['created_at'] ?? '—')) ?></span>
+          </div>
+        </div>
+
+        <div class="two-col" style="margin-top: 20px;">
+          <!-- تغییر نام کاربری -->
+          <form method="post" class="settings-grid">
+            <?= eplakCsrfField() ?>
+            <input type="hidden" name="action" value="update_username">
+            <div class="form-group">
+              <label for="username"><i class="fas fa-at" style="color: var(--primary-500); margin-left: 6px;"></i> نام کاربری جدید</label>
+              <input class="form-control" type="text" id="username" name="username"
+                     value="<?= htmlspecialchars((string) ($admin['username'] ?? '')) ?>" required autocomplete="username">
+              <p class="field-hint">حداقل ۳ کاراکتر؛ حروف فارسی/انگلیسی، عدد و علامت‌های . _ - @ مجاز است.</p>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> ذخیره نام کاربری</button>
+            </div>
+          </form>
+
+          <!-- تغییر رمز عبور -->
+          <form method="post" class="settings-grid">
+            <?= eplakCsrfField() ?>
+            <input type="hidden" name="action" value="update_password">
+            <div class="form-group">
+              <label for="current_password"><i class="fas fa-lock" style="color: var(--primary-500); margin-left: 6px;"></i> رمز عبور فعلی</label>
+              <input class="form-control" type="password" id="current_password" name="current_password" required autocomplete="current-password">
+            </div>
+            <div class="form-group">
+              <label for="new_password"><i class="fas fa-key" style="color: var(--primary-500); margin-left: 6px;"></i> رمز عبور جدید</label>
+              <input class="form-control" type="password" id="new_password" name="new_password" required autocomplete="new-password" minlength="8">
+              <p class="field-hint">حداقل ۸ کاراکتر و ترکیبی از حرف و عدد.</p>
+            </div>
+            <div class="form-group">
+              <label for="confirm_password"><i class="fas fa-key" style="color: var(--primary-500); margin-left: 6px;"></i> تکرار رمز عبور جدید</label>
+              <input class="form-control" type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password" minlength="8">
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary"><i class="fas fa-shield-halved"></i> تغییر رمز عبور</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2><i class="fas fa-bell"></i> اعلان پس‌زمینه (نوتیفیکیشن گوشی در حالت قفل)</h2>
+        <p class="field-hint">
+          این بخش، اعلان‌های پنل را به‌صورت «نوتیفیکیشن سیستمی گوشی» ارسال می‌کند؛ حتی وقتی صفحه قفل است
+          یا شهروند برنامه را بسته است. برای فعال بودن این قابلیت، سایت باید با <strong>HTTPS</strong> باز شود،
+          افزونه‌ی <strong>OpenSSL</strong> روی سرور فعال باشد و شهروند یک‌بار در اپلیکیشن اجازه‌ی اعلان را تأیید کند.
+        </p>
+
+        <div class="kv-list">
+          <div class="kv-row">
+            <span class="kv-key">وضعیت قابلیت روی سرور</span>
+            <span class="kv-val">
+              <?php if ($pushPossible && $vapidReady): ?>
+                <span class="pill pill-ok"><i class="fas fa-circle-check"></i> آماده</span>
+              <?php else: ?>
+                <span class="pill pill-bad"><i class="fas fa-triangle-exclamation"></i> نیازمند بررسی</span>
+              <?php endif; ?>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">کلیدهای VAPID</span>
+            <span class="kv-val">
+              <?php if ($vapidReady): ?>
+                ساخته شده <span class="pill pill-ok">فعال</span>
+              <?php else: ?>
+                ساخته نشده <span class="pill pill-bad">غیرفعال</span>
+              <?php endif; ?>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">دستگاه‌های ثبت‌شده (کل / فعال)</span>
+            <span class="kv-val"><?= (int) $pushStats['subscribers_all'] ?> / <?= (int) $pushStats['subscribers'] ?></span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">آخرین ارسال گروهی (موفق / ناموفق)</span>
+            <span class="kv-val">
+              <?php if ($pushStats['last_send_title'] === ''): ?>
+                —
+              <?php else: ?>
+                «<?= htmlspecialchars($pushStats['last_send_title']) ?>» —
+                <?= (int) $pushStats['last_sent'] ?> موفق، <?= (int) $pushStats['last_failed'] ?> ناموفق
+                <span style="color: var(--dark-400); font-size: 12px;">(<?= htmlspecialchars($pushStats['last_send_at']) ?>)</span>
+              <?php endif; ?>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">باز بودن سایت روی HTTPS</span>
+            <span class="kv-val">
+              <?php if ($httpsOn): ?>
+                <span class="pill pill-ok">بله</span>
+              <?php else: ?>
+                <span class="pill pill-bad">خیر — اعلان پس‌زمینه فقط روی HTTPS (یا localhost) کار می‌کند</span>
+              <?php endif; ?>
+            </span>
+          </div>
+        </div>
+
+        <?php if ($vapidReady): ?>
+          <p class="field-hint" style="margin-top: 16px;">کلید عمومی VAPID (اپلیکیشن این را خودکار از سرور می‌خواند؛ نیازی به کار دستی نیست):</p>
+          <div class="key-box"><?= htmlspecialchars((string) $vapid['public']) ?></div>
+        <?php elseif (!$pushPossible): ?>
+          <div class="alert alert-warning" style="margin-top: 16px;">
+            افزونه‌های لازم روی سرور فعال نیستند. برای اعلان پس‌زمینه باید <code>openssl</code> و یکی از
+            <code>curl</code> یا <code>allow_url_fopen</code> فعال باشند. اعلان‌های داخل برنامه بدون این‌ها هم کار می‌کنند.
+          </div>
+        <?php endif; ?>
+
+        <?php if ($pushErrors): ?>
+          <p class="field-hint" style="margin-top: 16px;">آخرین خطاهای ثبت‌شده (برای عیب‌یابی):</p>
+          <div class="table-wrapper">
+            <table>
+              <thead><tr><th>شماره</th><th>تعداد خطا</th><th>آخرین پیام</th><th>زمان</th></tr></thead>
+              <tbody>
+                <?php foreach ($pushErrors as $err): ?>
+                  <tr>
+                    <td><?= htmlspecialchars((string) ($err['user_phone'] !== '' ? $err['user_phone'] : 'مهمان')) ?></td>
+                    <td><?= (int) $err['fail_count'] ?></td>
+                    <td style="font-size: 12px; direction: ltr; text-align: left;"><?= htmlspecialchars(mb_substr((string) $err['last_error'], 0, 160)) ?></td>
+                    <td style="font-size: 12px;"><?= htmlspecialchars((string) $err['updated_at']) ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
+
+        <div class="two-col" style="margin-top: 20px;">
+          <form method="post" class="settings-grid">
+            <?= eplakCsrfField() ?>
+            <input type="hidden" name="action" value="test_push">
+            <div class="form-group">
+              <label for="test_phone"><i class="fas fa-mobile-screen" style="color: var(--primary-500); margin-left: 6px;"></i> ارسال اعلان آزمایشی</label>
+              <input class="form-control" type="tel" id="test_phone" name="test_phone" placeholder="09xxxxxxxxx" required>
+              <p class="field-hint">شماره‌ای که در اپلیکیشن اجازه‌ی اعلان داده است. بهترین روش بررسی: گوشی را قفل کنید و ببینید اعلان می‌رسد.</p>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane"></i> ارسال آزمایشی</button>
+            </div>
+          </form>
+
+          <form method="post" class="settings-grid">
+            <?= eplakCsrfField() ?>
+            <input type="hidden" name="action" value="save_push_subject">
+            <div class="form-group">
+              <label for="vapid_subject"><i class="fas fa-envelope" style="color: var(--primary-500); margin-left: 6px;"></i> نشانی تماس برای سرویس‌های پوش</label>
+              <input class="form-control" type="text" id="vapid_subject" name="vapid_subject"
+                     value="<?= htmlspecialchars($vapidSubject) ?>" placeholder="mailto:admin@example.com" style="direction: ltr; text-align: left;">
+              <p class="field-hint">استاندارد VAPID این نشانی را الزامی می‌کند (mailto: یا https:).</p>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-secondary"><i class="fas fa-save"></i> ذخیره</button>
+            </div>
+          </form>
+        </div>
+
+        <form method="post" style="margin-top: 18px;" onsubmit="return confirm('با ساخت کلید تازه، همه‌ی اشتراک‌های فعلی باطل می‌شوند و کاربران باید یک‌بار اپلیکیشن را باز کنند. ادامه می‌دهید؟');">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="regen_vapid">
+          <button type="submit" class="btn btn-outline"><i class="fas fa-rotate"></i> ساخت مجدد کلیدهای اعلان</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2><i class="fas fa-circle-info"></i> وضعیت فنی سرور</h2>
+        <div class="kv-list">
+          <div class="kv-row"><span class="kv-key">درایور دیتابیس</span><span class="kv-val"><?= htmlspecialchars($driver) ?></span></div>
+          <div class="kv-row"><span class="kv-key">نسخه PHP</span><span class="kv-val" style="direction:ltr"><?= htmlspecialchars(PHP_VERSION) ?></span></div>
+          <div class="kv-row">
+            <span class="kv-key">افزونه OpenSSL</span>
+            <span class="kv-val"><?= function_exists('openssl_pkey_new') ? '<span class="pill pill-ok">فعال</span>' : '<span class="pill pill-bad">غیرفعال</span>' ?></span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">curl</span>
+            <span class="kv-val"><?= function_exists('curl_init') ? '<span class="pill pill-ok">فعال</span>' : '<span class="pill pill-bad">غیرفعال</span>' ?></span>
+          </div>
+          <div class="kv-row"><span class="kv-key">سقف حجم هر فایل آپلود</span><span class="kv-val" style="direction:ltr"><?= htmlspecialchars((string) ini_get('upload_max_filesize')) ?></span></div>
+          <div class="kv-row"><span class="kv-key">سقف کل ارسال فرم</span><span class="kv-val" style="direction:ltr"><?= htmlspecialchars((string) ini_get('post_max_size')) ?></span></div>
+          <div class="kv-row">
+            <span class="kv-key">پوشه‌ی فایل‌های پیوست (uploads)</span>
+            <span class="kv-val"><?= $uploadRootWritable ? '<span class="pill pill-ok">قابل نوشتن</span>' : '<span class="pill pill-bad">غیرقابل نوشتن — دسترسی ۷۵۵ بدهید</span>' ?></span>
+          </div>
+          <div class="kv-row"><span class="kv-key">تعداد مطالب اخبار/دانستنی‌ها</span><span class="kv-val"><?= (int) getDashboardStats($pdo)['news_count'] ?> مورد</span></div>
+          <div class="kv-row"><span class="kv-key">گزارش‌های دارای عکس/فیلم</span><span class="kv-val"><?= (int) getDashboardStats($pdo)['reports_with_media'] ?> مورد</span></div>
+        </div>
+
+        <h3 style="margin-top: 22px; font-size: 15px;">چطور مطمئن شوم اعلان در حالت قفل می‌رسد؟</h3>
+        <ol class="steps">
+          <li>گوشی شهروند یک‌بار اپلیکیشن را باز کند و پیام «اجازه‌ی اعلان» را تأیید کند (در iOS باید اپ به صفحه‌ی اصلی اضافه شده باشد).</li>
+          <li>در پنل → «ارسال اعلان» یک پیام بفرستید، یا در همین صفحه «ارسال آزمایشی» را برای همان شماره بزنید.</li>
+          <li>صفحه‌ی گوشی را قفل کنید؛ اعلان باید روی صفحه‌ی قفل ظاهر شود.</li>
+          <li>اگر نرسید: وضعیت HTTPS و خطاهای بالا را بررسی کنید. TTL اعلان‌ها ۲۸ روز است؛ اگر گوشی آفلاین باشد، به‌محض آنلاین شدن تحویل داده می‌شود.</li>
+        </ol>
       </section>
     </main>
   </div>

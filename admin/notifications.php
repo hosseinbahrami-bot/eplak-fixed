@@ -38,6 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $sends = getNotificationSends($pdo, 30);
 $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
+$pushSubscribers = eplakPushCount($pdo);
+$pushReady = eplakPushEnabled();
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -110,7 +112,24 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
 
       <?php if ($sentCount >= 0): ?>
         <div class="alert alert-success" style="margin: 0 24px 16px;">
-          <i class="fas fa-paper-plane"></i> اعلان با موفقیت برای <strong><?= $sentCount ?></strong> کاربر ارسال شد.
+          <i class="fas fa-paper-plane"></i> اعلان با موفقیت برای <strong><?= $sentCount ?></strong> کاربر ارسال شد
+          <span style="opacity:.85;">(برای کاربرانی که اعلان گوشی را فعال کرده‌اند، به‌صورت نوتیفیکیشن سیستمی — حتی در حالت قفل — هم ارسال شد.)</span>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($pushReady && $pushSubscribers === 0): ?>
+        <div class="alert alert-info" style="margin: 0 24px 16px;">
+          <i class="fas fa-circle-info"></i>
+          هنوز هیچ دستگاهی برای «اعلان پس‌زمینه» ثبت نشده است. تا زمانی که شهروندان در اپلیکیشن اجازه‌ی اعلان را
+          تأیید نکنند، پیام‌ها فقط داخل برنامه دیده می‌شوند.
+          <a href="settings.php" style="font-weight:600;">بررسی تنظیمات اعلان</a>
+        </div>
+      <?php elseif ($pushReady && $pushSubscribers > 0): ?>
+        <div class="alert alert-info" style="margin: 0 24px 16px;">
+          <i class="fas fa-bell"></i>
+          <strong><?= $pushSubscribers ?></strong> دستگاه آماده‌ی دریافت اعلان پس‌زمینه (نوتیفیکیشن گوشی) است —
+          اعلان‌های این صفحه برای آن‌ها روی صفحه‌ی قفل هم نمایش داده می‌شود.
+          <a href="settings.php" style="font-weight:600;">ارسال آزمایشی</a>
         </div>
       <?php endif; ?>
       <?php if ($message): ?>
@@ -204,6 +223,7 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
               <th>عنوان</th>
               <th>نوع ارسال</th>
               <th>تعداد گیرنده</th>
+              <th>اعلان گوشی (موفق/ناموفق)</th>
               <th>فرستنده</th>
               <th>زمان</th>
               <th>عملیات</th>
@@ -212,7 +232,7 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
           <tbody>
             <?php if (!$sends): ?>
               <tr>
-                <td colspan="7" style="text-align:center; padding:26px; color:var(--dark-400);">
+                <td colspan="8" style="text-align:center; padding:26px; color:var(--dark-400);">
                   هنوز اعلانی ارسال نشده است.
                 </td>
               </tr>
@@ -229,6 +249,15 @@ $sentCount = isset($_GET['sent']) ? (int)$_GET['sent'] : -1;
                     <?php endif; ?>
                   </td>
                   <td><?= (int)$s['recipients_count'] ?> نفر</td>
+                  <td>
+                    <?php if ((int)($s['push_sent'] ?? 0) === 0 && (int)($s['push_failed'] ?? 0) === 0): ?>
+                      <span style="color: var(--dark-400); font-size: 12px;">—</span>
+                    <?php else: ?>
+                      <span style="color: var(--success); font-weight: 600;"><?= (int)($s['push_sent'] ?? 0) ?></span>
+                      <span style="color: var(--dark-400);">/</span>
+                      <span style="color: <?= (int)($s['push_failed'] ?? 0) > 0 ? 'var(--danger)' : 'var(--dark-400)' ?>; font-weight: 600;"><?= (int)($s['push_failed'] ?? 0) ?></span>
+                    <?php endif; ?>
+                  </td>
                   <td><?= htmlspecialchars($s['created_by'] ?: '—') ?></td>
                   <td style="font-size:12px; color:var(--dark-500);"><?= htmlspecialchars($s['created_at']) ?></td>
                   <td>

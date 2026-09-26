@@ -228,6 +228,9 @@
     }
   };
   if (typeof window !== 'undefined') window.heritageData_EN = heritageData_EN;
+  /* نسخه‌ی فارسی برای استفاده‌ی سایر ماژول‌ها (مثلاً حالت بدون اینترنتِ
+     modules/live.js که کارت‌های دانستنی‌ها را از سرور می‌گیرد) */
+  if (typeof window !== 'undefined') window.__EPLAK_HERITAGE__ = heritageData;
 
   function openHeritageDetail(key) {
     const isEn = (window.i18n && typeof window.i18n.getLanguage === 'function')
