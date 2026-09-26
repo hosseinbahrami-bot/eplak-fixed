@@ -1,0 +1,32 @@
+name: آزمون‌های خودکار (Regression)
+
+# با هر تغییر روی کد سایت/پنل، همه‌ی آزمون‌ها اجرا می‌شوند تا چیزی خراب نشود.
+on:
+  push:
+    branches: [ main, 'arena/**' ]
+    paths-ignore:
+      - '**.md'
+      - 'eplak-fixed-update.zip'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    name: اجرای آزمون‌ها روی PHP 8.3
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: اجرای همه‌ی آزمون‌ها
+        run: bash tools/dev/run-regression.sh
+
+      - name: خلاصه در صفحه‌ی اجرا
+        if: always()
+        run: |
+          echo "### نتیجه‌ی آزمون‌های خودکار" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "اجرای کامل آزمون‌ها را در بخش «اجرای همه‌ی آزمون‌ها» بالا ببینید." >> "$GITHUB_STEP_SUMMARY"

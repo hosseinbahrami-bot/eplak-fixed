@@ -128,7 +128,7 @@ an app that is already installed — the app needs a **rebuilt APK**:
 |---|---|
 | **App open** | Entry in the app's notification list + an in-app banner + chime + a **system notification in the phone's notification tray** |
 | **App in background / phone locked** | System notification in the tray (shown by Android itself) |
-| **App fully closed** | ⚠️ Android does not let a closed app run; this needs Firebase Cloud Messaging (section 6.3) |
+| **App fully closed** | ✅ With Firebase Cloud Messaging (section 6.1.3) |
 | **Site open in Chrome on the phone** | Notification also reaches the lock screen (the most complete route today) |
 
 ### 6.1.1) Why browser push cannot work inside the Android app
@@ -145,10 +145,43 @@ The APK must be rebuilt and reinstalled (section 6).
 The app's Notifications screen shows this device's status and offers an
 **“Enable notifications”** button when permission has not been granted yet.
 
-### 6.1.3) If notifications are required while the app is fully closed
-The standard solution is **FCM (Firebase Cloud Messaging)**: create a free
-Firebase project, add `google-services.json` to the Android project and a
-service key to the panel. This can be added as a separate step.
+### 6.1.3) Notifications while the app is fully closed — Firebase (implemented ✅)
+One-time setup:
+
+**A) Create a free Firebase project**
+1. <https://console.firebase.google.com> → **Add project**.
+2. Inside the project → **Android** icon → package name exactly
+   `com.example.eplakfixed` → **Register app**.
+3. Download **`google-services.json`**.
+
+**B) Put the file in the project (so the APK is built with Firebase)**
+Place it at `android-app/app/google-services.json` and push it to GitHub
+(you can upload it through the GitHub website). The APK build then runs
+automatically and produces a new APK **with Firebase enabled**.
+
+**C) Put the service key in the admin panel (needed for server-side sending)**
+1. Firebase → ⚙️ **Project settings** → **Service accounts** → **Generate new private key**.
+2. Panel → **تنظیمات (Settings)** → **«اعلان گوشی برای اپ اندروید (فایربیس)»** →
+   paste the whole JSON → **ذخیره و بررسی اتصال (Save and check connection)**.
+3. A “✅ … connection established” message means it is ready.
+4. Use **ارسال آزمایشی فایربیس (Send test)** with a phone number.
+
+> ⚠️ The service-account key is secret: it only goes into the panel and is
+> blocked in `.gitignore`.
+
+### 6.1.4) Downloading and installing the fresh APK (no Android Studio)
+**Stable download link:**
+`https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk`
+
+(or the Releases page → Assets → `eplak-app.apk`). On the phone: download →
+allow “install from unknown sources” → install. If you see “App not installed”,
+uninstall the previous version first.
+
+### 6.1.5) Building the APK after every change (automatic)
+`.github/workflows/android-apk.yml` builds the APK in GitHub's cloud:
+**Actions → Build Android APK → latest run → Artifacts → `eplak-apk`**
+(or the Releases link above). The app's signing key is cached so later versions
+install straight over the previous one.
 
 ### 6.1.4) Read status now works per user
 Notification read state is stored per user (table `notification_reads`), so the
@@ -182,3 +215,20 @@ bash tools/build-update-package.sh
 
 It rebuilds `eplak-fixed-update.zip` from the current code and verifies that all
 critical files are inside and that `data/`, `uploads/` and `shared/config.php` are not.
+
+### 7) Automated tests (safety check before any change)
+Run the whole suite locally — no server, MySQL or Android Studio needed:
+
+```bash
+bash tools/dev/run-regression.sh          # everything
+bash tools/dev/run-regression.sh fcm      # Firebase engine only
+bash tools/dev/run-regression.sh syntax   # syntax check only
+```
+
+What is covered: `syntax` (no PHP/JS parse errors), `notify` (per-user read
+state + panel stats), `app` (the app's own requests: mark-as-read, Android
+system notification, FCM token registration), `pushcrypto` (browser push
+encryption + VAPID signature), `fcm` (Google token, message send, dead-token
+deactivation) and `backend` (tables, seeds, photo upload, self-healing schema,
+panel pages). The same tests also run automatically on GitHub:
+**Actions → «آزمون‌های خودکار (Regression)»**.

@@ -44,6 +44,12 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: کش کلید امضای اپ (تا نسخه‌ی تازه روی نسخه‌ی نصب‌شده نصب شود)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android
+          key: eplak-android-signing-v1
+
       - name: بررسی Android SDK موجود در سرور
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}"
