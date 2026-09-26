@@ -4,6 +4,8 @@
 
     <!-- مجوزهای دسترسی -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- نمایش اعلان روی گوشی (اندروید ۱۳ و بالاتر این اجازه را باید کاربر بدهد) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application

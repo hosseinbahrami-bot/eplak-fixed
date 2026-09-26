@@ -494,6 +494,20 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
+    /* «خوانده شدن» اعلان به‌ازای هر کاربر.
+       ستون read_flag در جدول notifications یک مقدار برای کل ردیف است؛ اعلان‌های
+       گروهی (user_phone = 'all') یک ردیف مشترک برای همه هستند، پس با آن نمی‌شد
+       فهمید کدام کاربر اعلان را خوانده است. این جدول برای هر (اعلان، خواننده)
+       یک سطر نگه می‌دارد. کلید خواننده برای کاربر وارد‌شده شماره‌ی موبایل و
+       برای کاربر مهمان «guest:<شناسه‌ی دستگاه>» است. */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_reads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notification_id INT NOT NULL,
+        user_phone VARCHAR(60) NOT NULL,
+        read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (notification_id, user_phone)
+    )");
+
     /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_media (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -508,6 +522,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
 
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_media_report ON report_media(report_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_subs_phone ON push_subscriptions(user_phone)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_notif_reads_notification ON notification_reads(notification_id)');
 
     /* تنظیمات کلید/مقدار برنامه (کلیدهای VAPID و …) */
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS app_settings (
@@ -597,7 +612,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-09-26.2');
+    define('EPLAK_SCHEMA_VERSION', '2026-09-26.3');
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -956,6 +971,16 @@ function eplakGetPdo(): PDO {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_push_endpoint (endpoint),
         KEY idx_push_subs_phone (user_phone)
+    )");
+
+    /* «خوانده شدن» اعلان به‌ازای هر کاربر (توضیح کامل در بخش SQLite همین فایل) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_reads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        notification_id INT NOT NULL,
+        user_phone VARCHAR(60) NOT NULL,
+        read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_notification_reader (notification_id, user_phone),
+        KEY idx_notification_reads_notification (notification_id)
     )");
 
     /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */

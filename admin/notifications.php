@@ -113,16 +113,25 @@ $pushReady = eplakPushEnabled();
       <?php if ($sentCount >= 0): ?>
         <div class="alert alert-success" style="margin: 0 24px 16px;">
           <i class="fas fa-paper-plane"></i> اعلان با موفقیت برای <strong><?= $sentCount ?></strong> کاربر ارسال شد
-          <span style="opacity:.85;">(برای کاربرانی که اعلان گوشی را فعال کرده‌اند، به‌صورت نوتیفیکیشن سیستمی — حتی در حالت قفل — هم ارسال شد.)</span>
+          <span style="opacity:.85;">(این پیام داخل اپلیکیشن همه‌ی گیرندگان نمایش داده می‌شود. برای کسانی که اعلان گوشی را فعال کرده‌اند، به‌صورت نوتیفیکیشن سیستمی — حتی در حالت قفل — هم می‌رسد.)</span>
         </div>
       <?php endif; ?>
 
       <?php if ($pushReady && $pushSubscribers === 0): ?>
-        <div class="alert alert-info" style="margin: 0 24px 16px;">
+        <div class="alert alert-info" style="margin: 0 24px 16px; line-height:1.9;">
           <i class="fas fa-circle-info"></i>
-          هنوز هیچ دستگاهی برای «اعلان پس‌زمینه» ثبت نشده است. تا زمانی که شهروندان در اپلیکیشن اجازه‌ی اعلان را
-          تأیید نکنند، پیام‌ها فقط داخل برنامه دیده می‌شوند.
-          <a href="settings.php" style="font-weight:600;">بررسی تنظیمات اعلان</a>
+          <strong>هنوز هیچ دستگاهی برای «اعلان گوشی» ثبت نشده است.</strong>
+          تا وقتی شهروندان اجازه‌ی اعلان را تأیید نکنند، پیام‌ها فقط داخل خود برنامه دیده می‌شوند.
+          <div style="margin-top:8px; font-size:13px;">
+            <strong>شهروند چطور اعلان گوشی را فعال کند؟</strong>
+            <ol style="margin:6px 0 0; padding-inline-start:20px;">
+              <li>سایت <code dir="ltr">eplak.ir/eplak-fixed</code> را در <strong>مرورگر کروم گوشی</strong> باز کند
+                  (داخل اپ اندروید، سیستم‌عامل اجازه‌ی اعلان پس‌زمینه به WebView نمی‌دهد).</li>
+              <li>از منوی مرورگر گزینه‌ی <strong>«افزودن به صفحه اصلی»</strong> را انتخاب کند و اجازه‌ی اعلان را تأیید کند.</li>
+              <li>در اپ اندروید هم اعلان‌های تازه تا وقتی برنامه باز است، در نوار اعلان گوشی نمایش داده می‌شوند.</li>
+            </ol>
+          </div>
+          <a href="settings.php" style="font-weight:600;">ارسال اعلان آزمایشی و بررسی وضعیت</a>
         </div>
       <?php elseif ($pushReady && $pushSubscribers > 0): ?>
         <div class="alert alert-info" style="margin: 0 24px 16px;">

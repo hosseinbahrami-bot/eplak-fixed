@@ -28,6 +28,7 @@ videos), `shared/config.php` (your server settings).
 - `api/push.php` — push endpoints
 - `api/media.php` — safe serving of attachment files
 - `.htaccess` — caching + security rules (explained in section 5)
+- `shared/notification_reads.php` — records who read each notification (per-user read state)
 
 **Changed files:**
 - `shared/bootstrap.php` — automatic database-schema repair (fixes `send_id`)
@@ -35,7 +36,9 @@ videos), `shared/config.php` (your server settings).
 - `admin/includes/functions.php`, `admin/report_detail.php`, `admin/reports.php`,
   `admin/news.php`, `admin/news_add.php`, `admin/news_edit.php`,
   `admin/notifications.php`, `admin/index.php`, `admin/assets/style.css`
-- `api/reports.php`, `api/news.php`
+- `api/reports.php`, `api/news.php`, `api/notifications.php` (per-user read state)
+- `admin/notification_view.php`, `admin/notifications.php` (correct read/unread display)
+- `android-app/.../NotificationBridge.kt`, `MainActivity.kt`, `AndroidManifest.xml` (phone notifications)
 - `index.html`, `app.js`, `sw.js`
 - `core/storage.js`, `core/i18n.js`
 - `modules/reports.js`, `modules/live.js`, `modules/dashboard.js`
@@ -119,6 +122,41 @@ an app that is already installed — the app needs a **rebuilt APK**:
 
 ---
 
+## 6.1) Notifications — what arrives where
+
+| Situation | Result |
+|---|---|
+| **App open** | Entry in the app's notification list + an in-app banner + chime + a **system notification in the phone's notification tray** |
+| **App in background / phone locked** | System notification in the tray (shown by Android itself) |
+| **App fully closed** | ⚠️ Android does not let a closed app run; this needs Firebase Cloud Messaging (section 6.3) |
+| **Site open in Chrome on the phone** | Notification also reaches the lock screen (the most complete route today) |
+
+### 6.1.1) Why browser push cannot work inside the Android app
+The Android app shows the site in a WebView. Android does **not** implement
+`Push API` or `Notification API` in WebView (MDN compatibility table — WebView
+Android column for PushManager: “No support”). That is why notifications inside
+the app are shown by Android itself through `NotificationBridge.kt`.
+The APK must be rebuilt and reinstalled (section 6).
+
+### 6.1.2) Enabling notifications for citizens (no technical work)
+1. Open the site in **Chrome** on the phone: `https://eplak.ir/eplak-fixed`
+2. Browser menu → **Add to Home screen**
+3. Open the added app and **allow** notifications
+The app's Notifications screen shows this device's status and offers an
+**“Enable notifications”** button when permission has not been granted yet.
+
+### 6.1.3) If notifications are required while the app is fully closed
+The standard solution is **FCM (Firebase Cloud Messaging)**: create a free
+Firebase project, add `google-services.json` to the Android project and a
+service key to the panel. This can be added as a separate step.
+
+### 6.1.4) Read status now works per user
+Notification read state is stored per user (table `notification_reads`), so the
+panel's recipient view shows “Read” only for the people who actually opened the
+notification — no more “Unread” while the citizen has read it.
+
+---
+
 ## 7) Quick checklist after the update
 
 - [ ] `https://eplak.ir/eplak-fixed/` opens and loads the new app version
@@ -127,6 +165,8 @@ an app that is already installed — the app needs a **rebuilt APK**:
 - [ ] **News & tips**: add/edit one and see it on the site
 - [ ] **Reports**: submit a report with a photo, open it in the panel and see the photo
 - [ ] **Test notification**: send one from the panel to your own phone
+- [ ] **Read status:** open a notification in the app → panel → Notifications → eye icon
+      (view recipients) → it should show “خوانده شده / Read”
 - [ ] If anything errors: `admin → تنظیمات → Server technical status` and the
       **Database structure** section
 

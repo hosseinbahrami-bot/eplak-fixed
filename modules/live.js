@@ -79,6 +79,46 @@
     return '';
   }
 
+  /* شناسه‌ی پایدار دستگاه — برای کاربران مهمان که شماره ندارند، تا وضعیت
+     «خوانده شدن» هر دستگاه جداگانه نگه داشته شود. */
+  function deviceId() {
+    var key = 'eplak_device_id';
+    try {
+      var id = window.localStorage.getItem(key);
+      if (!id) {
+        id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        window.localStorage.setItem(key, id);
+      }
+      return id;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /* پل اپ اندروید: در WebView (اپ نصب‌شده روی گوشی) نه Service Worker کار می‌کند
+     و نه Push API؛ پس نوتیفیکیشن سیستمی از طریق خود اندروید نمایش داده می‌شود.
+     (اعلان در حالت «بسته بودن کامل اپ» به FCM نیاز دارد — فایل APK.) */
+  function nativeBridge() {
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.showNotification === 'function') {
+        return window.AndroidApp;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  /* آیا اعلان سیستمی روی این دستگاه ممکن است؟ */
+  function pushCapability() {
+    if (nativeBridge()) {
+      return { can: true, kind: 'android_native' };
+    }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return { can: false, kind: 'unsupported' };
+    }
+    return { can: true, kind: 'webpush', permission: Notification.permission };
+  }
+  window.eplakPushCapability = pushCapability;
+
   async function fetchPushConfig() {
     if (pushConfigCache) return pushConfigCache;
     try {
@@ -107,6 +147,20 @@
   /* ساخت/به‌روزرسانی اشتراک و ثبت آن روی سرور */
   async function subscribeToPush(options) {
     var opts = options || {};
+    if (nativeBridge()) {
+      /* داخل اپ اندروید: به‌جای Web Push، نوتیفیکیشن سیستمی از پل اندروید
+         گرفته می‌شود؛ پس اشتراک مرورگری لازم نیست. */
+      var grantedNative = true;
+      try {
+        if (typeof window.AndroidApp.notificationsEnabled === 'function') {
+          grantedNative = !!window.AndroidApp.notificationsEnabled();
+        }
+        if (!grantedNative && typeof window.AndroidApp.requestNotificationPermission === 'function' && opts.askPermission) {
+          window.AndroidApp.requestNotificationPermission();
+        }
+      } catch (e) {}
+      return { ok: grantedNative, reason: grantedNative ? 'android_native' : 'permission_denied', native: true };
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       return { ok: false, reason: 'push_not_supported' };
     }
@@ -175,30 +229,81 @@
 
   /* فراخوانی خودکار پس از ورود کاربر یا در هر بار باز شدن برنامه */
   async function syncPushSubscription() {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'granted') {
-      await subscribeToPush({});
+    if (nativeBridge()) {
+      /* در اپ اندروید، هر بار باز شدن، وضعیت را با سیستم‌عامل چک می‌کنیم
+         (اگر کاربر بعداً اجازه دهد، همان‌جا فعال می‌شود) */
+      try {
+        if (window.AndroidApp && typeof window.AndroidApp.ensureNotificationChannel === 'function') {
+          window.AndroidApp.ensureNotificationChannel();
+        }
+      } catch (e) {}
+      return { ok: true, reason: 'android_native', native: true };
     }
+    if (!('Notification' in window)) return { ok: false, reason: 'push_not_supported' };
+    if (Notification.permission === 'granted') {
+      return await subscribeToPush({});
+    }
+    return { ok: false, reason: 'permission_' + Notification.permission };
   }
   window.syncPushSubscription = syncPushSubscription;
 
   function requestPushPermission() {
-    if (!('Notification' in window)) return;
+    /* در اپ اندروید: اجازه‌ی اعلان از خود اندروید گرفته می‌شود */
+    if (nativeBridge()) {
+      return subscribeToPush({ askPermission: true }).then(function (result) {
+        if (typeof window.eplakOnPushResult === 'function') window.eplakOnPushResult(result);
+        return result;
+      });
+    }
+    if (!('Notification' in window)) {
+      var unsupported = { ok: false, reason: 'push_not_supported' };
+      if (typeof window.eplakOnPushResult === 'function') window.eplakOnPushResult(unsupported);
+      return Promise.resolve(unsupported);
+    }
     if (Notification.permission === 'default') {
-      subscribeToPush({ askPermission: true }).then(function (result) {
+      return subscribeToPush({ askPermission: true }).then(function (result) {
         if (result && result.ok) {
           console.log('[push] اعلان‌های پس‌زمینه فعال شد');
         }
+        if (typeof window.eplakOnPushResult === 'function') window.eplakOnPushResult(result);
+        return result;
       });
-    } else if (Notification.permission === 'granted') {
+    }
+    if (Notification.permission === 'granted') {
       /* کاربر قبلاً اجازه داده است؛ فقط اشتراک را با شماره‌ی فعلی تازه می‌کنیم
          (مثلاً پس از ورود با شماره‌ی جدید روی همان گوشی) */
-      syncPushSubscription();
+      return syncPushSubscription().then(function (result) {
+        if (typeof window.eplakOnPushResult === 'function') window.eplakOnPushResult(result);
+        return result;
+      });
     }
+    var denied = { ok: false, reason: 'permission_denied' };
+    if (typeof window.eplakOnPushResult === 'function') window.eplakOnPushResult(denied);
+    return Promise.resolve(denied);
   }
   window.requestPushPermission = requestPushPermission;
 
   function triggerDeviceNotification(title, body, id) {
+    // 0. اپ اندروید (WebView): نوتیفیکیشن سیستمی از خودِ اندروید
+    var bridge = nativeBridge();
+    if (bridge) {
+      /* اپ اندروید: نوتیفیکیشن سیستمی توسط خود اندروید نمایش داده می‌شود
+         (صدای پیش‌فرض گوشی هم از همان‌جا پخش می‌شود). اما اعلان «داخل خود اپ»
+         (بنر بالای صفحه) هم باید نمایش داده شود؛ پس return نمی‌کنیم. */
+      var shownNative = false;
+      try {
+        bridge.showNotification(String(title || 'اعلان ای‌پلاک'), String(body || ''), String(id == null ? '' : id));
+        shownNative = true;
+      } catch (e) {
+        console.warn('[push] android notification failed:', e);
+      }
+      if (shownNative) {
+        showLiveAnnouncementBanner(title, body);
+        return;
+      }
+      /* اگر پل اندروید کار نکرد، مسیر مرورگر ادامه پیدا می‌کند */
+    }
+
     // 1. نوتیفیکیشن سیستمی (از طریق Service Worker تا در پس‌زمینه هم پایدار باشد)
     if ('Notification' in window && Notification.permission === 'granted') {
       var iconPath = 'assets/img/logo.png';
@@ -488,6 +593,13 @@
     if (typeof renderNotifications === 'function') {
       try { renderNotifications(); } catch (e) {}
     }
+    try { renderDeviceNotice(); } catch (e) {}
+
+    /* اگر قبلاً (به‌خاطر قطعی اینترنت) گزارش «خوانده شد» ارسال نشده بود، حالا
+       که سرور پاسخ داده دوباره تلاش می‌کنیم */
+    if (typeof window.flushPendingReadReports === 'function') {
+      try { window.flushPendingReadReports(); } catch (e) {}
+    }
 
     // Trigger alerts for newly arrived announcements
     if (!isInitialNotifs && newItemsFound.length > 0) {
@@ -561,6 +673,115 @@
     }
   };
 
+  /* ───────────────────────────────────────────────────────────
+     «خوانده شد» را به سرور اطلاع می‌دهیم
+
+     بدون این کار، وضعیت فقط داخل خود گوشی ذخیره می‌شد و پنل ادمین همیشه
+     «خوانده نشده» نشان می‌داد. آرگومان‌ها:
+       ids : یک شناسه یا آرایه‌ای از شناسه‌ها (با یا بدون پیشوند srv-)
+       all : اگر true باشد، همه‌ی اعلان‌های همین کاربر علامت می‌خورند
+  ─────────────────────────────────────────────────────────── */
+  function notificationIdsForServer(ids) {
+    var out = [];
+    (Array.isArray(ids) ? ids : [ids]).forEach(function (value) {
+      if (value === null || value === undefined) return;
+      var v = String(value).replace(/^srv-/, '').trim();
+      if (/^[0-9]+$/.test(v)) out.push(parseInt(v, 10));
+    });
+    return out;
+  }
+
+  async function markNotificationsRead(ids, all) {
+    var payload = {
+      action: 'read',
+      phone: currentPhoneSafe(),
+      device: deviceId()
+    };
+    var list = notificationIdsForServer(ids);
+    if (all) {
+      payload.all = 1;
+    } else if (list.length) {
+      payload.ids = list.join(',');
+    } else {
+      return { ok: false, reason: 'nothing_to_mark' };
+    }
+
+    try {
+      /* بدنه به‌صورت فرم (application/x-www-form-urlencoded) فرستاده می‌شود؛
+         PHP این نوع را خودش در $_POST پارس می‌کند و روی همه‌ی هاست‌ها کار می‌کند. */
+      var body = new URLSearchParams();
+      Object.keys(payload).forEach(function (key) { body.append(key, payload[key]); });
+
+      var res = await fetch(apiBase() + '/notifications.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: body.toString()
+      });
+      var data = await res.json().catch(function () { return null; });
+      return { ok: !!(data && data.success), data: data };
+    } catch (e) {
+      return { ok: false, reason: 'network', details: e && e.message };
+    }
+  }
+  window.markNotificationsRead = markNotificationsRead;
+
+  /* ───────────────────────────────────────────────────────────
+     پیام وضعیت اعلان برای کاربر (صفحه‌ی اعلان‌ها)
+
+     در اپ اندرویدِ WebView، اندروید «Push API» و «Notification API» ندارد؛ پس
+     این‌جا صادقانه به کاربر می‌گوییم اعلان سیستمی در چه حالتی می‌رسد و چه کاری
+     برای رسیدن اعلان در حالت «بسته بودن کامل اپ» لازم است.
+  ─────────────────────────────────────────────────────────── */
+  function renderDeviceNotice() {
+    var box = document.getElementById('notifDeviceNotice');
+    if (!box) return;
+
+    var cap = pushCapability();
+    var text = '';
+
+    if (cap.kind === 'android_native') {
+      var enabled = true;
+      try {
+        if (window.AndroidApp && typeof window.AndroidApp.notificationsEnabled === 'function') {
+          enabled = !!window.AndroidApp.notificationsEnabled();
+        }
+      } catch (e) {}
+      if (enabled) {
+        text = '🔔 اعلان‌های این اپ روی گوشی شما فعال است. اعلان‌های تازه در نوار اعلان‌های گوشی هم نمایش داده می‌شوند.';
+      } else {
+        text = '🔕 برای دریافت اعلان روی گوشی، اجازه‌ی اعلان را به این برنامه بدهید. '
+             + '<button type="button" onclick="requestPushPermission()" style="border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">فعال‌سازی اعلان</button>';
+      }
+    } else if (cap.kind === 'unsupported') {
+      text = '📵 این دستگاه امکان اعلان پس‌زمینه ندارد. برای دریافت اعلان روی صفحه‌ی قفل، '
+           + 'سایت را یک‌بار در مرورگر کروم گوشی باز کنید و از منوی مرورگر «افزودن به صفحه اصلی» را بزنید؛ '
+           + 'سپس اجازه‌ی اعلان را تأیید کنید. اعلان‌های داخل برنامه در هر حالت کار می‌کنند.';
+    } else if (cap.permission === 'granted') {
+      text = '🔔 اعلان‌های این دستگاه فعال است؛ اعلان‌های تازه روی صفحه‌ی قفل هم نمایش داده می‌شوند.';
+    } else if (cap.permission === 'denied') {
+      text = '🔕 اعلان این دستگاه توسط شما رد شده است. برای فعال‌سازی، در تنظیمات مرورگر اجازه‌ی اعلان این سایت را بدهید.';
+    } else {
+      text = '🔔 با فعال کردن اعلان، پیام‌های شهرداری را حتی وقتی برنامه بسته است دریافت می‌کنید. '
+           + '<button type="button" onclick="requestPushPermission()" style="border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">فعال‌سازی اعلان</button>';
+    }
+
+    box.innerHTML = text;
+    box.style.display = 'block';
+  }
+  window.renderDeviceNotice = renderDeviceNotice;
+
+  /* نتیجه‌ی درخواست اجازه‌ی اعلان — هم از لایه‌ی وب و هم از خود اندروید صدا زده می‌شود */
+  window.eplakNativePermissionResult = function (granted) {
+    renderDeviceNotice();
+    if (granted) {
+      subscribeToPush({});
+    }
+  };
+  window.eplakOnPushResult = function (result) {
+    renderDeviceNotice();
+    return result;
+  };
+
   /* پیام‌های Service Worker (اعلان پس‌زمینه) */
   function listenToServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
@@ -621,8 +842,12 @@
       if (!document.hidden) {
         syncPushSubscription();
         syncNotifications();
+        renderDeviceNotice();
       }
     });
+
+    /* نمایش وضعیت اعلان روی همین دستگاه در صفحه‌ی اعلان‌ها */
+    renderDeviceNotice();
   }
 
   if (document.readyState === 'loading') {

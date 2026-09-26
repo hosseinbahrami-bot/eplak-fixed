@@ -402,11 +402,38 @@
     updateNotifDot();
   }
 
+  /* صف گزارش‌هایی که به‌خاطر قطعی اینترنت ارسال نشدند */
+  const pendingReadReports = [];
+
+  /* وضعیت «خوانده شد» علاوه بر گوشی، به سرور هم اطلاع داده می‌شود تا در پنل
+     ادمین (فهرست گیرندگان اعلان) درست نمایش داده شود. */
+  function reportReadToServer(idOrNull, all) {
+    try {
+      if (typeof window.markNotificationsRead === 'function') {
+        window.markNotificationsRead(idOrNull, !!all).then(function (result) {
+          if (result && result.ok === false && result.reason === 'network') {
+            /* اتصال قطع است؛ دفعه‌ی بعد که اپ باز شد دوباره تلاش می‌شود */
+            pendingReadReports.push({ id: idOrNull, all: !!all });
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  function flushPendingReadReports() {
+    if (!pendingReadReports.length || typeof window.markNotificationsRead !== 'function') return;
+    const queue = pendingReadReports.splice(0, pendingReadReports.length);
+    queue.forEach(function (item) {
+      try { window.markNotificationsRead(item.id, item.all); } catch (e) {}
+    });
+  }
+
   function markNotifRead(id) {
     const n = notifications.find(x => x.id === id);
     if (n) n.read = true;
     if (typeof saveNotifications === 'function') saveNotifications();
     renderNotifications();
+    reportReadToServer(id, false);
   }
 
   function markAllNotifsRead() {
@@ -416,8 +443,10 @@
     notifications.forEach(n => n.read = true);
     if (typeof saveNotifications === 'function') saveNotifications();
     renderNotifications();
+    reportReadToServer(null, true);
     showToast(isEn ? 'All notifications marked as read' : 'همه اعلان‌ها خوانده شد');
   }
+
 
   function updateNotifDot() {
     const hasUnread = notifications.some(n => !n.read);
@@ -426,4 +455,6 @@
     const dashDot = document.getElementById('dashNotifDot');
     if (dashDot) dashDot.style.display = hasUnread ? 'block' : 'none';
   }
+
+  window.flushPendingReadReports = flushPendingReadReports;
 
