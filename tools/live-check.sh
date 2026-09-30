@@ -84,6 +84,16 @@ if hints:
         print('   •', html.unescape(re.sub(r'<[^>]+>', '', h)).strip()[:180])
 PYEOF
   say ""
+  say "**🛠 راه‌حل سریع:** این آدرس را در مرورگر باز کنید و اطلاعات دیتابیس را وارد کنید:"
+  say ""
+  say "\`$BASE/rescue-db.php\`"
+  say ""
+  say "اگر این فایل روی هاست نیست، از بسته‌ی آپلود (\`eplak-fixed-update.zip\`) آن را Extract کنید"
+  say "یا از این آدرس دانلود و در همین پوشه بگذارید:"
+  say "\`https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/rescue-db.php\`"
+  say ""
+  say "اطلاعات دیتابیس در cPanel → **MySQL® Databases** است (ستون Databases و Users)."
+  say ""
 fi
 
 # ── ۲) فایل جاوااسکریپت اعلان‌ها (نشانه‌ی اصلی نسخه‌ی جدید) ─────────────────
@@ -323,6 +333,9 @@ fi
 say ""
 say "**چک‌لیست:**"
 say ""
+if [ "$CODE_LOGIN" = "500" ]; then
+  say "- ❌ **سایت الان دیتابیس را پیدا نمی‌کند** — راه‌حل در بخش ۱-۲ همین گزارش"
+fi
 if has "$PUSH" '"fcm_ready":true'; then
   say "- ✅ کلید سرویس فایربیس در پنل ثبت شده (سرور آماده‌ی ارسال است)"
 else
