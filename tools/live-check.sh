@@ -194,6 +194,28 @@ for f in "admin/version.php" "admin/notification_view.php" "admin/notifications.
   say "| $f | $pc | $note |"
 done
 
+# ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
+hdr "۶) لینک‌های دانلود (گیت‌هاب)"
+ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/eplak-fixed-update.zip"
+APK_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk"
+say "| فایل | کد پاسخ | حجم | وضعیت |"
+say "|---|---|---|---|"
+for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$APK_URL"; do
+  label="${pair%%|*}"; url="${pair#*|}"
+  # فقط هدرها را می‌خوانیم (سرور گیت‌هاب ۳۰۲ می‌دهد و برای بررسی همین کافی است)
+  code=$(curl -s -o /dev/null -L --max-time 40 -w '%{http_code}' -I "$url" 2>/dev/null || echo 000)
+  size=$(curl -s -o /dev/null -L --max-time 40 -w '%{size_download}' -r 0-0 "$url" 2>/dev/null || echo 0)
+  case "$code" in
+    200|206|302) note="✅ قابل دانلود" ;;
+    404) note="❌ پیدا نشد"; STATUS="fail"; ISSUES+=("لینک دانلود «$label» کار نمی‌کند") ;;
+    000) note="❓ پاسخ نداد" ;;
+    *) note="کد $code" ;;
+  esac
+  say "| $label | $code | $size بایت | $note |"
+done
+say ""
+say "> لینک‌ها: بسته‌ی سایت ← \`$ZIP_URL\` • اپ اندروید ← \`$APK_URL\`"
+
 # ── نتیجه‌ی نهایی ─────────────────────────────────────────────────────────
 hdr "نتیجه"
 NEW_WEB="no"; NEW_API="no"
