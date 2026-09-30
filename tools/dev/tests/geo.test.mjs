@@ -368,9 +368,9 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=17/.test(indexHtml) && /modules\/reports\.js\?v=21/.test(indexHtml)
+  /core\/storage\.js\?v=17/.test(indexHtml) && /modules\/reports\.js\?v=22/.test(indexHtml)
   && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
-  && /assets\/css\/style\.css\?v=87/.test(indexHtml));
+  && /assets\/css\/style\.css\?v=88/.test(indexHtml));
 
 /* ══════════ ۸) پایش زنده: پیش‌پرواز و سقف حجم بدنه ══════════ */
 console.log('\n=== پایش زنده (live-check) ===');

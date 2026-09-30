@@ -240,7 +240,7 @@ const appCss = fs.readFileSync(path.join(ROOT, 'assets/css/style.css'), 'utf8');
 ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=21/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  /modules\/reports\.js\?v=22/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -320,6 +320,8 @@ ok('نتیجه‌ی انتخاب فایل از اندروید در گزارش ف
   /window\.eplakNativeFilesPicked = function/.test(reportsJs));
 ok('فشرده‌سازی عکس چندمرحله‌ای است (تا رسیدن به حجم کم)',
   /for \(const scale of scales\)/.test(reportsJs) && /for \(const quality of qualities\)/.test(reportsJs));
+ok('تعداد گام‌های رسیدگی روی ردیف هر گزارش در فهرست دیده می‌شود',
+  /report-steps-chip/.test(reportsJs) && /timelineCount/.test(reportsJs) && /\.report-steps-chip/.test(appCss));
 
 const kt = fs.readFileSync(path.join(ROOT, 'android-app/app/src/main/java/com/example/eplakfixed/MainActivity.kt'), 'utf8');
 ok('اپ اندروید: فایل انتخاب‌شده داخل حافظه‌ی خود اپ کپی می‌شود (خوانا بودن تضمینی)',

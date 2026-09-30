@@ -379,7 +379,8 @@
           name: m.name,
           size: m.size
         })) : [],
-        timeline: Array.isArray(item.timeline) ? item.timeline : []
+        timeline: Array.isArray(item.timeline) ? item.timeline : [],
+        timelineCount: Number(item.timeline_count || (Array.isArray(item.timeline) ? item.timeline.length : 0)) || 0
       }));
 
       /* گزارش‌های محلی که هنوز به سرور نرسیده‌اند (بدون شناسه‌ی سروری) را
@@ -1708,6 +1709,7 @@
                 <div class="report-info">
                   <h4>${escapeHtml(r.title)}</h4>
                   <p>${escapeHtml(r.location)} - ${displayDate}</p>
+                  ${r.timelineCount ? `<span class="report-steps-chip">${toPersianDigits(r.timelineCount)} گام رسیدگی</span>` : ''}
                 </div>
                 <div class="report-icon-box" style="background:${r.iconBg};">${window.EplakIcons ? window.EplakIcons.get(r.icon) : r.icon}</div>
               </div>
@@ -2251,7 +2253,7 @@
             <span class="report-status ${statusMeta.className}">${statusMeta.label}</span>
             <div class="report-info">
               <h4>${escapeHtml(r.title)}</h4>
-              <p>${escapeHtml(r.code || '—')}</p>
+              <p>${escapeHtml(r.code || '—')}${r.timelineCount ? ` • ${toPersianDigits(r.timelineCount)} گام رسیدگی` : ''}</p>
             </div>
             <div class="report-icon-box" style="background:${r.iconBg};">${window.EplakIcons ? window.EplakIcons.get(r.icon) : r.icon}</div>
           </div>

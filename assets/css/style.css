@@ -7166,3 +7166,15 @@ body.media-viewer-locked { overflow: hidden; }
   50% { box-shadow: 0 0 0 7px rgba(59, 130, 246, 0); }
 }
 .timeline-row.is-waiting .timeline-content h5 { color: var(--text-muted); }
+
+/* نشان «تعداد گام‌های رسیدگی» روی ردیف گزارش در فهرست */
+.report-steps-chip {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 201, 167, 0.12);
+  color: var(--teal);
+  font-size: 10.5px;
+  font-weight: 700;
+}
