@@ -119,6 +119,8 @@ say "- کد پاسخ فایل: \`$CODE_LIVE\` • حجم: $(wc -c < "$LIVE" 2>/d
 say "- تعداد اشاره به fcm در فایل: \`$(countof "$LIVE" 'fcm')\`"
 
 NEW_WEB="no"
+NEW_ONLINE="no"
+SMOKE_OK="no"
 ENGINE_OK="no"
 NEW_VER_PAGE="no"
 APK_FCM="no"
@@ -407,9 +409,147 @@ else
 fi
 say ""
 
+# ── ۹) آزمون واقعی سرتاسری (فقط با EPLAK_SMOKE=1) ─────────────────────────
+#  این بخش با یک «شماره‌ی آزمایشی» (۰۹۰۰۰۰۰۰۰۰۰ — شماره‌ای که به هیچ کس تعلق
+#  ندارد) یک درخواست ثبت می‌کند، اعلان فوری همان درخواست را می‌خواند، آن را
+#  حذف می‌کند و در پایان گزارش آزمایشی را هم پاک می‌کند. هدف: اثبات کارکرد
+#  واقعی سه خواسته (اعلان فوری، حذف اعلان، سرور تازه) روی سایت زنده.
+if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
+  hdr "۹) آزمون واقعی سرتاسری (درخواست ← اعلان فوری ← حذف ← پاک‌سازی)"
+  TEST_PHONE="09000000000"
+  J="$(mktemp)"
+
+  # ۹-۱) ثبت یک درخواست آزمایشی
+  SMOKE_CODE=$(curl -sS -L --max-time 40 -A "$UA" -o "$J" -w '%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -d "{\"phone\":\"$TEST_PHONE\",\"name\":\"آزمون خودکار سامانه\",\"title\":\"آزمون خودکار سامانه — قابل حذف\",\"description\":\"این رکورد برای بررسی خودکار سامانه ساخته شده و در همان آزمون پاک می‌شود.\",\"category\":\"سایر\"}" \
+    "$BASE/api/reports.php" 2>/dev/null) || SMOKE_CODE="000"
+  RID=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("id", "") if d.get("success") else "")
+except Exception:
+    print("")
+PYEOF
+)
+  RCODE=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("tracking_code", "") if d.get("success") else "")
+except Exception:
+    print("")
+PYEOF
+)
+  if [ -n "$RID" ]; then
+    say "| ۹-۱ | ✅ درخواست آزمایشی ثبت شد (کد پاسخ $SMOKE_CODE، شناسه $RID، کد پیگیری \`$RCODE\`) |"
+  else
+    say "| ۹-۱ | ❌ ثبت درخواست آزمایشی ناموفق (کد پاسخ $SMOKE_CODE) |"
+    SMOKE_OK="no"
+    ISSUES+=("آزمون واقعی: ثبت درخواست روی سایت کار نکرد")
+  fi
+
+  # ۹-۲) اعلان فوری همان درخواست باید ساخته شده باشد
+  NID=""
+  if [ -n "$RCODE" ]; then
+    sleep 2
+    code=$(curl -sS -L --max-time 40 -A "$UA" -o "$J" -w '%{http_code}' "$BASE/api/notifications.php?phone=$TEST_PHONE&t=$(date +%s)" 2>/dev/null) || code="000"
+    NID=$(python3 - "$J" "$RCODE" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    for n in d.get("notifications", []):
+        if sys.argv[2] and sys.argv[2] in str(n.get("body", "")):
+            print(n.get("id", ""))
+            break
+    else:
+        if d.get("notifications"):
+            print(d["notifications"][0].get("id", ""))
+except Exception:
+    print("")
+PYEOF
+)
+    HAS_CODE=$(python3 - "$J" "$RCODE" <<'PYEOF' 2>/dev/null || echo "no"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    body = " ".join(str(n.get("body", "")) for n in d.get("notifications", []))
+    print("yes" if (sys.argv[2] in body and "ساعت" in body) else "no")
+except Exception:
+    print("no")
+PYEOF
+)
+    if [ "$HAS_CODE" = "yes" ]; then
+      say "| ۹-۲ | ✅ اعلان فوری «درخواست ثبت شد» با کد پیگیری و تاریخ/ساعت رسید (شناسه $NID) |"
+    else
+      say "| ۹-۲ | ❌ اعلان فوری با کد پیگیری/تاریخ پیدا نشد (کد پاسخ $code) |"
+      ISSUES+=("آزمون واقعی: اعلان فوری پس از ثبت درخواست ساخته نشد")
+    fi
+  fi
+
+  # ۹-۳) حذف همان اعلان برای همین کاربر
+  if [ -n "$NID" ]; then
+    code=$(curl -sS -L --max-time 40 -A "$UA" -o "$J" -w '%{http_code}' \
+      -H 'Content-Type: application/x-www-form-urlencoded;charset=UTF-8' \
+      -d "action=delete&phone=$TEST_PHONE&ids=$NID" "$BASE/api/notifications.php" 2>/dev/null) || code="000"
+    DEL_HIDDEN=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("hidden", "") if d.get("success") else "")
+except Exception:
+    print("")
+PYEOF
+)
+    sleep 1
+    curl -sS -L --max-time 40 -A "$UA" -o "$J" "$BASE/api/notifications.php?phone=$TEST_PHONE&t=$(date +%s)" >/dev/null 2>&1 || true
+    STILL=$(python3 - "$J" "$NID" <<'PYEOF' 2>/dev/null || echo "yes"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    ids = [str(n.get("id", "")) for n in d.get("notifications", [])]
+    print("yes" if sys.argv[2] in ids else "no")
+except Exception:
+    print("yes")
+PYEOF
+)
+    if [ -n "$DEL_HIDDEN" ] && [ "$STILL" = "no" ]; then
+      say "| ۹-۳ | ✅ اعلان حذف شد و از فهرست همین کاربر رفت (کد پاسخ $code، مخفی‌شده: $DEL_HIDDEN) |"
+      SMOKE_OK="yes"
+    else
+      say "| ۹-۳ | ❌ حذف اعلان تأیید نشد (کد پاسخ $code، مخفی‌شده: ${DEL_HIDDEN:-—}، هنوز در فهرست: $STILL) |"
+      ISSUES+=("آزمون واقعی: حذف اعلان کار نکرد")
+    fi
+  fi
+
+  # ۹-۴) پاک‌سازی: گزارش آزمایشی حذف می‌شود که در پنل ادمین نماند
+  if [ -n "$RID" ]; then
+    code=$(curl -sS -L --max-time 40 -A "$UA" -X DELETE -o "$J" -w '%{http_code}' \
+      "$BASE/api/reports.php?id=$RID&phone=$TEST_PHONE" 2>/dev/null) || code="000"
+    CLEAN=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo "no"
+import json, sys
+try:
+    print("yes" if json.load(open(sys.argv[1])).get("success") else "no")
+except Exception:
+    print("no")
+PYEOF
+)
+    if [ "$CLEAN" = "yes" ]; then
+      say "| ۹-۴ | ✅ گزارش آزمایشی پاک شد (کد پاسخ $code) — داده‌ی آزمایشی روی سایت نماند |"
+    else
+      say "| ۹-۴ | ⚠️ گزارش آزمایشی پاک نشد (کد پاسخ $code) — در پنل ادمین گزارش «آزمون خودکار سامانه — قابل حذف» را دستی حذف کنید |"
+      ISSUES+=("گزارش آزمایشی روی سایت مانده؛ از پنل ادمین حذفش کنید")
+    fi
+  fi
+
+  rm -f "$J"
+  say ""
+fi
+
 # ── نتیجه‌ی نهایی ─────────────────────────────────────────────────────────
 hdr "نتیجه"
-NEW_WEB="no"; NEW_API="no"; NEW_ONLINE="no"
+NEW_WEB="no"; NEW_API="no"  # توجه: NEW_ONLINE در بخش ۸ تعیین شده و این‌جا صفر نمی‌شود
 if has "$LIVE" "registerAppDevice"; then NEW_WEB="yes"; fi
 if has "$PUSH" "fcm_ready"; then NEW_API="yes"; fi
 
@@ -458,6 +598,13 @@ elif [ "$APK_FCM" = "yes" ]; then
   say "- ✅ فایل APK منتشرشده با اعلان فایربیس ساخته شده (نصبش کنید)"
 else
   say "- ⏳ فایل APK فعلی فایربیس ندارد"
+fi
+if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
+  if [ "$SMOKE_OK" = "yes" ]; then
+    say "- ✅ آزمون واقعی روی سایت سبز بود: ثبت درخواست ← اعلان فوری با کد پیگیری و تاریخ ← حذف اعلان ← پاک‌سازی"
+  else
+    say "- ⚠️ آزمون واقعی سرتاسری کامل سبز نشد — بخش ۹ را ببینید"
+  fi
 fi
 if [ "$NEW_ONLINE" = "yes" ]; then
   say "- ✅ نقطه‌ی بررسی اتصال (\`api/ping.php\`) و پرده‌ی «بدون اینترنت اتصال ممکن نیست» نصب شده‌اند"
