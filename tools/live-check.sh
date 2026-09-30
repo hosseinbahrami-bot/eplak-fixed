@@ -452,9 +452,26 @@ if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
   TEST_PHONE="09000000000"
   J="$(mktemp)"
 
+  # ۹-۰) درخواست «پیش‌پرواز» (OPTIONS) — مرورگر/وب‌ویوی اپ وقتی صفحه از
+  #      file:// باز می‌شود (origin = null) این را می‌فرستد. اگر پاسخ درست
+  #      نباشد، ارسال از داخل اپ بی‌صدا شکست می‌خورد («پیوست‌ها نرسیدند»).
+  PRE_CODE=$(curl -sS -L --max-time 25 -A "$UA" -D "$TMP/preflight.hdr" -o "$TMP/preflight.out" -w '%{http_code}' \
+    -X OPTIONS -H 'Origin: null' -H 'Access-Control-Request-Method: POST' \
+    -H 'Access-Control-Request-Headers: content-type' "$BASE/api/reports.php" 2>/dev/null) || PRE_CODE="000"
+  PRE_ACAO=$(tr -d '\r' < "$TMP/preflight.hdr" 2>/dev/null | grep -i '^access-control-allow-origin' | head -1 | cut -d: -f2- | tr -d ' ')
+  if [ "$PRE_CODE" = "200" ] || [ "$PRE_CODE" = "204" ]; then
+    if [ -n "$PRE_ACAO" ]; then
+      say "| ۹-۰ | ✅ درخواست پیش‌پرواز (OPTIONS) پاسخ درست می‌گیرد (کد $PRE_CODE، allow-origin: $PRE_ACAO) |"
+    else
+      say "| ۹-۰ | ⚠️ پیش‌پرواز پاسخ داد (کد $PRE_CODE) ولی هدر allow-origin ندارد — اپ از مسیر «بدون پیش‌پرواز» استفاده می‌کند |"
+    fi
+  else
+    say "| ۹-۰ | ⚠️ پیش‌پرواز پاسخ درست نگرفت (کد $PRE_CODE) — اپ عمداً درخواست‌ها را «ساده» می‌فرستد تا پیش‌پرواز لازم نشود |"
+  fi
+
   # ۹-۱) ثبت یک درخواست آزمایشی
   SMOKE_CODE=$(curl -sS -L --max-time 40 -A "$UA" -o "$J" -w '%{http_code}' \
-    -H 'Content-Type: application/json' \
+    -H 'Content-Type: text/plain;charset=UTF-8' \
     -d "{\"phone\":\"$TEST_PHONE\",\"name\":\"آزمون خودکار سامانه\",\"title\":\"آزمون خودکار سامانه — قابل حذف\",\"description\":\"این رکورد برای بررسی خودکار سامانه ساخته شده و در همان آزمون پاک می‌شود.\",\"category\":\"سایر\"}" \
     "$BASE/api/reports.php" 2>/dev/null) || SMOKE_CODE="000"
   RID=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
@@ -602,7 +619,7 @@ open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
 PYEOF
     if [ -s "$BODY" ]; then
       MSG_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J" -w '%{http_code}' \
-        -H 'Content-Type: application/json' --data-binary "@$BODY" \
+        -H 'Content-Type: text/plain;charset=UTF-8' --data-binary "@$BODY" \
         "$BASE/api/reports.php" 2>/dev/null) || MSG_CODE="000"
     fi
     read_smoke_field() { # $1 = نام کلید در پاسخ JSON
@@ -661,7 +678,7 @@ body = {
 open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
 PYEOF
     CHUNK_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J.chunk" -w '%{http_code}' \
-      -H 'Content-Type: application/json' --data-binary "@$CHUNK_BODY" \
+      -H 'Content-Type: text/plain;charset=UTF-8' --data-binary "@$CHUNK_BODY" \
       "$BASE/api/media.php?action=chunk" 2>/dev/null) || CHUNK_CODE="000"
     CHUNK_DONE=$(python3 - "$J.chunk" <<'PYEOF' 2>/dev/null || echo "no"
 import json, sys
@@ -729,6 +746,36 @@ PYEOF
     fi
   fi
 
+  # ۹-۹) سقف حجم بدنه روی این هاست — دلیل «پیوست‌ها به سرور نرسیدند» این بود
+  #      که درخواست حاوی base64 عکس چند مگابایتی بود. حالا اپ فقط بسته‌های
+  #      کوچک (≈۷۰۰ کیلوبایت) می‌فرستد؛ اینجا می‌سنجیم هاست تا چه حجمی را
+  #      می‌پذیرد. پاسخ ۴۰۰ (شماره‌ی نامعتبر) یعنی «بدنه پذیرفته شد».
+  BODY_OK_MAX="0"
+  for KB in 64 512 1024 2048; do
+    PF="$TMP/probe-$KB.json"
+    python3 - "$PF" "$KB" <<'PROBE_PY' 2>/dev/null || true
+import json, sys
+path, kb = sys.argv[1], int(sys.argv[2])
+body = {"phone": "09000000001", "title": "probe", "description": "x" * (kb * 1024)}
+open(path, 'w', encoding='utf-8').write(json.dumps(body))
+PROBE_PY
+    PCODE=$(curl -sS -L --max-time 90 -A "$UA" -o "$TMP/probe.out" -w '%{http_code}' \
+      -H 'Content-Type: text/plain;charset=UTF-8' --data-binary "@$PF" \
+      "$BASE/api/reports.php" 2>/dev/null) || PCODE="000"
+    if [ "$PCODE" = "400" ] || [ "$PCODE" = "422" ] || [ "$PCODE" = "200" ]; then
+      BODY_OK_MAX="$KB"
+    fi
+    rm -f "$PF"
+  done
+  if [ "$BODY_OK_MAX" -ge 512 ]; then
+    say "| ۹-۹ | ✅ هاست بدنه‌ی تا ${BODY_OK_MAX} کیلوبایتی را می‌پذیرد (اپ بسته‌های ≈۷۰۰ کیلوبایتی می‌فرستد) |"
+  elif [ "$BODY_OK_MAX" -ge 64 ]; then
+    say "| ۹-۹ | ⚠️ هاست فقط بدنه‌ی تا ${BODY_OK_MAX} کیلوبایتی را می‌پذیرد — اندازه‌ی تکه‌های اپ باید کمتر شود |"
+  else
+    say "| ۹-۹ | ⚠️ سنجش حجم بدنه انجام نشد (شاید فایروال درخواست‌های بزرگ را می‌بندد) |"
+  fi
+  media_body_size="$BODY_OK_MAX"
+
   rm -f "$J"
   say ""
 fi
@@ -794,6 +841,9 @@ if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
 fi
 if [ "${media_chunk_old:-no}" = "yes" ]; then
   say "- ⏳ ارسال فیلم‌های حجیم (تکه‌تکه) روی هاست فعال نشده — بسته‌ی تازه را Extract کنید (عکس‌ها همین حالا کار می‌کنند)"
+fi
+if [ -n "${media_body_size:-}" ] && [ "${media_body_size}" -lt 512 ] 2>/dev/null; then
+  say "- ⚠️ فایروال هاست بدنه‌های بزرگ‌تر از ${media_body_size} کیلوبایت را می‌بندد — اگر پیوستی ارسال نشد، همین را به پشتیبانی هاست بگویید (درخواست‌های POST بزرگ را باز کند)"
 fi
 if [ "$CODE_MAP" = "200" ] && has "$TMP/map.out" "tile.openstreetmap.org"; then
   say "- ✅ نقشه‌ی موقعیت و GPS در فرم ثبت درخواست روی سایت نصب شده (مرحله‌ی «موقعیت» واقعی است)"

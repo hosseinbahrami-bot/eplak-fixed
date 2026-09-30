@@ -85,10 +85,13 @@ require '${APP}/api/reports.php';`));
 ok('فایل غیرمجاز ذخیره نمی‌شود', (bad?.media_count || 0) === 0, JSON.stringify(bad).slice(0, 160));
 
 console.log('\n=== پنل ادمین روی همان گزارش ===');
+/* شناسه‌ی همان گزارشی که عکس داشت (نه آخرین گزارش دیتابیس؛ چون آزمون
+   «فایل غیرمجاز» یک گزارش بدون عکس دیگر هم می‌سازد). */
+const goodReportId = Number(upload?.id || 0);
 const panel = pickJson(await run(`
 require '${APP}/admin/includes/db.php';
 require '${APP}/admin/includes/functions.php';
-$rid = (int) $pdo->query('SELECT id FROM reports ORDER BY id DESC LIMIT 1')->fetchColumn();
+$rid = ${goodReportId} > 0 ? ${goodReportId} : (int) $pdo->query('SELECT id FROM reports ORDER BY id DESC LIMIT 1')->fetchColumn();
 $media = getReportMedia($pdo, $rid);
 echo json_encode([
   'count' => count($media),
@@ -255,6 +258,70 @@ echo json_encode([
 ok('پنل ادمین فایل ارسال‌شده از مسیر تازه را می‌بیند',
   panelMedia?.count === 1 && panelMedia?.kind === 'image' && String(panelMedia?.url || '').startsWith('../uploads/'),
   JSON.stringify(panelMedia));
+
+console.log('\n=== مسیر واقعی اپ: بدنه‌ی ساده (بدون multipart و بدون preflight) ===');
+
+/* گزارش تازه برای آزمون «پیوست داخل بدنه» */
+const inlineReport = pickJson(await run(`
+$_POST = ['phone' => '09121112233', 'title' => 'گزارش آزمون پیوست داخلی', 'description' => 'توضیح', 'category' => 'سایر'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+require '${APP}/api/reports.php';`));
+const IRID = Number(inlineReport?.id || 0);
+ok('گزارش با نوع محتوای «ساده» (text/plain) ثبت می‌شود', IRID > 0, JSON.stringify(inlineReport).slice(0, 140));
+
+/* همان درخواستی که اپ می‌فرستد: آرایه‌ی media با data URL */
+const inlineBig = Buffer.alloc(700 * 1024, 0x41);
+const bigB64 = inlineBig.toString('base64');
+const inlineSaved = pickJson(await run(`
+$_POST = [
+    'phone' => '09121112233',
+    'title' => 'گزارش با پیوست داخلی',
+    'description' => 'توضیح',
+    'category' => 'سایر',
+    'media' => [
+        ['name' => 'small.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,${b64}'],
+        ['name' => 'photo.jpg', 'mime' => 'image/jpeg', 'data' => 'data:image/jpeg;base64,${bigB64}'],
+    ],
+];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+require '${APP}/api/reports.php';`));
+ok('پیوست‌های داخل بدنه‌ی گزارش ذخیره می‌شوند (بدون multipart)',
+  inlineSaved?.success === true && inlineSaved?.media_count === 2, JSON.stringify(inlineSaved).slice(0, 200));
+ok('عکس بزرگ‌تر (۷۰۰ کیلوبایت خام) هم پذیرفته می‌شود',
+  Array.isArray(inlineSaved?.media) && inlineSaved.media.some((m) => Number(m.size) > 600 * 1024),
+  JSON.stringify(inlineSaved?.media || []).slice(0, 200));
+
+const inlineStatus = pickJson(await run(`
+$_GET = ['action' => 'media_status'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${Number(inlineSaved?.id || 0)}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('تأیید از سرور: هر دو پیوست روی سرور هستند',
+  inlineStatus?.success === true && inlineStatus?.media_count === 2, JSON.stringify(inlineStatus).slice(0, 160));
+
+/* تکه‌تکه با همان نوع محتوای اپ */
+const chunkPlain = pickJson(await run(`
+$_GET = ['action' => 'chunk'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${IRID}', 'uploadId' => 'plain0001234567', 'index' => '0', 'total' => '1', 'name' => 'one.png', 'mime' => 'image/png', 'data' => '${b64}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+require '${APP}/api/media.php';`));
+ok('ارسال تکه‌تکه با بدنه‌ی ساده (بدون preflight) کار می‌کند',
+  chunkPlain?.success === true && chunkPlain?.done === true, JSON.stringify(chunkPlain).slice(0, 180));
+
+/* بدنه‌ی خالی اما با CONTENT_LENGTH: باید پیام روشن post_max_size بدهد، نه «Invalid JSON» */
+const tooBig = pickJson(await run(`
+$_POST = [];
+$_GET = [];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+$_SERVER['CONTENT_LENGTH'] = '9000000';
+require '${APP}/api/reports.php';`));
+ok('بدنه‌ی بزرگ/دورریخته‌شده، پیام روشن post_max_size می‌گیرد (نه Invalid JSON)',
+  tooBig?.success === false && String(tooBig?.error || '').includes('post_max_size'),
+  JSON.stringify(tooBig).slice(0, 160));
 
 console.log('\n=== ساختار خودترمیم روی دیتابیس قدیمی ===');
 const legacy = pickJson(await run(`

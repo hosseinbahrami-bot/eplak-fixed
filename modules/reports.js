@@ -513,23 +513,105 @@
     out.textContent = base;
   }
 
-  /* آدرس را از مختصات می‌گیرد و در کادر «یا آدرس را وارد کنید» می‌گذارد */
-  function lookupAddress(lat, lng, force) {
+  /* ── گرفتن آدرس دقیق از مختصات ────────────────────────────────────────
+     دو مسیر داریم و هر دو استفاده می‌شوند:
+       ۱) در اپ اندروید: سرویس آدرس‌یاب خودِ گوشی (Geocoder) از طریق پل
+          AndroidApp.getAddress → نتیجه با window.eplakAddressResult برمی‌گردد.
+          این مسیر «آدرس نوشتاری» را دقیق‌تر و فارسی می‌دهد و به سرویس
+          بیرونی وابسته نیست.
+       ۲) در وب (و اگر پل اندروید پاسخ نداد): سرویس آزاد OpenStreetMap.
+     نتیجه در کادر «یا آدرس را وارد کنید» نوشته می‌شود و همراه گزارش به
+     سرور می‌رود؛ پنل ادمین هم همان آدرس را نشان می‌دهد. */
+  let pendingAddressRequest = null;    /* درخواست در انتظار پاسخ پل اندروید */
+  let addressBridgeTimer = null;
+
+  function addressInputEl() {
+    return document.getElementById('reportLocationInput');
+  }
+
+  /* نوشتن آدرسی که از هر مسیری رسیده باشد (پل اندروید یا OpenStreetMap) */
+  function applyResolvedAddress(lat, lng, address, force) {
+    const clean = String(address || '').trim();
+    const locEl = addressInputEl();
+    if (locEl) {
+      locEl.removeAttribute('placeholder');
+      locEl.setAttribute('placeholder', 'مثلاً: خیابان امام خمینی، کوچه ۵');
+    }
+    if (!clean) {
+      /* اگر آدرس متنی پیدا نشد، دستِ‌کم مختصات دقیق در کادر باشد تا کاربر
+         بداند موقعیت ثبت شده است (و همان را در صورت نیاز ویرایش کند). */
+      return;
+    }
+    if (!locEl) return;
+    /* اگر کاربر خودش آدرسی نوشته، آن را با نتیجه‌ی جست‌وجو بازنویسی نمی‌کنیم
+       (مگر در حالت «موقعیت فعلی من» که force=true است). */
+    if (!force && locEl.value.trim() !== '') return;
+    locEl.value = clean;
+    reportDraft.location = clean;
+    locEl.classList.add('address-filled');
+    setTimeout(function () { locEl.classList.remove('address-filled'); }, 1200);
+  }
+
+  /* مسیر ۲: سرویس آزاد آدرس‌یاب (OpenStreetMap) با مهلت ۶ ثانیه */
+  function lookupAddressWeb(lat, lng, force) {
     if (!window.EplakMap || typeof window.EplakMap.reverseGeocode !== 'function') return;
+    window.EplakMap.reverseGeocode(lat, lng).then(function (address) {
+      applyResolvedAddress(lat, lng, address, force);
+    }).catch(function () {});
+  }
+
+  /* مسیر اصلی: اول پل اندروید (آدرس‌یاب گوشی)، بعد سرویس وب */
+  function lookupAddress(lat, lng, force) {
+    if (typeof lat !== 'number' || typeof lng !== 'number') return;
+    const locEl = addressInputEl();
+    if (locEl && !locEl.value.trim()) {
+      locEl.setAttribute('placeholder', 'در حال گرفتن آدرس دقیق…');
+    }
     clearTimeout(reportGeoTimer);
     reportGeoTimer = setTimeout(function () {
-      window.EplakMap.reverseGeocode(lat, lng).then(function (address) {
-        if (!address) return;
-        const locEl = document.getElementById('reportLocationInput');
-        if (!locEl) return;
-        /* اگر کاربر خودش آدرسی نوشته، آن را با نتیجه‌ی جست‌وجو بازنویسی نمی‌کنیم
-           (مگر در حالت «موقعیت فعلی من» که force=true است). */
-        if (!force && locEl.value.trim() !== '') return;
-        locEl.value = address;
-        reportDraft.location = address;
-      }).catch(function () {});
-    }, 400);
+      const hasBridge = !!(window.AndroidApp && typeof window.AndroidApp.getAddress === 'function');
+      if (!hasBridge) {
+        lookupAddressWeb(lat, lng, force);
+        return;
+      }
+      pendingAddressRequest = { lat: lat, lng: lng, force: !!force, done: false };
+      try {
+        window.AndroidApp.getAddress(lat, lng);
+      } catch (e) {
+        pendingAddressRequest = null;
+        lookupAddressWeb(lat, lng, force);
+        return;
+      }
+      /* اگر آدرس‌یاب گوشی در ۶ ثانیه پاسخ نداد (اینترنت/سرویس نداشت) به
+         سرویس وب برمی‌گردیم تا کادر آدرس خالی نماند. */
+      clearTimeout(addressBridgeTimer);
+      addressBridgeTimer = setTimeout(function () {
+        if (pendingAddressRequest && !pendingAddressRequest.done) {
+          const req = pendingAddressRequest;
+          pendingAddressRequest = null;
+          lookupAddressWeb(req.lat, req.lng, req.force);
+        }
+      }, 6000);
+    }, 350);
   }
+
+  /* پاسخ آدرس‌یاب اندروید (از MainActivity → Geocoder) */
+  window.eplakAddressResult = function (lat, lng, address) {
+    const text = String(address || '').trim();
+    const req = pendingAddressRequest;
+    if (req) req.done = true;
+    clearTimeout(addressBridgeTimer);
+    if (!text) {
+      /* گوشی آدرسی پیدا نکرد؛ سرویس وب را امتحان می‌کنیم */
+      const target = req || { lat: Number(lat), lng: Number(lng), force: false };
+      pendingAddressRequest = null;
+      lookupAddressWeb(target.lat, target.lng, target.force);
+      return;
+    }
+    const force = req ? !!req.force : false;
+    pendingAddressRequest = null;
+    applyResolvedAddress(Number(lat), Number(lng), text, force);
+  };
 
   /* ساخت نقشه فقط وقتی صفحه‌ی «موقعیت» دیده می‌شود (برای صرفه‌جویی در اینترنت) */
   function initReportMap(force) {
@@ -1018,8 +1100,16 @@
              به‌صورت base64 همراه گزارش می‌روند — یک درخواست، همان لحظه.
            • فایل‌های حجیم (فیلم) پس از ساخته شدن گزارش، تکه‌تکه (۱ مگابایتی)
              به api/media.php فرستاده و روی سرور به هم چسبانده می‌شوند. */
-      const INLINE_MAX_FILE = 6 * 1024 * 1024;      /* هر فایل تا ۶ مگابایت */
-      const INLINE_MAX_TOTAL = 12 * 1024 * 1024;    /* مجموع تا ۱۲ مگابایت */
+      /* ── آستانه‌های «همراه گزارش» (inline) ─────────────────────────────
+         چرا دیگر ۶ مگابایت نیست؟ تجربه‌ی میدانی روی همین هاست نشان داد:
+           • درخواست JSON کوچک (چند صد بایت) عبور می‌کند،
+           • درخواست چند مگابایتی (حاوی base64 عکس) بی‌پاسخ/رد می‌شود.
+         پس فقط فایل‌های سبک داخل JSON گزارش می‌روند (یک درخواست کوچک که روی
+         هر هاستی — قدیم و جدید — کار می‌کند) و بقیه پس از ثبت گزارش از مسیر
+         «تکه‌تکه» (۵۱۲ کیلوبایتی) به api/media.php فرستاده می‌شوند.
+         مقادیر با window.EPLAK_INLINE_MAX_* قابل تنظیم‌اند. */
+      const INLINE_MAX_FILE = Number(window.EPLAK_INLINE_MAX_FILE) || (600 * 1024);
+      const INLINE_MAX_TOTAL = Number(window.EPLAK_INLINE_MAX_TOTAL) || (700 * 1024);
       const inlineFiles = [];
       const largeFiles = [];
       let inlineBytes = 0;
@@ -1033,9 +1123,12 @@
       });
 
       const reportPayload = Object.assign({}, draftPayload);
+      let mediaDeferred = false;     /* پیوست‌ها باید جداگانه (تکه‌تکه) بروند */
+      let deferredInlineFiles = [];  /* فایل‌های سبکی که در JSON جا نشدند */
+      let uploadNote = '';           /* دلیل دقیق خطای حمل (برای پیام کاربر) */
 
-      const preparePayload = async () => {
-        if (!inlineFiles.length) return true;
+      const readInlineItems = async () => {
+        if (!inlineFiles.length) return [];
         setUploadStatus('در حال آماده‌سازی ' + toPersianDigits(filesToUpload.length) + ' پیوست (عکس/فیلم)…');
         const items = [];
         for (const file of inlineFiles) {
@@ -1044,120 +1137,212 @@
             : '';
           if (!dataUrl) {
             showToast('خواندن فایل «' + file.name + '» ممکن نشد؛ دوباره تلاش کنید');
-            return false;
+            return null;
           }
           items.push({ name: file.name || 'attachment', mime: file.type || '', data: dataUrl });
         }
-        reportPayload.media = items;
-        return true;
+        return items;
       };
 
-      const sendReport = preparePayload().then(ready => {
-        if (!ready) return null;
+      const postReport = (payload) => {
         if (typeof window.syncJsonToBackendWithProgress === 'function') {
-          return window.syncJsonToBackendWithProgress('reports', reportPayload, pct => {
-            setUploadStatus('در حال ارسال گزارش و پیوست‌ها… ' + toPersianDigits(Math.max(1, pct)) + '٪');
+          const withMedia = !!(payload.media && payload.media.length);
+          return window.syncJsonToBackendWithProgress('reports', payload, pct => {
+            setUploadStatus((withMedia ? 'در حال ارسال گزارش و پیوست‌ها… ' : 'در حال ارسال گزارش… ')
+              + toPersianDigits(Math.max(1, pct)) + '٪');
           });
         }
         return (typeof window.syncDataToBackend === 'function')
-          ? window.syncDataToBackend('reports', reportPayload)
+          ? window.syncDataToBackend('reports', payload)
           : Promise.resolve(null);
-      });
+      };
 
-      sendReport
-        .then(async backendRes => {
-          if (backendRes && backendRes.tracking_code) {
+      /* ── ثبت گزارش در سرور با یک نقشه‌ی پشتیبان ─────────────────────────
+         مرحله ۱: گزارش + پیوست‌های سبک در یک درخواست JSON.
+         مرحله ۲ (فقط اگر مرحله ۱ شکست خورد): همان گزارش را «بدون پیوست»
+                  می‌فرستیم تا گزارش هرگز از دست نرود؛ فایل‌ها بعداً از مسیر
+                  تکه‌تکه می‌روند. */
+      const createReportOnServer = async () => {
+        const items = await readInlineItems();
+        if (items === null) return { res: null, cancelled: true };
+        if (items.length) reportPayload.media = items;
+
+        let res = await postReport(reportPayload);
+
+        if ((!res || window.eplakIsTransportFailure(res)) && items.length) {
+          mediaDeferred = true;
+          deferredInlineFiles = inlineFiles.slice();
+          uploadNote = (res && res.error) ? res.error : 'ارسال همراه گزارش ممکن نشد';
+          const plain = Object.assign({}, reportPayload);
+          delete plain.media;
+          setUploadStatus('ارسال پیوست‌ها همراه گزارش ممکن نشد؛ گزارش بدون پیوست ثبت می‌شود…');
+          res = await postReport(plain);
+          if (!res || window.eplakIsTransportFailure(res)) {
+            return { res: null, note: uploadNote, cancelled: false };
+          }
+        }
+        return { res: res, cancelled: false };
+      };
+
+      /* ── ارسال تکه‌تکه‌ی فایل‌ها + تأیید نهایی از سرور ────────────────────
+         پس از پایان، تعداد پیوست‌های ذخیره‌شده را از خود سرور می‌پرسیم
+         (media_status) تا صرفاً به پاسخ اول اعتماد نکنیم. */
+      const sendMediaChunked = async (files, notePrefix) => {
+        if (!files.length || !newReport.backendId) return;
+        const phone = currentPhone;
+        setUploadStatus((notePrefix || '') + 'در حال ارسال ' + toPersianDigits(files.length) + ' پیوست…');
+        let chunkRes = null;
+        try {
+          if (typeof window.uploadReportMediaChunked !== 'function') {
+            throw new Error('uploadReportMediaChunked unavailable');
+          }
+          chunkRes = await window.uploadReportMediaChunked(
+            newReport.backendId, phone, files,
+            pct => setUploadStatus((notePrefix || '') + 'در حال ارسال پیوست‌ها… ' + toPersianDigits(Math.max(1, pct)) + '٪')
+          );
+        } catch (e) {
+          console.warn('[reports] chunked upload note:', e);
+          chunkRes = { ok: false, media: [], failed: files.map(f => f.name), error: 'ارسال پیوست‌ها ناموفق بود', unsupported: true, blocked: false, status: 0 };
+        }
+
+        const saved = (chunkRes && Array.isArray(chunkRes.media)) ? chunkRes.media : [];
+        if (saved.length) {
+          const merged = (Array.isArray(newReport.media) ? newReport.media : [])
+            .filter(item => !item.local)
+            .concat(saved.map(item => ({
+              kind: item.kind,
+              url: mediaUrlOf(item.url),
+              name: item.name,
+              size: item.size
+            })));
+          newReport.media = merged;
+          if (typeof saveReports === 'function') saveReports(currentPhone);
+        }
+
+        /* تأیید از سرور: هر فایلی که «گزارش شد» باید در سرور هم دیده شود */
+        let serverCount = 0;
+        if (typeof window.eplakMediaStatus === 'function') {
+          try {
+            const status = await window.eplakMediaStatus(newReport.backendId, phone);
+            if (status) serverCount = status.count;
+          } catch (e) {}
+        }
+
+        const failedCount = (chunkRes && Array.isArray(chunkRes.failed)) ? chunkRes.failed.length : files.length;
+        const unsupported = !!(chunkRes && chunkRes.unsupported);
+        const blocked = !!(chunkRes && chunkRes.blocked);
+
+        if (failedCount === 0 && (saved.length || serverCount > 0)) {
+          setUploadStatus('✅ ' + toPersianDigits(Math.max(serverCount, saved.length))
+            + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
+          showToast('عکس/فیلم‌ها با موفقیت ارسال شد ✅');
+          clearMediaRetry();
+          return;
+        }
+
+        if (unsupported) {
+          setUploadStatus('⚠️ ارسال فایل روی این نسخه‌ی هاست فعال نیست؛ یک‌بار بسته‌ی تازه‌ی سایت را روی هاست Extract کنید. (گزارش شما ثبت شده است)', 'error');
+          showToast('برای ارسال پیوست‌ها، بسته‌ی تازه‌ی سایت را روی هاست Extract کنید');
+        } else if (blocked) {
+          setUploadStatus('⚠️ فایروال هاست فایل را رد کرد (کد ' + toPersianDigits((chunkRes && chunkRes.status) || 0) + '). گزارش ثبت شده است؛ دوباره تلاش کنید یا فایل سبک‌تری انتخاب کنید.', 'error');
+        } else {
+          const reason = (chunkRes && chunkRes.error) ? chunkRes.error : 'ارسال پیوست‌ها ناموفق بود';
+          setUploadStatus('⚠️ گزارش ثبت شد ولی ' + reason + ' (پیوست‌ها در گوشی نگه داشته شدند؛ دکمه‌ی «تلاش دوباره» را بزنید)', 'error');
+        }
+        showToast('پیوست‌ها نرسیدند؛ دکمه‌ی تلاش دوباره را بزنید');
+        offerMediaRetry(files, phone);
+      };
+
+      /* ── دکمه‌ی «تلاش دوباره» برای پیوست‌هایی که نرسیده‌اند ───────────────
+         فایل‌ها در همان نشست در حافظه نگه داشته می‌شوند تا با یک ضربه، دوباره
+         و بدون ساختن گزارش تکراری ارسال شوند. */
+      function offerMediaRetry(files, phone) {
+        const el = document.getElementById('reportUploadStatus');
+        if (!el) return;
+        let btn = document.getElementById('reportUploadRetry');
+        if (!btn) {
+          btn = document.createElement('button');
+          btn.id = 'reportUploadRetry';
+          btn.type = 'button';
+          btn.textContent = 'تلاش دوباره برای ارسال پیوست‌ها';
+          btn.style.cssText = 'margin-top:8px; padding:9px 14px; border:0; border-radius:10px; ' +
+            'background:var(--teal); color:#fff; font-family:inherit; font-size:13px; font-weight:700; cursor:pointer;';
+          el.parentNode.insertBefore(btn, el.nextSibling);
+        }
+        btn.style.display = 'inline-block';
+        btn.onclick = async function () {
+          btn.disabled = true;
+          btn.textContent = 'در حال تلاش دوباره…';
+          await sendMediaChunked(files, 'تلاش دوباره: ');
+          btn.disabled = false;
+          btn.textContent = 'تلاش دوباره برای ارسال پیوست‌ها';
+        };
+      }
+
+      function clearMediaRetry() {
+        const btn = document.getElementById('reportUploadRetry');
+        if (btn) btn.style.display = 'none';
+      }
+      clearMediaRetry();
+
+      createReportOnServer()
+        .then(async outcome => {
+          const backendRes = outcome.res;
+          if (!backendRes) {
+            /* گزارش به سرور نرسید؛ هم دلیل فنی و هم راه‌حل را می‌گوییم */
+            const why = outcome.note || uploadNote || 'ارتباط با سرور برقرار نشد';
+            setUploadStatus('⚠️ ' + why + ' — گزارش در گوشی ذخیره شد و با وصل شدن اینترنت از «درخواست‌های من» قابل پیگیری است', 'error');
+            showToast(why);
+            return;
+          }
+          if (backendRes.success === false) {
+            const reason = String(backendRes.error || '').trim();
+            setUploadStatus('⚠️ ' + (reason !== '' ? reason : 'پیوست‌ها ذخیره نشدند'), 'error');
+            showToast(reason !== '' ? ('گزارش ذخیره نشد: ' + reason) : 'گزارش ذخیره نشد');
+            return;
+          }
+          if (backendRes.id) {
+            newReport.backendId = backendRes.id;
+            newReport.id = String(backendRes.id);
+          }
+          if (backendRes.tracking_code) {
             newReport.code = backendRes.tracking_code;
-            if (backendRes.id) {
-              /* شناسه‌ی سروری جایگزین شناسه‌ی موقت محلی می‌شود تا حذف/جزئیات
-                 دقیقاً به همان رکورد سرور اشاره کند */
-              newReport.backendId = backendRes.id;
-              newReport.id = String(backendRes.id);
-            }
-            delete newReport.pendingSync;
-
-            /* فایل‌های تأییدشده‌ی سرور جای پیش‌نمایش‌های محلی را می‌گیرند تا در
-               جزئیات گزارش، همان فایل واقعی ذخیره‌شده روی سرور نمایش داده شود. */
-            if (Array.isArray(backendRes.media) && backendRes.media.length) {
-              newReport.media = backendRes.media.map(item => ({
-                kind: item.kind,
-                url: mediaUrlOf(item.url),
-                name: item.name,
-                size: item.size
-              }));
-            }
-            if (filesToUpload.length > 0) {
-              const savedCount = Array.isArray(backendRes.media) ? backendRes.media.length : 0;
-              const pendingLarge = largeFiles.length;
-              if (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length) {
-                setUploadStatus('⚠️ ' + backendRes.media_errors[0], 'error');
-                showToast('برخی فایل‌ها ذخیره نشد: ' + backendRes.media_errors[0]);
-              } else if (savedCount === 0) {
-                setUploadStatus('⚠️ پیوست‌ها ذخیره نشدند؛ حجم فایل را کم کنید و دوباره تلاش کنید', 'error');
-                showToast('پیوست‌ها ذخیره نشدند؛ حجم فایل را کم کنید و دوباره تلاش کنید');
-              } else if (pendingLarge > 0) {
-                setUploadStatus('✅ ' + toPersianDigits(savedCount) + ' پیوست ارسال شد؛ ارسال ' + toPersianDigits(pendingLarge) + ' فایل حجیم در حال انجام است…', 'done');
-              } else {
-                setUploadStatus('✅ ' + toPersianDigits(savedCount) + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
-                showToast('عکس/فیلم‌ها با موفقیت ارسال شد ✅');
-              }
-            } else {
-              setUploadStatus('');
-            }
-
             const currentTrackElem = document.getElementById('successTrackCode');
             if (currentTrackElem && (currentTrackElem.textContent === code || !currentTrackElem.textContent)) {
               currentTrackElem.textContent = backendRes.tracking_code;
             }
-            if (typeof saveReports === 'function') saveReports(currentPhone);
           }
-          else if (backendRes && backendRes.success === false) {
-            /* سرور دلیل دقیق را گفته است (مثلاً حجم فایل بیش از حد مجاز) */
-            const reason = String(backendRes.error || '').trim();
-            setUploadStatus('⚠️ ' + (reason !== '' ? reason : 'پیوست‌ها ذخیره نشدند'), 'error');
-            showToast(reason !== ''
-              ? ('گزارش ذخیره شد ولی پیوست ارسال نشد: ' + reason)
-              : 'گزارش ذخیره شد ولی پیوست‌ها به سرور نرسیدند');
-          } else if (!backendRes) {
-            setUploadStatus('⚠️ گزارش ثبت شد ولی پیوست‌ها به سرور نرسیدند؛ اینترنت را بررسی کنید', 'error');
-            showToast('گزارش ثبت شد ولی ارتباط با سرور برقرار نشد؛ پیوست‌ها ارسال نشدند');
+          delete newReport.pendingSync;
+
+          const savedInline = Array.isArray(backendRes.media) ? backendRes.media : [];
+          if (savedInline.length) {
+            newReport.media = savedInline.map(item => ({
+              kind: item.kind,
+              url: mediaUrlOf(item.url),
+              name: item.name,
+              size: item.size
+            }));
+          }
+          if (typeof saveReports === 'function') saveReports(currentPhone);
+
+          if (filesToUpload.length === 0) {
+            setUploadStatus('');
+          } else if (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length
+                     && savedInline.length === 0 && !mediaDeferred && !largeFiles.length) {
+            setUploadStatus('⚠️ ' + backendRes.media_errors[0], 'error');
+            showToast('برخی فایل‌ها ذخیره نشد: ' + backendRes.media_errors[0]);
+          } else if (savedInline.length) {
+            setUploadStatus('✅ ' + toPersianDigits(savedInline.length) + ' پیوست ارسال شد'
+              + (mediaDeferred || largeFiles.length ? '؛ بقیه‌ی فایل‌ها در حال ارسال است…' : ' و در پنل شهرداری ثبت شد'), 'done');
+          } else {
+            setUploadStatus('گزارش ثبت شد؛ پیوست‌ها در حال ارسال…');
           }
 
-          /* ── فایل‌های حجیم (فیلم): ارسال تکه‌تکه پس از ساخته شدن گزارش ── */
-          if (largeFiles.length && newReport.backendId && typeof window.uploadReportMediaChunked === 'function') {
-            try {
-              setUploadStatus('در حال ارسال ' + toPersianDigits(largeFiles.length) + ' فیلم/فایل حجیم…');
-              const chunkRes = await window.uploadReportMediaChunked(
-                newReport.backendId, currentPhone, largeFiles,
-                pct => setUploadStatus('در حال ارسال فیلم… ' + toPersianDigits(Math.max(1, pct)) + '٪')
-              );
-              if (chunkRes && chunkRes.ok && chunkRes.media.length) {
-                const merged = (Array.isArray(newReport.media) ? newReport.media : []).concat(
-                  chunkRes.media.map(item => ({
-                    kind: item.kind,
-                    url: mediaUrlOf(item.url),
-                    name: item.name,
-                    size: item.size
-                  }))
-                );
-                newReport.media = merged;
-                if (typeof saveReports === 'function') saveReports(currentPhone);
-                setUploadStatus('✅ ' + toPersianDigits(merged.length) + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
-                showToast('فیلم/فایل‌های حجیم با موفقیت ارسال شد ✅');
-              } else if (chunkRes && chunkRes.unsupported) {
-                setUploadStatus('⚠️ ارسال فایل حجیم روی این هاست فعال نیست؛ بسته‌ی تازه‌ی سایت را روی هاست Extract کنید', 'error');
-                showToast('برای ارسال فیلم، بسته‌ی تازه‌ی سایت را روی هاست Extract کنید');
-              } else {
-                const reason = (chunkRes && chunkRes.error) ? chunkRes.error : 'ارسال فایل حجیم ناموفق بود';
-                setUploadStatus('⚠️ گزارش ثبت شد ولی ' + reason, 'error');
-                showToast(reason);
-              }
-            } catch (e) {
-              console.warn('[reports] chunked upload note:', e);
-              setUploadStatus('⚠️ ارسال فایل حجیم ناموفق بود؛ دوباره تلاش کنید', 'error');
-            }
+          /* ── فایل‌های باقی‌مانده: فیلم‌ها و فایل‌هایی که در گزارش جا نشدند ── */
+          const stillToSend = deferredInlineFiles.concat(largeFiles);
+          if (stillToSend.length && newReport.backendId) {
+            await sendMediaChunked(stillToSend, '');
           }
-
           if (typeof loadReportsFromBackend === 'function') {
             loadReportsFromBackend(currentPhone, { silent: true });
           }

@@ -336,29 +336,94 @@
     };
   }
 
-  /* ── آدرس‌یابی معکوس (اختیاری): از مختصات به آدرس فارسی ─────────────
+  /* ── ساخت «آدرس نوشتاری دقیق» از پاسخ آدرس‌یاب ───────────────────────
+     پاسخ خام سرویس، یک رشته‌ی طولانی و بی‌ترتیب است (کشور، استان، شهر، …)
+     و در کادر «آدرس» بدرد نمی‌خورد. اینجا آدرس کوتاه، مرتب و فارسی ساخته
+     می‌شود: «خیابان، پلاک، محله، شهر».
+     ترتیب اولویت: خیابان/معبر → محله → شهر → (در صورت نبود) شهرستان/استان. */
+  var STREET_KEYS = ['road', 'pedestrian', 'footway', 'cycleway', 'residential', 'path', 'square'];
+  var HOOD_KEYS   = ['neighbourhood', 'quarter', 'suburb', 'hamlet', 'borough', 'city_block'];
+  var CITY_KEYS   = ['city', 'town', 'village', 'municipality', 'city_district', 'county'];
+
+  function firstOf(source, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var value = source && source[keys[i]];
+      if (value && String(value).trim() !== '') return String(value).trim();
+    }
+    return '';
+  }
+
+  function formatShortAddress(data, lat, lng) {
+    if (!data) return '';
+    var addr = data.address || {};
+    var parts = [];
+
+    var street = firstOf(addr, STREET_KEYS);
+    var house  = addr.house_number ? ('پلاک ' + String(addr.house_number).trim()) : '';
+    if (street) parts.push(house ? (street + '، ' + house) : street);
+
+    var hood = firstOf(addr, HOOD_KEYS);
+    if (hood && parts.indexOf(hood) === -1) parts.push(hood);
+
+    var city = firstOf(addr, CITY_KEYS);
+    if (city && parts.indexOf(city) === -1) parts.push(city);
+
+    /* اگر فقط محله/شهر را داشتیم و نام خیابان نبود، از رشته‌ی کامل سرویس
+       (display_name) برای «دقیق‌تر شدن» استفاده می‌کنیم. */
+    if (parts.length < 2 && data.display_name) {
+      String(data.display_name).split(',').forEach(function (piece) {
+        var value = piece.trim();
+        if (value && parts.length < 3 && parts.indexOf(value) === -1 && !/^\d+$/.test(value)) {
+          parts.push(value);
+        }
+      });
+    }
+
+    if (!parts.length) return '';
+
+    var text = parts.join('، ');
+    if (text.length > 120) text = text.slice(0, 120).trim();
+
+    /* اگر آدرس خیلی کوتاه/مبهم بود، مختصات دقیق را هم کنارش می‌گذاریم تا
+       کاربر بداند موقعیت ثبت‌شده کجاست. */
+    if (text.length < 10 && isFiniteNumber(lat) && isFiniteNumber(lng)) {
+      text = text + ' (عرض ' + Number(lat).toFixed(5) + ' • طول ' + Number(lng).toFixed(5) + ')';
+    }
+    return text;
+  }
+
+  /* ── آدرس‌یابی معکوس: از مختصات به آدرس فارسی ─────────────────────────
      اگر اینترنت یا سرویس نقشه پاسخ ندهد، null برمی‌گردد و برنامه
-     «عرض/طول جغرافیایی» را نشان می‌دهد. */
+     «عرض/طول جغرافیایی» را نشان می‌دهد. مهلت ۶ ثانیه گذاشته شده تا اگر
+     سرویس کند بود، کاربر معطل نماند. */
   function reverseGeocode(lat, lng) {
     if (!isFiniteNumber(lat) || !isFiniteNumber(lng)) return Promise.resolve(null);
     var url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1'
       + '&accept-language=fa&lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lng);
 
-    return fetch(url, { headers: { 'Accept': 'application/json' } })
+    var options = { headers: { 'Accept': 'application/json' } };
+    var timer = null;
+    if (typeof AbortController === 'function') {
+      var controller = new AbortController();
+      options.signal = controller.signal;
+      timer = setTimeout(function () { try { controller.abort(); } catch (e) {} }, 6000);
+    }
+
+    return fetch(url, options)
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
+        if (timer) clearTimeout(timer);
         if (!data) return null;
-        var address = data.display_name || null;
-        if (!address && data.address) {
-          var parts = [];
-          ['road', 'neighbourhood', 'suburb', 'city', 'state'].forEach(function (k) {
-            if (data.address[k]) parts.push(data.address[k]);
-          });
-          address = parts.join('، ') || null;
-        }
-        return address;
+        var short = formatShortAddress(data, lat, lng);
+        if (short) return short;
+        /* آخرین تلاش: رشته‌ی خام سرویس (اگر آدرس ساخت‌یافته نداشت) */
+        var fallback = data.display_name ? String(data.display_name).split(',').slice(0, 3).join('، ').trim() : '';
+        return fallback || null;
       })
-      .catch(function () { return null; });
+      .catch(function () {
+        if (timer) clearTimeout(timer);
+        return null;
+      });
   }
 
   /* متن مختصات برای نمایش به کاربر */
@@ -373,6 +438,7 @@
   var api = {
     create: create,
     reverseGeocode: reverseGeocode,
+    formatShortAddress: formatShortAddress,
     formatPosition: formatPosition,
     isFiniteNumber: isFiniteNumber
   };

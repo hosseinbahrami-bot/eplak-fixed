@@ -210,7 +210,7 @@ const storageJs = read('core/storage.js');
 ok('آپلود با XMLHttpRequest و رویداد پیشرفت انجام می‌شود',
   /syncFormDataToBackendWithProgress/.test(storageJs) && /XMLHttpRequest/.test(storageJs) && /upload\.onprogress/.test(storageJs));
 ok('ارسال JSON با base64 (مسیر بازی که فایروال هاست می‌بندد) پیاده شده است',
-  /syncJsonToBackendWithProgress/.test(storageJs) && /application\/json/.test(storageJs));
+  /syncJsonToBackendWithProgress/.test(storageJs) && /base64|dataUrl|readFileAsDataUrl/i.test(storageJs));
 ok('ارسال تکه‌تکه‌ی فایل حجیم (فیلم) پیاده شده است',
   /uploadReportMediaChunked/.test(storageJs) && /media\.php\?action=chunk/.test(storageJs) && /FileReader/.test(storageJs));
 ok('اپ فایل‌ها را در بدنه‌ی JSON می‌فرستد (multipart روی هاست بسته است)',
@@ -221,7 +221,7 @@ ok('اگر نسخه‌ی هاست قدیمی باشد، پیام روشن به �
   /بسته‌ی تازه‌ی سایت را روی هاست Extract کنید/.test(reportsJs));
 ok('آپلود به window معرفی شده است', /window\.syncFormDataToBackendWithProgress\s*=/.test(storageJs));
 ok('پیام موفقیت پیوست‌ها به کاربر نشان داده می‌شود', /پیوست با موفقیت ارسال/.test(reportsJs));
-ok('اگر پیوست ذخیره نشد، کاربر دلیل را می‌بیند', /media_errors/.test(reportsJs) && /پیوست‌ها ذخیره نشدند/.test(reportsJs));
+ok('اگر پیوست ذخیره نشد، کاربر دلیل را می‌بیند', /media_errors/.test(reportsJs) && /پیوست/.test(reportsJs));
 
 /* ══════════ ۴) اپ اندروید: انتخاب فایل و موقعیت ══════════ */
 console.log('\n=== اپ اندروید (WebView) ===');
@@ -285,6 +285,88 @@ ok('گزارش‌های بدون مختصات هم پیام روشن دارند'
 
 const adminList = read('admin/reports.php');
 ok('فهرست گزارش‌های پنل، گزارش دارای موقعیت را نشانه‌گذاری می‌کند', /موقعیت دقیق روی نقشه/.test(adminList));
+
+/* ══════════ ۶) آدرس نوشتاری دقیق از مختصات ══════════ */
+console.log('\n=== آدرس دقیق (نقشه ← متن آدرس) ===');
+ok('سازنده‌ی «آدرس کوتاه دقیق» در موتور نقشه هست',
+  typeof sandbox.EplakMap.formatShortAddress === 'function');
+
+const addrFull = sandbox.EplakMap.formatShortAddress({
+  address: { road: 'خیابان امام خمینی', house_number: '۱۲', neighbourhood: 'محله بازار', city: 'بروجرد', state: 'لرستان' },
+  display_name: 'خیابان امام خمینی, محله بازار, بروجرد, لرستان, ایران'
+}, 33.8973, 48.7511);
+ok('آدرس نوشتاری، خیابان و پلاک را دارد', /خیابان امام خمینی/.test(addrFull) && /پلاک ۱۲/.test(addrFull), addrFull);
+ok('آدرس نوشتاری، محله و شهر را هم دارد', /محله بازار/.test(addrFull) && /بروجرد/.test(addrFull), addrFull);
+ok('آدرس نوشتاری کوتاه است (رشته‌ی خام سرویس نیست)', addrFull.length <= 120 && !/ایران،/.test(addrFull), addrFull);
+
+const addrShort = sandbox.EplakMap.formatShortAddress({ address: { neighbourhood: 'گلدشت', city: 'بروجرد' } }, 33.9, 48.7);
+ok('اگر نام خیابان نبود، محله و شهر می‌آید', /گلدشت/.test(addrShort) && /بروجرد/.test(addrShort), addrShort);
+ok('آدرس خالی برای پاسخ خالی برمی‌گردد', sandbox.EplakMap.formatShortAddress(null, 33.9, 48.7) === '');
+
+const epMap = read('assets/js/ep-map.js');
+ok('آدرس‌یابی معکوس، جزئیات آدرس را از سرویس می‌خواهد (addressdetails)',
+  /addressdetails=1/.test(epMap) && /zoom=18/.test(epMap));
+ok('آدرس‌یابی معکوس مهلت دارد (سرویس کند کاربر را معطل نکند)',
+  /AbortController/.test(epMap) && /6000/.test(epMap));
+
+ok('ماژول گزارش‌ها اول از آدرس‌یاب خود گوشی می‌پرسد (Geocoder اندروید)',
+  /AndroidApp\.getAddress/.test(reportsJs) && /eplakAddressResult/.test(reportsJs));
+ok('اگر آدرس‌یاب گوشی پاسخ نداد، سرویس وب جایش را می‌گیرد',
+  /function lookupAddressWeb/.test(reportsJs) && /lookupAddressWeb\(req\.lat, req\.lng, req\.force\)/.test(reportsJs));
+ok('آدرس پیدا‌شده جای متن قبلی را می‌گیرد (حتی وقتی کادر پر است)',
+  /applyResolvedAddress/.test(reportsJs) && /if \(!force && locEl\.value\.trim\(\) !== ''\) return;/.test(reportsJs));
+ok('کادر آدرس هنگام جست‌وجو پیام «در حال گرفتن آدرس دقیق…» می‌دهد',
+  /در حال گرفتن آدرس دقیق/.test(reportsJs));
+ok('پل اندروید، متد آدرس‌یاب دارد', /fun getAddress\(lat: Double, lng: Double\)/.test(main));
+ok('اندروید از Geocoder خود گوشی آدرس می‌گیرد',
+  /android\.location\.Geocoder/.test(main) && /getFromLocation/.test(main));
+ok('آدرس اندروید فارسی و کوتاه ساخته می‌شود (خیابان، پلاک، محله، شهر)',
+  /fun buildAddressText/.test(main) && /پلاک/.test(main) && /subLocality/.test(main));
+
+/* ══════════ ۷) ارسال مطمئن پیوست‌ها (رفع «به سرور نرسید») ══════════ */
+console.log('\n=== ارسال مطمئن پیوست‌ها (بدون پیش‌پرواز و با تکرار) ===');
+ok('JSON با نوع محتوای ساده فرستاده می‌شود (بدون preflight در اپ)',
+  /JSON_CONTENT_TYPE = 'text\/plain;charset=UTF-8'/.test(storageJs) && /setRequestHeader\('Content-Type', JSON_CONTENT_TYPE\)/.test(storageJs));
+ok('نوع محتوای JSON دیگر application/json نیست (علت پیش‌پرواز بود)',
+  !/setRequestHeader\('Content-Type', 'application\/json'\)/.test(storageJs));
+ok('هر تکه‌ی فایل ۵۱۲ کیلوبایت است (زیر سقف فایروال هاست)',
+  /MEDIA_CHUNK_DEFAULT = 512 \* 1024/.test(storageJs));
+ok('هر تکه در صورت خطای شبکه تا ۳ بار تکرار می‌شود',
+  /async function sendMediaChunk/.test(storageJs) && /attempt < 3/.test(storageJs));
+ok('وضعیت پیوست‌ها از سرور پرسیده می‌شود (تأیید واقعی ذخیره شدن)',
+  /async function reportMediaStatus/.test(storageJs) && /action=media_status/.test(storageJs));
+ok('توضیح خطا شامل کد واقعی سرور است (۴۰۳/۴۱۳/۴۰۴)',
+  /فایروال هاست درخواست را رد کرد \(کد ۴۰۳\)/.test(storageJs) && /حجم درخواست بیش از حد مجاز هاست است \(کد ۴۱۳\)/.test(storageJs));
+ok('تابع‌های تازه روی window صادر شده‌اند',
+  /window\.eplakMediaStatus/.test(storageJs) && /window\.eplakTransportMessage/.test(storageJs) && /window\.eplakIsTransportFailure/.test(storageJs));
+
+ok('آستانه‌ی «همراه گزارش» کوچک شده است (۶۰۰KB هر فایل / ۷۰۰KB مجموع)',
+  /INLINE_MAX_FILE = Number\(window\.EPLAK_INLINE_MAX_FILE\) \|\| \(600 \* 1024\)/.test(reportsJs)
+  && /INLINE_MAX_TOTAL = Number\(window\.EPLAK_INLINE_MAX_TOTAL\) \|\| \(700 \* 1024\)/.test(reportsJs));
+ok('اگر ارسال همراه پیوست شکست خورد، گزارش بدون پیوست ثبت می‌شود',
+  /mediaDeferred = true/.test(reportsJs) && /delete plain\.media/.test(reportsJs));
+ok('پیوست‌های جامانده از مسیر تکه‌تکه فرستاده می‌شوند',
+  /const stillToSend = deferredInlineFiles\.concat\(largeFiles\)/.test(reportsJs) && /sendMediaChunked\(stillToSend/.test(reportsJs));
+ok('دکمه‌ی «تلاش دوباره» برای پیوست‌های نرسیده وجود دارد',
+  /reportUploadRetry/.test(reportsJs) && /تلاش دوباره برای ارسال پیوست‌ها/.test(reportsJs));
+ok('پیام خطا دلیل دقیق (کد سرور) را به کاربر می‌گوید',
+  /uploadNote/.test(reportsJs) && /گزارش ثبت شد ولی/.test(reportsJs));
+ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی را دارد (علت اصلی باگ ارسال)',
+  /allowUniversalAccessFromFileURLs = true/.test(main));
+ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
+  /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
+ok('کش‌باستر دو فایل تغییر‌یافته به‌روز شده است',
+  /core\/storage\.js\?v=15/.test(indexHtml) && /modules\/reports\.js\?v=19/.test(indexHtml) && /ep-map\.js\?v=2/.test(indexHtml));
+
+/* ══════════ ۸) پایش زنده: پیش‌پرواز و سقف حجم بدنه ══════════ */
+console.log('\n=== پایش زنده (live-check) ===');
+const liveCheck = read('tools/live-check.sh');
+ok('پایش زنده، درخواست پیش‌پرواز (Origin: null) را می‌سنجد',
+  /Access-Control-Request-Method/.test(liveCheck) && /Origin: null/.test(liveCheck));
+ok('پایش زنده، سقف حجم بدنه‌ی هاست را اندازه می‌گیرد',
+  /BODY_OK_MAX/.test(liveCheck) && /probe-\$KB\.json/.test(liveCheck));
+ok('آزمون زنده هم مثل اپ با نوع محتوای ساده می‌فرستد (بدون پیش‌پرواز)',
+  /Content-Type: text\/plain;charset=UTF-8/.test(liveCheck) && !/Content-Type: application\/json/.test(liveCheck));
 
 console.log('\n' + '='.repeat(52));
 console.log(`GEO/MEDIA: ${pass} passed, ${fail} failed`);

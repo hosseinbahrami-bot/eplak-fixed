@@ -5,6 +5,8 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Address
+import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,6 +23,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -103,6 +107,62 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Throwable) {
             }
         }
+    }
+
+    /* ── آدرس نوشتاری دقیق از مختصات (آدرس‌یاب خود گوشی) ─────────────────
+       لایه‌ی وب (modules/reports.js) پس از گرفتن موقعیت، این متد را صدا
+       می‌زند و نتیجه با window.eplakAddressResult(lat, lng, text) به وب
+       برمی‌گردد. اگر گوشی آدرسی پیدا نکرد، رشته‌ی خالی می‌فرستیم و لایه‌ی
+       وب خودش سرویس OpenStreetMap را امتحان می‌کند. */
+    private fun requestAddressForWeb(lat: Double, lng: Double) {
+        if (lat.isNaN() || lng.isNaN() || lat.isInfinite() || lng.isInfinite()) return
+        Thread {
+            val text = lookupAddressText(lat, lng)
+            webView.post {
+                try {
+                    webView.evaluateJavascript(
+                        "window.eplakAddressResult && window.eplakAddressResult(" +
+                            lat.toString() + "," + lng.toString() + "," +
+                            JSONObject.quote(text) + ");",
+                        null
+                    )
+                } catch (e: Throwable) {
+                }
+            }
+        }.start()
+    }
+
+    /* آدرس‌یاب گوشی؛ اول با زبان فارسی و در صورت نبود نتیجه با زبان پیش‌فرض */
+    @Suppress("DEPRECATION")
+    private fun lookupAddressText(lat: Double, lng: Double): String {
+        if (!Geocoder.isPresent()) return ""
+        val locales = listOf(Locale("fa", "IR"), Locale.getDefault())
+        for (locale in locales) {
+            try {
+                val results = Geocoder(this, locale).getFromLocation(lat, lng, 1)
+                val address = results?.firstOrNull() ?: continue
+                val text = buildAddressText(address)
+                if (text.isNotEmpty()) return text
+            } catch (e: Throwable) {
+                /* زبان بعدی را امتحان می‌کنیم */
+            }
+        }
+        return ""
+    }
+
+    /* ساخت آدرس کوتاه و دقیق: «خیابان، پلاک، محله، شهر» */
+    private fun buildAddressText(address: Address): String {
+        val parts = mutableListOf<String>()
+        val street = address.thoroughfare?.trim().orEmpty()
+        val house = address.subThoroughfare?.trim().orEmpty()
+        if (street.isNotEmpty()) {
+            parts.add(if (house.isNotEmpty()) "$street، پلاک $house" else street)
+        }
+        val hood = address.subLocality?.trim().orEmpty()
+        if (hood.isNotEmpty() && !parts.contains(hood)) parts.add(hood)
+        val city = address.locality?.trim().orEmpty().ifEmpty { address.subAdminArea?.trim().orEmpty() }
+        if (city.isNotEmpty() && !parts.contains(city)) parts.add(city)
+        return parts.joinToString("، ")
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -188,15 +248,21 @@ class MainActivity : AppCompatActivity() {
         webSettings.databaseEnabled = true
         webSettings.javaScriptCanOpenWindowsAutomatically = true
 
-        // دسترسی به فایل‌ها
-        webSettings.allowFileAccess = true
+        /* دسترسی به فایل‌ها
+           ــ نکته‌ی مهم (اصلاح باگ «پیوست‌ها به سرور نرسید»): صفحه‌ی اپ از
+              file:///android_asset باز می‌شود و origin آن «null» است. اگر
+              allowUniversalAccessFromFileURLs خاموش باشد، وب‌ویو درخواست‌های
+              شبکه‌ای (fetch/XHR) از این صفحه به دامنه‌ی سرور را بی‌صدا رد
+              می‌کند — یعنی گزارش/عکس/فیلم هرگز به سرور نمی‌رسید در حالی که
+              صفحه‌ی «ثبت شد» نمایش داده می‌شد. پس این گزینه باید روشن باشد.
+           ــ برای کاهش ریسک، دسترسی مستقیم به فایل‌های سیستم (file://) لازم
+              نیست؛ Assets و content://ها مستقل از آن کار می‌کنند. */
+        webSettings.allowFileAccess = false
         webSettings.allowContentAccess = true
         @Suppress("DEPRECATION")
         webSettings.allowFileAccessFromFileURLs = true
-        // دسترسی «universal» از file:// غیرفعال: در صورت هر XSS داخل وب‌ویو، امکان خواندن
-        // فایل‌های محلی/داده‌های اپ از بین می‌رود. اپ برای کارکرد به آن نیاز ندارد.
         @Suppress("DEPRECATION")
-        webSettings.allowUniversalAccessFromFileURLs = false
+        webSettings.allowUniversalAccessFromFileURLs = true
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -330,6 +396,12 @@ class MainActivity : AppCompatActivity() {
            این دو متد را صدا می‌زند تا اگر اجازه داده نشده، اول از کاربر پرسیده
            شود؛ نتیجه‌ی اجازه با window.eplakLocationPermissionResult به وب
            برمی‌گردد. */
+
+        /** آدرس نوشتاری دقیق از مختصات (نتیجه با window.eplakAddressResult می‌آید) */
+        @JavascriptInterface
+        fun getAddress(lat: Double, lng: Double) {
+            this@MainActivity.requestAddressForWeb(lat, lng)
+        }
 
         /** آیا اجازه‌ی موقعیت مکانی به اپ داده شده است؟ */
         @JavascriptInterface

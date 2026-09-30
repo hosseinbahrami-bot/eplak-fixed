@@ -73,75 +73,71 @@
     try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
   }
 
-  async function syncDataToBackend(endpoint, payload) {
-    if (!payload || typeof payload !== 'object') return null;
-    try {
-      const response = await fetch(BACKEND_BASE_URL + '/' + endpoint + '.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        console.warn('[backend] request failed', endpoint, await response.text());
-        return null;
-      }
-      return await response.json();
-    } catch (error) {
-      console.warn('[backend] unavailable', endpoint, error.message);
-      return null;
-    }
+  /* ─── «نوع محتوای ساده» برای درخواست‌های JSON ────────────────────────
+     چرا text/plain و نه application/json؟
+       • در اپ اندروید صفحه از file:///android_asset باز می‌شود و origin آن
+         «null» است. با Content-Type: application/json مرورگر/وب‌ویو یک
+         درخواست پیش‌پرواز OPTIONS می‌فرستد؛ اگر آن پاسخ تأیید نشود ارسال
+         بی‌صدا شکست می‌خورد (همان پیام «پیوست‌ها به سرور نرسیدند»).
+       • text/plain جزء انواع ساده است و پیش‌پرواز ندارد.
+       • سرور بدنه را با php://input می‌خواند و به Content-Type کاری ندارد. */
+  const JSON_CONTENT_TYPE = 'text/plain;charset=UTF-8';
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  /* ارسال فرم چندبخشی (برای آپلود عکس/فیلم گزارش‌ها).
-     نکته: هدر Content-Type عمداً تنظیم نمی‌شود تا مرورگر خودش boundary بگذارد. */
-  /* آپلود عکس/فیلم با گزارش درصد پیشرفت — چون فایل‌ها ممکن است چند مگابایت
-     باشند و کاربر باید ببیند که ارسال در جریان است (fetch درصد پیشرفت نمی‌دهد،
-     پس از XMLHttpRequest استفاده می‌کنیم). */
-  function syncFormDataToBackendWithProgress(endpoint, formData, onProgress) {
-    return new Promise(resolve => {
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', BACKEND_BASE_URL + '/' + endpoint + '.php', true);
-        xhr.timeout = 180000;   /* فیلم‌های بزرگ: تا ۳ دقیقه */
-        if (typeof onProgress === 'function' && xhr.upload) {
-          xhr.upload.onprogress = function (ev) {
-            if (ev && ev.lengthComputable) {
-              onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
-            }
-          };
-        }
-        xhr.onload = function () {
-          let data = null;
-          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
-          if (typeof onProgress === 'function') onProgress(100);
-          resolve(data);
-        };
-        xhr.onerror = function () {
-          console.warn('[backend] upload failed', endpoint);
-          resolve(null);
-        };
-        xhr.ontimeout = function () {
-          console.warn('[backend] upload timeout', endpoint);
-          resolve(null);
-        };
-        xhr.send(formData);
-      } catch (error) {
-        console.warn('[backend] upload unavailable', error && error.message);
-        resolve(null);
-      }
-    });
+  /* پیام فارسی خطای «حمل» (شبکه/فایروال/حجم) برای نمایش به کاربر */
+  function transportMessage(status, kind) {
+    const code = Number(status) || 0;
+    if (kind === 'timeout') return 'پاسخی از سرور نرسید (زمان انتظار تمام شد)';
+    if (code === 403) return 'فایروال هاست درخواست را رد کرد (کد ۴۰۳)';
+    if (code === 413) return 'حجم درخواست بیش از حد مجاز هاست است (کد ۴۱۳)';
+    if (code === 404) return 'این سرویس روی هاست فعال نیست (کد ۴۰۴) — بسته‌ی تازه را Extract کنید';
+    if (code === 405) return 'این روش ارسال روی هاست فعال نیست (کد ۴۰۵)';
+    if (code >= 500) return 'خطای داخلی سرور (کد ' + code + ')';
+    if (code > 0) return 'پاسخ سرور خوانده نشد (کد ' + code + ')';
+    return 'ارتباط با سرور برقرار نشد (اینترنت را بررسی کنید)';
   }
 
-  /* ارسال JSON با نمایش درصد پیشرفت (برای عکس/فیلمی که داخل بدنه‌ی JSON
-     به‌صورت base64 می‌رود — همان مسیری که فایروال هاست اجازه می‌دهد). */
-  function syncJsonToBackendWithProgress(endpoint, payload, onProgress) {
+  function shortDetail(text) {
+    return String(text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+  }
+
+  function transportFail(status, kind, detail) {
+    const code = Number(status) || 0;
+    return {
+      success: false,
+      __transport: true,
+      status: code,
+      kind: kind || 'network',
+      error: transportMessage(code, kind),
+      detail: shortDetail(detail)
+    };
+  }
+
+  /* آیا پاسخ، خطای «حمل» است (نه پاسخ منطقی سرور)؟ */
+  function isTransportFailure(res) {
+    return !!(res && res.__transport);
+  }
+
+  /* ارسال JSON با XMLHttpRequest — هم درصد پیشرفت می‌دهد و هم کد وضعیت را
+     برای عیب‌یابی برمی‌گرداند (برخلاف fetch که در بعضی حالت‌ها پیام مبهم
+     می‌دهد). در صورت شکست، شیء { __transport:true, status, error } برمی‌گردد. */
+  function postJsonXhr(url, payload, timeoutMs, onProgress) {
     return new Promise(resolve => {
+      let body;
       try {
-        const body = JSON.stringify(payload || {});
+        body = JSON.stringify(payload || {});
+      } catch (e) {
+        resolve(transportFail(0, 'encode', 'ساخت بدنه‌ی درخواست ممکن نشد'));
+        return;
+      }
+      try {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', BACKEND_BASE_URL + '/' + endpoint + '.php', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.timeout = 300000;
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', JSON_CONTENT_TYPE);
+        xhr.timeout = Number(timeoutMs) > 0 ? Number(timeoutMs) : 60000;
         if (typeof onProgress === 'function' && xhr.upload) {
           xhr.upload.onprogress = function (ev) {
             if (ev && ev.lengthComputable && ev.total > 0) {
@@ -153,24 +149,75 @@
           let data = null;
           try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
           if (typeof onProgress === 'function') onProgress(100);
+          if (data === null || typeof data !== 'object') {
+            resolve(transportFail(xhr.status, 'body', xhr.responseText));
+            return;
+          }
           resolve(data);
         };
-        xhr.onerror = function () { console.warn('[backend] json upload failed', endpoint); resolve(null); };
-        xhr.ontimeout = function () { console.warn('[backend] json upload timeout', endpoint); resolve(null); };
+        xhr.onerror = function () { resolve(transportFail(0, 'network', '')); };
+        xhr.ontimeout = function () { resolve(transportFail(0, 'timeout', '')); };
         xhr.send(body);
       } catch (error) {
-        console.warn('[backend] json upload unavailable', error && error.message);
-        resolve(null);
+        resolve(transportFail(0, 'network', error && error.message));
       }
     });
   }
 
-  /* ── آپلود تکه‌تکه‌ی عکس/فیلم (مسیر JSON) ─────────────────────────────
-     هاست فعلی، ارسال multipart/form-data همراه فایل را با کد 403 می‌بندد؛
-     پس فایل‌های حجیم (مثل فیلم) در تکه‌های ۱ مگابایتی base64 فرستاده و روی
-     سرور به هم چسبانده می‌شوند. خروجی:
-       { ok, media: [...], error, unsupported }
-     unsupported=true یعنی نسخه‌ی هاست قدیمی است (اندپوینت تازه را ندارد). */
+  async function syncDataToBackend(endpoint, payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    const res = await postJsonXhr(BACKEND_BASE_URL + '/' + endpoint + '.php', payload, 60000);
+    if (isTransportFailure(res)) {
+      console.warn('[backend] request failed', endpoint, res.status, res.error);
+      return null;
+    }
+    return res;
+  }
+
+  /* ارسال فرم چندبخشی (برای آپلود عکس/فیلم گزارش‌ها).
+     نکته: هدر Content-Type عمداً تنظیم نمی‌شود تا مرورگر خودش boundary بگذارد.
+     توجه: روی هاست فعلی، همین مسیر برای درخواست‌های دارای فایل با کد ۴۰۳
+     بسته شده است (فایروال ModSecurity/Imunify)؛ فقط به‌عنوان مسیر قدیمی نگه
+     داشته شده و مسیر اصلی، آپلود «تکه‌تکه‌ی JSON» است. */
+  function syncFormDataToBackendWithProgress(endpoint, formData, onProgress) {
+    return new Promise(resolve => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', BACKEND_BASE_URL + '/' + endpoint + '.php', true);
+        xhr.timeout = 300000;
+        if (typeof onProgress === 'function' && xhr.upload) {
+          xhr.upload.onprogress = function (ev) {
+            if (ev && ev.lengthComputable) {
+              onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
+            }
+          };
+        }
+        xhr.onload = function () {
+          let data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (typeof onProgress === 'function') onProgress(100);
+          if (data === null || typeof data !== 'object') {
+            resolve(transportFail(xhr.status, 'body', xhr.responseText));
+            return;
+          }
+          resolve(data);
+        };
+        xhr.onerror = function () { resolve(transportFail(0, 'network', '')); };
+        xhr.ontimeout = function () { resolve(transportFail(0, 'timeout', '')); };
+        xhr.send(formData);
+      } catch (error) {
+        resolve(transportFail(0, 'network', error && error.message));
+      }
+    });
+  }
+
+  /* ارسال JSON با نمایش درصد پیشرفت (عکس/فیلمی که داخل بدنه‌ی JSON
+     به‌صورت base64 می‌رود — همان مسیری که فایروال هاست اجازه می‌دهد). */
+  function syncJsonToBackendWithProgress(endpoint, payload, onProgress) {
+    return postJsonXhr(BACKEND_BASE_URL + '/' + endpoint + '.php', payload, 300000, onProgress);
+  }
+
+  /* خواندن فایل گوشی به‌صورت data URL (base64) */
   function readFileAsDataUrl(blob) {
     return new Promise(resolve => {
       try {
@@ -184,68 +231,142 @@
     });
   }
 
-  function postJson(url, payload) {
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {})
-    }).then(res => res.json().catch(() => null)).catch(() => null);
+  function postJson(url, payload, timeoutMs) {
+    return postJsonXhr(url, payload, timeoutMs || 60000);
+  }
+
+  /* ── آپلود تکه‌تکه‌ی عکس/فیلم (مسیر JSON) ─────────────────────────────
+     هاست فعلی، ارسال multipart/form-data همراه فایل را با کد ۴۰۳ می‌بندد و
+     به حجم درخواست JSON هم حساس است؛ پس هر تکه کوچک (پیش‌فرض ۵۱۲ کیلوبایت
+     خام ≈ ۷۰۰ کیلوبایت base64) و مستقل فرستاده می‌شود، هر تکه در صورت خطای
+     شبکه تا ۳ بار تکرار می‌شود و ترتیب تکه‌ها روی سرور بررسی می‌شود.
+     خروجی:
+       { ok, media:[...], failed:[نام فایل‌ها], error, unsupported, blocked, status }
+     unsupported=true یعنی نسخه‌ی هاست قدیمی است (کنش تکه‌تکه را ندارد). */
+  const MEDIA_CHUNK_DEFAULT = 512 * 1024;
+  const MEDIA_CHUNK_MIN = 64 * 1024;
+
+  function mediaChunkSize() {
+    const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
+    return (isFinite(custom) && custom >= MEDIA_CHUNK_MIN) ? custom : MEDIA_CHUNK_DEFAULT;
+  }
+
+  async function sendMediaChunk(payload) {
+    const url = BACKEND_BASE_URL + '/media.php?action=chunk';
+    let last = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      last = await postJson(url, payload, 120000);
+      if (last && last.success === true) return last;
+      /* فقط خطای شبکه/زمان دوباره تلاش می‌شود؛ پاسخ‌های سرور (۴۰۳/۴۱۳/…) بی‌فایده‌اند */
+      if (last && last.__transport && (last.kind === 'network' || last.kind === 'timeout') && attempt < 2) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+      return last;
+    }
+    return last;
   }
 
   async function uploadReportMediaChunked(reportId, phone, files, onProgress) {
-    const CHUNK_SIZE = 1024 * 1024;   /* ۱ مگابایت خام؛ base64 آن ≈ ۱٫۴ مگابایت */
-    const url = BACKEND_BASE_URL + '/media.php?action=chunk';
+    const size = mediaChunkSize();
     const media = [];
+    const failed = [];
+    let error = '';
+    let unsupported = false;
+    let blocked = false;
+    let status = 0;
     const list = Array.from(files || []);
     if (!reportId || !list.length) {
-      return { ok: true, media: media, error: '', unsupported: false };
+      return { ok: true, media: media, failed: failed, error: '', unsupported: false, blocked: false, status: 0 };
     }
 
     for (let fileIndex = 0; fileIndex < list.length; fileIndex++) {
       const file = list[fileIndex];
-      const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+      const fileName = file.name || ('attachment-' + (fileIndex + 1));
+      const total = Math.max(1, Math.ceil(file.size / size));
       const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
+      let fileError = '';
+      let fileOk = false;
 
       for (let index = 0; index < total; index++) {
-        const start = index * CHUNK_SIZE;
-        const chunk = file.slice(start, Math.min(file.size, start + CHUNK_SIZE));
+        const start = index * size;
+        const chunk = file.slice(start, Math.min(file.size, start + size));
         const data = await readFileAsDataUrl(chunk);
         if (!data) {
-          return { ok: false, media: media, error: 'خواندن فایل روی گوشی ممکن نشد.', unsupported: false };
+          fileError = 'خواندن فایل «' + fileName + '» روی گوشی ممکن نشد.';
+          break;
         }
-        const res = await postJson(url, {
+
+        const res = await sendMediaChunk({
           phone: phone,
           reportId: reportId,
           uploadId: uploadId,
           index: index,
           total: total,
-          name: file.name || 'attachment',
+          name: fileName,
           mime: file.type || '',
           data: data
         });
 
         if (!res) {
-          return { ok: false, media: media, error: 'ارتباط با سرور برقرار نشد.', unsupported: true };
+          fileError = 'ارتباط با سرور برقرار نشد.';
+          break;
+        }
+        if (res.__transport) {
+          status = res.status || 0;
+          unsupported = (status === 404 || status === 405);
+          blocked = (status === 403 || status === 413);
+          fileError = res.error || 'ارسال فایل ناموفق بود.';
+          break;
         }
         if (res.success !== true) {
-          return {
-            ok: false,
-            media: media,
-            error: String(res.error || 'ارسال فایل ناموفق بود.'),
-            unsupported: String(res.error || '').indexOf('گزارش یافت نشد') > -1 ? true : false
-          };
+          status = 0;
+          fileError = String(res.error || 'ارسال فایل ناموفق بود.');
+          if (fileError.indexOf('گزارش یافت نشد') > -1 || fileError.indexOf('کنش نامعتبر') > -1) {
+            unsupported = true;
+          }
+          break;
         }
         if (index === total - 1 && res.media) {
           media.push(res.media);
+          fileOk = true;
         }
         if (typeof onProgress === 'function') {
           const overall = ((fileIndex + (index + 1) / total) / list.length) * 100;
           onProgress(Math.min(99, Math.round(overall)));
         }
       }
+
+      if (!fileOk) {
+        failed.push(fileName);
+        if (!error) error = fileError;
+        /* اگر سرویس تکه‌تکه روی هاست نیست، ادامه دادن بی‌فایده است */
+        if (unsupported || blocked) break;
+      }
     }
 
-    return { ok: true, media: media, error: '', unsupported: false };
+    if (typeof onProgress === 'function') onProgress(100);
+    return {
+      ok: failed.length === 0 && media.length > 0,
+      media: media,
+      failed: failed,
+      error: error,
+      unsupported: unsupported,
+      blocked: blocked,
+      status: status
+    };
+  }
+
+  /* وضعیت پیوست‌های یک گزارش روی سرور (برای تأیید نهایی که فایل‌ها ذخیره شدند) */
+  async function reportMediaStatus(reportId, phone) {
+    if (!reportId || !phone) return null;
+    const res = await postJson(BACKEND_BASE_URL + '/media.php?action=media_status', { phone: phone, reportId: reportId }, 30000);
+    if (!res || res.__transport || res.success !== true) return null;
+    return {
+      count: Number(res.media_count || 0),
+      max: Number(res.max || 0),
+      media: Array.isArray(res.media) ? res.media : []
+    };
   }
 
   async function syncFormDataToBackend(endpoint, formData) {
@@ -818,6 +939,11 @@
   window.syncJsonToBackendWithProgress    = syncJsonToBackendWithProgress;
   window.uploadReportMediaChunked         = uploadReportMediaChunked;
   window.eplakReadFileAsDataUrl           = readFileAsDataUrl;
+  window.eplakMediaStatus                 = reportMediaStatus;
+  window.eplakTransportMessage            = transportMessage;
+  window.eplakIsTransportFailure          = isTransportFailure;
+  window.eplakJsonContentType             = function () { return JSON_CONTENT_TYPE; };
+  window.eplakMediaChunkSize              = mediaChunkSize;
   window.syncUserProfileToBackend = syncUserProfileToBackend;
 
 })();

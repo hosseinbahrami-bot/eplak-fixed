@@ -87,6 +87,45 @@ rejects the request. This was likely one of the main causes of the user’s “u
 > Important: **photos work with the new APK and no host change at all.**
 > Only large videos (over 6 MB) require extracting the new package on the host.
 
+### E) Two reported issues fixed: precise written address + attachments not reaching the server
+
+**1) The written address is now precise.**
+Previously the address text was the map service's long, unordered string (or stayed empty).
+It is now built short, ordered and Persian: **"street, house number, neighbourhood, city"**.
+
+- In the **Android app**, the phone's own geocoder is asked first (Persian locale — the most
+  precise option, and independent from external services); if the phone returns nothing,
+  the free OpenStreetMap service is used.
+- In the **web**, the same OpenStreetMap service is used with a 6-second timeout.
+- While looking up, the address field shows "در حال گرفتن آدرس دقیق…" and then the precise
+  text replaces it (a user-typed address is never overwritten, except via the
+  "use my current location" button).
+- The final address is stored with the report and shown in the admin panel.
+
+**2) The cause of "report saved but attachments did not reach the server" was found and fixed.**
+Three separate problems were behind that message:
+
+| # | Problem | Fix |
+|---|---|---|
+| 1 | In the Android app the page is loaded from `file://`; the WebView blocked network requests from that page (`allowUniversalAccessFromFileURLs=false`) | The flag is now enabled (`MainActivity.kt`) — without it, nothing sent from inside the app reached the server |
+| 2 | Sending with `Content-Type: application/json` triggers a CORS preflight (OPTIONS); when that did not get a proper answer the upload failed silently | Requests now use `text/plain;charset=UTF-8` (a "simple" request, no preflight); the server reads the body regardless of content type |
+| 3 | The request carried several MB of base64 photos and the host firewall blocked it | The inline threshold is now small (600 KB per file, 700 KB total) and everything else is uploaded in 512 KB chunks |
+
+Three safeguards were added as well:
+
+- If the "report + attachments" request fails, the **report is still submitted without attachments**
+  (so it is never lost) and the files are sent through the chunked path.
+- The "report saved" screen now offers a **"retry sending attachments"** button.
+- After uploading, the saved attachment count is verified against the server
+  (`action=media_status`) so the success message is real, not assumed.
+- Each chunk is retried up to 3 times on network errors and error messages show the
+  **real server code** (e.g. "413" for size, "403" for the firewall).
+
+> If attachments still fail, check the server code shown in the app:
+> 413 means size, 403 means the host firewall. In that case you may ask the host support to
+> relax ModSecurity rules for large POST requests under `api/` (the app itself sends small
+> chunks, so this is normally unnecessary).
+
 ---
 
 ## 3) Step by step: apply to the live site (host panel)

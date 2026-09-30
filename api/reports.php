@@ -93,10 +93,27 @@ if ($method === 'GET') {
     }
 }
 
-/* ── خواندن ورودی (JSON یا فرم چندبخشی) ───────────────────────────── */
+/* ── خواندن ورودی (JSON یا فرم چندبخشی) ─────────────────────────────
+   نکته: کلاینت اپ، JSON را با Content-Type: text/plain می‌فرستد تا درخواست
+   «ساده» باشد و پیش‌پرواز CORS لازم نشود (صفحه‌ی اپ از file:// باز می‌شود و
+   origin آن null است). اینجا بدنه صرف‌نظر از Content-Type خوانده می‌شود. */
 $input = $isMultipart ? $_POST : eplakReadJsonBody();
-if ($isMultipart && !is_array($input)) {
+if ((!is_array($input) || !$input) && !$isMultipart && $_POST) {
+    $input = $_POST;   /* پشتیبانی از فرم ساده (بدون فایل) هم */
+}
+if (!is_array($input)) {
     $input = [];
+}
+
+/* اگر بدنه‌ی درخواست از سقف مجاز هاست (post_max_size) بزرگ‌تر بوده باشد، PHP
+   آن را دور می‌ریزد و کلاینت پیام مبهم می‌گیرد؛ اینجا دلیل را روشن می‌گوییم
+   تا کاربر بداند مشکل از حجم فایل است، نه از اینترنت. */
+if (!$input && !$isMultipart && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    $limit = ini_get('post_max_size');
+    eplakJsonError(
+        'حجم درخواست بیش از حد مجاز سرور است (post_max_size = ' . ($limit ? $limit : 'نامشخص') . '). فایل‌های سبک‌تری انتخاب کنید.',
+        413
+    );
 }
 
 /* ── حذف (DELETE یا POST با action=delete) ─────────────────────────── */
