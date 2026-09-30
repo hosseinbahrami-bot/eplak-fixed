@@ -30,6 +30,8 @@ ok('در حالت آفلاین، پرده کل صفحه را می‌پوشاند
 ok('اگر همان لحظه‌ی باز شدن، اینترنت نباشد، پرده زودتر از رندر کشیده می‌شود',
   /navigator\.onLine === false[^}]*eplak-offline/.test(idx));
 ok('بررسی واقعی با درخواست به api/ping.php انجام می‌شود', /ping\.php/.test(guard));
+ok('در حالت آفلاین، محتوای اپ هم پنهان می‌شود (چیزی لود نمی‌شود)',
+  /html\.eplak-offline\s+\.phone-frame\s*\{[^}]*visibility:\s*hidden/.test(idx));
 ok('آفلاین بودن، جلوی کلیک/لمس/کلید کاربر را می‌گیرد',
   guard.includes('blockEvent') && guard.includes("addEventListener('click', blockEvent, true)"));
 ok('با برگشتن اینترنت، پرده خودکار کنار می‌رود',

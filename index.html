@@ -55,6 +55,8 @@ try { if (navigator.onLine === false) { document.documentElement.classList.add('
     font-family: Vazirmatn, Tahoma, sans-serif;
   }
   html.eplak-offline body { overflow: hidden !important; }
+  /* وقتی اینترنت نیست، محتوای اپ اصلاً نمایش داده نمی‌شود */
+  html.eplak-offline .phone-frame { visibility: hidden !important; }
   #eplakOfflineGate .eplak-offline-card { max-width: 330px; width: 100%; }
   #eplakOfflineGate .eplak-offline-icon { font-size: 46px; line-height: 1; margin-bottom: 14px; }
   #eplakOfflineGate h2 { font-size: 17px; font-weight: 800; margin: 0 0 10px; }
