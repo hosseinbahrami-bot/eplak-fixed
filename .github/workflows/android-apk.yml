@@ -180,7 +180,20 @@ jobs:
 
           if [ "$MISMATCH" = "1" ]; then
             echo "::warning::برخی فایل‌های سایت داخل APK با مخزن یکسان نیستند"
+            VERIFY_SUMMARY="⚠️ برخی فایل‌ها ناهم‌خوان"
+          else
+            VERIFY_SUMMARY="✅ همه‌ی ۶ فایل سایت داخل اپ با مخزن یکسان‌اند"
           fi
+
+          {
+            echo "APK_SHA=$SHA"
+            echo "APK_SIZE=$SIZE"
+            echo "APK_VERSION=$VERSION"
+            echo "APK_BUILDCODE=$BUILDCODE"
+            echo "APK_FCM_STATE=$FCM_STATE"
+            echo "APK_FCM_CODE=$FCM_CODE"
+            echo "APK_VERIFY=$VERIFY_SUMMARY"
+          } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
 
       - name: بارگذاری فایل APK (Artifacts)
@@ -200,5 +213,34 @@ jobs:
             eplak-app.apk
             eplak-apk-info.txt
           fail_on_unmatched_files: false
+
+      - name: ثبت مشخصات ساخت در توضیحات Releases
+        run: |
+          TAG=v2.0-eplak-update
+          # متن توضیحات فعلی را می‌گیریم و فقط بلوک «مشخصات ساخت» را به‌روز می‌کنیم
+          BODY="$(gh release view "$TAG" --json body --jq .body 2>/dev/null || echo '')"
+          CLEAN="$(printf '%s\n' "$BODY" | awk '/<!-- APK-INFO:START -->/{skip=1} !skip{print} /<!-- APK-INFO:END -->/{skip=0}')"
+          {
+            printf '%s\n\n' "$CLEAN"
+            echo "<!-- APK-INFO:START -->"
+            echo ""
+            echo "### 🤖 مشخصات آخرین فایل APK (خودکار)"
+            echo ""
+            echo "| مورد | مقدار |"
+            echo "|---|---|"
+            echo "| نسخه‌ی اپ | \`$APK_VERSION\` (کد ساخت $APK_BUILDCODE) |"
+            echo "| کامیت | \`${GITHUB_SHA:0:7}\` |"
+            echo "| زمان ساخت | $(date -u '+%Y-%m-%d %H:%M UTC') |"
+            echo "| حجم فایل | \`$APK_SIZE\` بایت |"
+            echo "| اثرانگشت SHA-256 | \`$APK_SHA\` |"
+            echo "| تأیید محتوا | $APK_VERIFY |"
+            echo "| اعلان فایربیس (اپ بسته) | $APK_FCM_STATE |"
+            echo ""
+            echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
+            echo "> پس از افزودن \`android-app/app/google-services.json\`، همین فایل با اعلان فایربیس ساخته می‌شود."
+            echo ""
+            echo "<!-- APK-INFO:END -->"
+          } > /tmp/release-notes.md
+          gh release edit "$TAG" --notes-file /tmp/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
