@@ -43,6 +43,34 @@
     'phone': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3" fill="currentColor" fill-opacity="0.16"/><line x1="11" y1="18" x2="13" y2="18" stroke-width="2"/><line x1="10" y1="5" x2="14" y2="5"/></svg>',
     'lock': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" fill="currentColor" fill-opacity="0.18"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/></svg>',
 
+    // ── پک حرفه‌ای: روند رسیدگی، پیوست‌ها، هوا، کیفیت هوا و آیکون‌های عمومی ──
+    'file-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.14"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="13" x2="12" y2="19"/><line x1="9" y1="16" x2="15" y2="16"/></svg>',
+    'clock': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="currentColor" fill-opacity="0.14"/><polyline points="12 7 12 12 16 14"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>',
+    'tools': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5a3.5 3.5 0 1 0 4 4L21 21H3l2.5-11.5a3.5 3.5 0 1 0 4-4z" fill="currentColor" fill-opacity="0.12"/><path d="M7.5 13l3 3 5-5"/></svg>',
+    'check-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="currentColor" fill-opacity="0.16"/><polyline points="8 12.5 11 15.5 16 9.5"/></svg>',
+    'hourglass': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12M6 22h12M8 2v4l4 6 4-6V2M8 22v-4l4-6 4 6v4" fill="currentColor" fill-opacity="0.12"/></svg>',
+    'image': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3" fill="currentColor" fill-opacity="0.14"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l4.5-4.5 3.5 3.5 3-2.5L20 18"/></svg>',
+    'video': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="3" fill="currentColor" fill-opacity="0.14"/><path d="M16 11l6-3.5v9L16 13z" fill="currentColor" fill-opacity="0.26"/></svg>',
+    'paperclip': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" fill="currentColor" fill-opacity="0.12"/></svg>',
+    'edit': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" fill="currentColor" fill-opacity="0.18"/></svg>',
+    'message': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" fill="currentColor" fill-opacity="0.14"/></svg>',
+    'send': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z" fill="currentColor" fill-opacity="0.18"/></svg>',
+    'search': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" fill="currentColor" fill-opacity="0.14"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>',
+    'flag': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4a1 1 0 0 1 1-1h13l-2 5 2 5H5" fill="currentColor" fill-opacity="0.16"/></svg>',
+    'user-check': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4" fill="currentColor" fill-opacity="0.18"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><polyline points="16 11 18 13 22 9"/></svg>',
+    'thermometer': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V5a2 2 0 1 0-4 0v9.76a4 4 0 1 0 4 0z" fill="currentColor" fill-opacity="0.14"/><circle cx="12" cy="18" r="1.6" fill="currentColor"/></svg>',
+    'fog': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9a3.5 3.5 0 1 0-3.2-4.9" fill="currentColor" fill-opacity="0.12"/><path d="M3 11h13a3.5 3.5 0 1 1-3.2 4.9" fill="currentColor" fill-opacity="0.12"/><line x1="2" y1="19" x2="14" y2="19"/><line x1="18" y1="19" x2="22" y2="19"/></svg>',
+    'snowflake': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="22"/><line x1="3.3" y1="7" x2="20.7" y2="17"/><line x1="3.3" y1="17" x2="20.7" y2="7"/><path d="M12 6l2.2-2.2M12 6L9.8 3.8M12 18l2.2 2.2M12 18l-2.2 2.2"/></svg>',
+    'smile': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="currentColor" fill-opacity="0.14"/><path d="M8.5 14.5s1.4 1.8 3.5 1.8 3.5-1.8 3.5-1.8"/><circle cx="9" cy="9.6" r="1.1" fill="currentColor"/><circle cx="15" cy="9.6" r="1.1" fill="currentColor"/></svg>',
+    'meh': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="currentColor" fill-opacity="0.14"/><line x1="9" y1="15.5" x2="15" y2="15.5"/><circle cx="9" cy="9.6" r="1.1" fill="currentColor"/><circle cx="15" cy="9.6" r="1.1" fill="currentColor"/></svg>',
+    'mask': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 0 1 16 0v3a5 5 0 0 1-5 5h-6a5 5 0 0 1-5-5z" fill="currentColor" fill-opacity="0.14"/><path d="M9 12.5h6"/><path d="M8 9.5h8"/></svg>',
+    'hazard': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9.5 16.5H2.5z" fill="currentColor" fill-opacity="0.14"/><line x1="12" y1="9" x2="12" y2="14"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg>',
+    'bell-off': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-9.3-5" fill="currentColor" fill-opacity="0.12"/><path d="M6.3 6.3A6 6 0 0 0 6 8c0 6-3 7-3 7h13"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/><line x1="3" y1="3" x2="21" y2="21"/></svg>',
+    'wifi-off': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a16 16 0 0 1 6-3.5" fill="currentColor" fill-opacity="0.12"/><path d="M22 8.8a16 16 0 0 0-11-4.6"/><path d="M5.5 12.5A11 11 0 0 1 9 10.7"/><path d="M18.5 12.5a11 11 0 0 0-2.2-1.3"/><path d="M8.8 15.9a6 6 0 0 1 2-1"/><path d="M15.2 15.9a6 6 0 0 0-1.4-.9"/><circle cx="12" cy="19.5" r="1.1" fill="currentColor"/><line x1="3" y1="3" x2="21" y2="21"/></svg>',
+    'printer': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" fill="currentColor" fill-opacity="0.12"/><rect x="6" y="14" width="12" height="8" rx="1.5" fill="currentColor" fill-opacity="0.18"/></svg>',
+    'handshake': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 17l2 2a2 2 0 0 0 2.8-2.8"/><path d="M14 14l2 2a2 2 0 0 0 2.8-2.8l-3.5-3.5" fill="currentColor" fill-opacity="0.12"/><path d="M2 12l4-4 4 4"/><path d="M22 12l-4-4-3 3" fill="currentColor" fill-opacity="0.12"/></svg>',
+    'sparkle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor" fill-opacity="0.18"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
+
     // ── Dashboard Stat Cards ──
     'pending': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14M17 22v-4.17a3 3 0 0 0-.88-2.12L13.41 13a2 2 0 0 1 0-2.83l2.71-2.71A3 3 0 0 0 17 5.28V2M7 22v-4.17a3 3 0 0 1 .88-2.12L10.59 13a2 2 0 0 0 0-2.83L7.88 7.46A3 3 0 0 1 7 5.34V2" fill="currentColor" fill-opacity="0.18"/></svg>',
     'done': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="currentColor" fill-opacity="0.2"/><polyline points="9 12 11 14 15 10"/></svg>',
@@ -117,28 +145,67 @@
 
   };
 
+    /* ── نگاشت ایموجی → آیکون ──────────────────────────────────────────
+     هر ایموجی‌ای که در اپ، پنل یا متن‌های ذخیره‌شده به کار رفته، اینجا به
+     آیکون حرفه‌ای همان پک نگاشته می‌شود؛ پس هیچ ایموجی‌ای در رابط کاربری
+     دیده نمی‌شود. کلیدهای تکراری حذف شده‌اند (تمیزکاری دور بیست‌ودوم).
+     ───────────────────────────────────────────────────────────────── */
   var EMOJI_MAP = {
-    '📋': 'report',
-    '🔍': 'track',
+    /* ── روند رسیدگی، وضعیت‌ها و اعلان ── */
+    '⏳': 'pending',
+    '✅': 'done',
+    '🔔': 'bell',
+    '⏰': 'pending',
+    '⋯': 'info',
+    'ℹ️': 'info',
+    '🛡️': 'shield',
+    '🛡': 'shield',
+    '🚨': 'alert',
+    '🛑': 'alert',
+    '⚠': 'alert',
+    '🤢': 'alert',
+    '🔕': 'bell-off',
+    '📵': 'wifi-off',
+    '📝': 'file-plus',
+    '⌛': 'hourglass',
+    '🕐': 'clock',
+    '🔎': 'search',
+    '🛠️': 'tools',
+    '🛠': 'tools',
+    '☑️': 'check-circle',
+    '💬': 'message',
+    '🗨️': 'message',
+    '📣': 'megaphone',
+    '🚩': 'flag',
+
+    /* ── پیوست‌ها، رسانه و ویرایش ── */
+    '🎙️': 'mic',
+    '🖨️': 'file',
+    '📄': 'file',
+    '📚': 'file',
+    '📷': 'camera',
+    '📸': 'camera',
+    '📂': 'folder',
+    '📤': 'upload',
+    '💾': 'file',
+    '🎤': 'mic',
+    '🖨': 'printer',
+    '🎙': 'mic',
+    '🎬': 'video',
+    '🖼️': 'image',
+    '📎': 'paperclip',
+    '✏️': 'edit',
+    '✂️': 'edit',
+    '✒️': 'edit',
+
+    /* ── خدمات شهری و اداری ── */
     '📢': 'news',
     '✨': 'services',
     '🗺️': 'map',
-    '🎧': 'contact',
-    '👤': 'user',
-    '❤️': 'heart',
-    '⚙️': 'settings',
-    '🌙': 'moon',
-    '🔊': 'sound',
-    '🌐': 'globe',
-    '🚪': 'logout',
     '📱': 'phone',
-    '⏳': 'pending',
-    '✅': 'done',
     '💳': 'payment',
-    '🔔': 'bell',
     '🏢': 'building',
     '🗑️': 'waste',
-    '🏷️': 'ticket',
     '🚗': 'car',
     '🚘': 'car',
     '🛵': 'car',
@@ -147,8 +214,6 @@
     '🛍️': 'store',
     '📍': 'pin',
     '⭐': 'trophy',
-    '🎯': 'track',
-    '📊': 'nav-dashboard',
     '⚡': 'services',
     '🧺': 'basket',
     '🧶': 'basket',
@@ -156,42 +221,53 @@
     '♻️': 'environment',
     '🌱': 'leaf',
     '🏬': 'store',
-    '⚠️': 'report',
-    '📈': 'nav-dashboard',
     '🌳': 'leaf',
-    '⏰': 'pending',
     '⚖️': 'tenders',
     '🚌': 'bus',
     '🚇': 'transport',
-    '🎟️': 'ticket',
     '🚦': 'traffic',
     '🏗️': 'construction',
     '🏛️': 'finance',
-    '📥': 'report',
     '🏆': 'trophy',
     '🪦': 'tomb',
     '🕯️': 'candle',
-    '🎙️': 'mic',
     '🌿': 'flower',
     '🕊️': 'cemeteries',
     '📑': 'tenders',
-    '🔢': 'report',
     '🧾': 'certificate',
-    '🎁': 'heart',
     '🧹': 'waste',
-    '🪧': 'ticket',
-    '🔐': 'lock',
-    '🖨️': 'file',
-    '📧': 'mail',
-    '📄': 'file',
     '🎉': 'trophy',
     '🏥': 'building',
-    '📚': 'file',
     '🚧': 'construction',
     '🔆': 'services',
     '💡': 'services',
-    '⋯': 'info',
-    'ℹ️': 'info',
+    '📦': 'package',
+    '👥': 'users',
+    '📅': 'calendar',
+    '💰': 'money',
+    '📡': 'gps',
+    '🌹': 'rose',
+    '🪨': 'stone',
+    '📲': 'phone',
+    '🚑': 'transport',
+    '🏛': 'building',
+    '🕊': 'tomb',
+    '♻': 'recycle',
+    '🏷': 'payment',
+    '🗺': 'map',
+    '⚖': 'gavel',
+    '🏗': 'construction',
+    '🤝': 'handshake',
+    '🛍': 'store',
+    '📞': 'phone',
+    '📰': 'news',
+    '🚕': 'car',
+    '👋': 'user-check',
+
+    /* ── هوا، اقلیم و اوقات ── */
+    '🌙': 'moon',
+    '🔊': 'sound',
+    '🌐': 'globe',
     '☀️': 'sun',
     '🌤️': 'cloud-sun',
     '⛅': 'cloud-sun',
@@ -206,44 +282,58 @@
     '🌄': 'sunrise',
     '🌇': 'sunset',
     '🌆': 'sunset',
-    '🌡️': 'report',
+    '☀': 'sun',
+    '🌦': 'cloud-rain',
+    '🌧': 'cloud-rain',
+    '⛈': 'cloud-lightning',
+    '🌤': 'cloud-sun',
+    '☁': 'cloud',
+    '🌨': 'cloud-snow',
+    '❄': 'snowflake',
+    '🌫': 'fog',
+    '🌡': 'thermometer',
 
-    '🛡️': 'shield',
-    '🛡': 'shield',
-    '📷': 'camera',
-    '📸': 'camera',
-    '📦': 'package',
-    '👥': 'users',
-    '📅': 'calendar',
-    '💰': 'money',
-    '📡': 'gps',
-    '📂': 'folder',
-    '🚨': 'alert',
-    '🛑': 'alert',
+    /* ── کیفیت هوا (AQI) ── */
+    '😊': 'smile',
+    '🙂': 'smile',
+    '😐': 'meh',
+    '😷': 'mask',
+    '☠️': 'hazard',
+    '☠': 'hazard',
+
+    /* ── ناوبری و عمومی ── */
+    '📋': 'report',
+    '🔍': 'track',
+    '🎧': 'contact',
+    '👤': 'user',
+    '❤️': 'heart',
+    '⚙️': 'settings',
+    '🚪': 'logout',
+    '🏷️': 'ticket',
+    '🎯': 'track',
+    '📊': 'nav-dashboard',
+    '⚠️': 'report',
+    '📈': 'nav-dashboard',
+    '🎟️': 'ticket',
+    '📥': 'report',
+    '🔢': 'report',
+    '🎁': 'heart',
+    '🪧': 'ticket',
+    '🔐': 'lock',
+    '📧': 'mail',
+    '🌡️': 'report',
     '🏡': 'home-building',
     '☕': 'coffee',
     '📐': 'ruler',
-    '📤': 'upload',
     '🚿': 'shower',
-    '🌹': 'rose',
-    '🪨': 'stone',
-    '📲': 'phone',
-    '💾': 'file',
     '⛺': 'home-building',
-    '🎤': 'mic',
     '🎫': 'ticket',
-    '🚑': 'transport',
     '🔏': 'lock',
     '✕': 'trash',
-    '🎉': 'trophy',
-    '🏥': 'building',
-    '📚': 'file',
-    '🚧': 'construction',
-    '🔆': 'services',
-    '💡': 'services',
-    '⋯': 'info',
-    'ℹ️': 'info'
+    '🗑': 'trash',
+    '🎟': 'ticket'
   };
+
 
   /**
    * Get an icon SVG string.
@@ -272,9 +362,40 @@
     return svg;
   }
 
+  /* ── پرکردن خودکار آیکون‌های داخل HTML ──────────────────────────────
+     هرجا در HTML بنویسیم <span data-eplak-icon="ticket" data-icon-size="20"></span>
+     آیکون حرفه‌ای همان پک جای‌گذاری می‌شود؛ پس دیگر لازم نیست در صفحه‌های
+     ثابت، ایموجی بنویسیم و ظاهر کل اپ یک‌دست می‌ماند. */
+  function hydrateIcons(root) {
+    var doc = root || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !doc.querySelectorAll) {
+      return 0;
+    }
+    var nodes = doc.querySelectorAll('[data-eplak-icon]');
+    var count = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el.querySelector || el.querySelector('svg')) {
+        continue;
+      }
+      var name = el.getAttribute('data-eplak-icon');
+      var size = parseInt(el.getAttribute('data-icon-size') || '0', 10);
+      el.innerHTML = get(name, size ? { size: size } : {});
+      count++;
+    }
+    return count;
+  }
+
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('DOMContentLoaded', function () {
+      hydrateIcons(document);
+    });
+  }
+
   return {
     get: get,
     icons: ICONS,
-    emojiMap: EMOJI_MAP
+    emojiMap: EMOJI_MAP,
+    hydrateIcons: hydrateIcons
   };
 });

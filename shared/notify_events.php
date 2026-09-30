@@ -97,3 +97,68 @@ function eplakNotifyTrim(string $text, int $max): string
     }
     return substr($text, 0, $max);
 }
+
+/**
+ * اعلان «پاسخ مدیریت» و «تغییر وضعیت» — هم برای گزارش و هم برای تیکت.
+ *
+ * چرا این تابع؟ قبلاً پاسخ‌دادن به تیکت در پنل ادمین فقط دیتابیس را به‌روز
+ * می‌کرد و هیچ اعلانی نمی‌ساخت؛ کاربر در اپ هیچ خبری نمی‌گرفت. حالا هر دو
+ * مسیر (گزارش/تیکت) از همین یک تابع رد می‌شوند تا:
+ *   ۱) اعلان در فهرست اعلان‌های خود کاربر (اپ و سایت) ثبت شود،
+ *   ۲) اگر اپ بسته باشد، از مسیر فایربیس به گوشی برسد،
+ *   ۳) متن اعلان تاریخ/ساعت فارسی و خلاصه‌ی پاسخ را داشته باشد.
+ *
+ * @param string $kindLabel  مثل «درخواست» یا «تیکت»
+ * @param string $code       کد پیگیری (مثلاً EP-1403-0021)
+ * @param string $statusKey  کلید وضعیت: pending | in_progress | done
+ * @param string $reply      متن پاسخ مدیریت (می‌تواند خالی باشد)
+ */
+function eplakNotifyReply(PDO $pdo, string $phone, string $kindLabel, string $code, string $statusKey, string $reply = ''): array
+{
+    $phone = trim($phone);
+    if ($phone === '') {
+        return ['ok' => false, 'id' => 0, 'pushed' => false, 'error' => 'no_phone'];
+    }
+
+    $labels = [
+        'pending'     => 'در حال انتظار',
+        'in_progress' => 'در حال رسیدگی',
+        'done'        => 'انجام شد',
+        'rejected'    => 'رد شد',
+    ];
+    $statusFa = $labels[$statusKey] ?? $statusKey;
+    $reply    = trim($reply);
+    $when     = eplakFaDateTime();
+
+    $title = '📣 پاسخ ' . $kindLabel . ' ' . $code;
+    $body  = 'وضعیت ' . $kindLabel . ' شما به «' . $statusFa . '» تغییر کرد.' . "\n";
+    if ($reply !== '') {
+        $body .= 'پاسخ شهرداری: ' . mb_substr($reply, 0, 180) . "\n";
+    }
+    $body .= 'زمان: ' . $when;
+
+    /* اعلان درون‌برنامه‌ای + فایربیس (اگر تنظیم شده باشد) در یک جا */
+    $res = eplakNotifyUser($pdo, $phone, $title, $body, [
+        'code'   => $code,
+        'kind'   => 'reply',
+        'status' => $statusKey,
+        'url'    => 'index.html#screen-notifications',
+    ]);
+
+    /* اگر فایربیس تنظیم نشده بود، اینترنتی/وب‌پوش را هم امتحان می‌کنیم تا
+       اعلان در هر حالتی روی گوشی دیده شود. */
+    if (empty($res['pushed']) && function_exists('eplakPushNotifyPhone')) {
+        try {
+            $push = eplakPushNotifyPhone($pdo, $phone, $title, $body, [
+                'url'  => 'index.html#screen-notifications',
+                'tag'  => 'eplak-' . ($kindLabel === 'تیکت' ? 'ticket' : 'report') . '-' . $code,
+                'kind' => 'reply',
+            ]);
+            $res['pushed'] = ((int) ($push['sent'] ?? 0)) > 0;
+        } catch (Throwable $e) {
+            error_log('[eplak-notify-reply] پوش ناموفق: ' . $e->getMessage());
+        }
+    }
+
+    return $res;
+}

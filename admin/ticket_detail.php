@@ -48,7 +48,7 @@ if (!isset($ticket['code'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات تیکت</title>
-  <link rel="stylesheet" href="assets/style.css?v=8">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -167,15 +167,15 @@ if (!isset($ticket['code'])) {
               <?php
                 $statusClass = $ticket['status'] === 'done' ? 'status-done' : 
                               ($ticket['status'] === 'in_progress' ? 'status-progress' : 'status-pending');
-                $statusText = $ticket['status'] === 'done' ? 'انجام‌شده' :
-                             ($ticket['status'] === 'in_progress' ? 'در حال بررسی' : 'در انتظار');
+                $statusText = $ticket['status'] === 'done' ? 'انجام شد' :
+                             ($ticket['status'] === 'in_progress' ? 'در حال رسیدگی' : 'در انتظار');
               ?>
               <span class="<?= $statusClass ?>">
                 <?php if ($statusText === 'در انتظار'): ?>
                   <i class="fas fa-hourglass-half"></i>
-                <?php elseif ($statusText === 'در حال بررسی'): ?>
+                <?php elseif ($statusText === 'در حال رسیدگی'): ?>
                   <i class="fas fa-spinner fa-spin"></i>
-                <?php elseif ($statusText === 'انجام‌شده'): ?>
+                <?php elseif ($statusText === 'انجام شد'): ?>
                   <i class="fas fa-check-circle"></i>
                 <?php endif; ?>
                 <?= $statusText ?>
@@ -387,8 +387,8 @@ if (!isset($ticket['code'])) {
                 <i class="fas fa-flag input-icon"></i>
                 <select id="status" name="status" class="form-control">
                   <option value="pending" <?= $ticket['status'] === 'pending' ? 'selected' : '' ?>>در انتظار</option>
-                  <option value="in_progress" <?= $ticket['status'] === 'in_progress' ? 'selected' : '' ?>>در حال بررسی</option>
-                  <option value="done" <?= $ticket['status'] === 'done' ? 'selected' : '' ?>>انجام‌شده</option>
+                  <option value="in_progress" <?= $ticket['status'] === 'in_progress' ? 'selected' : '' ?>>در حال رسیدگی</option>
+                  <option value="done" <?= $ticket['status'] === 'done' ? 'selected' : '' ?>>انجام شد</option>
                 </select>
               </div>
             </div>

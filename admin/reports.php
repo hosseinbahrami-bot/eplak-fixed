@@ -28,7 +28,7 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>مدیریت گزارش‌ها</title>
-  <link rel="stylesheet" href="assets/style.css?v=8">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <!-- Font Awesome for icons -->
@@ -84,11 +84,11 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
         </div>
         <div class="stat-item">
           <i class="fas fa-spinner" style="color: #3b82f6;"></i>
-          <span>در حال بررسی: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'in_progress')) ?></strong></span>
+          <span>در حال رسیدگی: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'in_progress')) ?></strong></span>
         </div>
         <div class="stat-item">
           <i class="fas fa-check-circle" style="color: #16a34a;"></i>
-          <span>انجام‌شده: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'done')) ?></strong></span>
+          <span>انجام شد: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'done')) ?></strong></span>
         </div>
       </div>
 
@@ -100,8 +100,8 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
             <select class="filter-select" id="statusFilter">
               <option value="all">همه وضعیت‌ها</option>
               <option value="pending">در انتظار</option>
-              <option value="in_progress">در حال بررسی</option>
-              <option value="done">انجام‌شده</option>
+              <option value="in_progress">در حال رسیدگی</option>
+              <option value="done">انجام شد</option>
             </select>
           </div>
         </div>
@@ -156,8 +156,8 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
                       <select name="status" class="status-select <?= $statusClass ?>"
                               onchange="this.form.submit()" title="تغییر وضعیت این گزارش">
                         <option value="pending" <?= $rowStatus === 'pending' ? 'selected' : '' ?>>در انتظار</option>
-                        <option value="in_progress" <?= $rowStatus === 'in_progress' ? 'selected' : '' ?>>در حال بررسی</option>
-                        <option value="done" <?= $rowStatus === 'done' ? 'selected' : '' ?>>انجام‌شده</option>
+                        <option value="in_progress" <?= $rowStatus === 'in_progress' ? 'selected' : '' ?>>در حال رسیدگی</option>
+                        <option value="done" <?= $rowStatus === 'done' ? 'selected' : '' ?>>انجام شد</option>
                       </select>
                     </form>
                   </td>

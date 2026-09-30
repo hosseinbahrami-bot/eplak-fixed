@@ -39,7 +39,7 @@ $ticketDone = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['st
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>پروفایل کاربر</title>
-  <link rel="stylesheet" href="assets/style.css?v=8">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -139,11 +139,11 @@ $ticketDone = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['st
               </div>
               <div class="stat-item">
                 <i class="fas fa-spinner" style="color: var(--info);"></i>
-                <span>در حال بررسی: <strong><?= $inProgress ?></strong></span>
+                <span>در حال رسیدگی: <strong><?= $inProgress ?></strong></span>
               </div>
               <div class="stat-item">
                 <i class="fas fa-check-circle" style="color: var(--success);"></i>
-                <span>انجام‌شده: <strong><?= $done ?></strong></span>
+                <span>انجام شد: <strong><?= $done ?></strong></span>
               </div>
             </div>
           </div>
@@ -166,11 +166,11 @@ $ticketDone = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['st
               </div>
               <div class="stat-item">
                 <i class="fas fa-spinner" style="color: var(--info);"></i>
-                <span>در حال بررسی: <strong><?= $ticketInProgress ?></strong></span>
+                <span>در حال رسیدگی: <strong><?= $ticketInProgress ?></strong></span>
               </div>
               <div class="stat-item">
                 <i class="fas fa-check-circle" style="color: var(--success);"></i>
-                <span>انجام‌شده: <strong><?= $ticketDone ?></strong></span>
+                <span>انجام شد: <strong><?= $ticketDone ?></strong></span>
               </div>
             </div>
           </div>
@@ -217,15 +217,15 @@ $ticketDone = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['st
                       <?php
                         $statusClass = normalizeStatusValue($report['status']) === 'done' ? 'status-done' : 
                                       (normalizeStatusValue($report['status']) === 'in_progress' ? 'status-progress' : 'status-pending');
-                        $statusText = normalizeStatusValue($report['status']) === 'done' ? 'انجام‌شده' :
-                                     (normalizeStatusValue($report['status']) === 'in_progress' ? 'در حال بررسی' : 'در انتظار');
+                        $statusText = normalizeStatusValue($report['status']) === 'done' ? 'انجام شد' :
+                                     (normalizeStatusValue($report['status']) === 'in_progress' ? 'در حال رسیدگی' : 'در انتظار');
                       ?>
                       <span class="<?= $statusClass ?>">
                         <?php if ($statusText === 'در انتظار'): ?>
                           <i class="fas fa-hourglass-half"></i>
-                        <?php elseif ($statusText === 'در حال بررسی'): ?>
+                        <?php elseif ($statusText === 'در حال رسیدگی'): ?>
                           <i class="fas fa-spinner fa-spin"></i>
-                        <?php elseif ($statusText === 'انجام‌شده'): ?>
+                        <?php elseif ($statusText === 'انجام شد'): ?>
                           <i class="fas fa-check-circle"></i>
                         <?php endif; ?>
                         <?= $statusText ?>
@@ -310,15 +310,15 @@ $ticketDone = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['st
                       <?php
                         $statusClass = normalizeStatusValue($ticket['status'] ?? 'pending') === 'done' ? 'status-done' : 
                                       (normalizeStatusValue($ticket['status'] ?? 'pending') === 'in_progress' ? 'status-progress' : 'status-pending');
-                        $statusText = normalizeStatusValue($ticket['status'] ?? 'pending') === 'done' ? 'انجام‌شده' :
-                                     (normalizeStatusValue($ticket['status'] ?? 'pending') === 'in_progress' ? 'در حال بررسی' : 'در انتظار');
+                        $statusText = normalizeStatusValue($ticket['status'] ?? 'pending') === 'done' ? 'انجام شد' :
+                                     (normalizeStatusValue($ticket['status'] ?? 'pending') === 'in_progress' ? 'در حال رسیدگی' : 'در انتظار');
                       ?>
                       <span class="<?= $statusClass ?>">
                         <?php if ($statusText === 'در انتظار'): ?>
                           <i class="fas fa-hourglass-half"></i>
-                        <?php elseif ($statusText === 'در حال بررسی'): ?>
+                        <?php elseif ($statusText === 'در حال رسیدگی'): ?>
                           <i class="fas fa-spinner fa-spin"></i>
-                        <?php elseif ($statusText === 'انجام‌شده'): ?>
+                        <?php elseif ($statusText === 'انجام شد'): ?>
                           <i class="fas fa-check-circle"></i>
                         <?php endif; ?>
                         <?= $statusText ?>

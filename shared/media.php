@@ -612,9 +612,9 @@ function eplakReportTimelineBootstrap(PDO $pdo, int $reportId, array $report = [
  */
 function eplakReportEventStatus(PDO $pdo, int $reportId, string $statusKey, string $reply = ''): void {
     $labels = [
-        'pending'     => 'در انتظار بررسی',
-        'in_progress' => 'در حال بررسی',
-        'done'        => 'انجام‌شده',
+        'pending'     => 'در حال انتظار',
+        'in_progress' => 'در حال رسیدگی',
+        'done'        => 'انجام شد',
     ];
     $label = $labels[$statusKey] ?? $statusKey;
     eplakReportEventAdd(
@@ -707,4 +707,119 @@ function eplakReportEventsGrouped(PDO $pdo, array $reportIds = []): array {
         ];
     }
     return $out;
+}
+
+/* ============================================================================
+   روند رسیدگی چهارمرحله‌ای (مشترک بین اپ و پنل ادمین)
+   ----------------------------------------------------------------------------
+   ۱) ثبت گزارش            ۲) در حال انتظار
+   ۳) در حال رسیدگی         ۴) انجام شد
+   همین چهار مرحله، هم در اپ شهروند و هم در پنل ادمین نشان داده می‌شوند و
+   جزئیات واقعی (تاریخ، پاسخ مدیریت، …) از جدول report_events روی هر مرحله
+   سوار می‌شود؛ پس کاربر دقیقاً همان چیزی را می‌بیند که مدیر ثبت کرده است.
+   ========================================================================== */
+
+/** ترتیب مراحل و برچسب‌های فارسی */
+function eplakReportFlowStageLabels(): array {
+    return [
+        'created'     => 'ثبت گزارش',
+        'pending'     => 'در حال انتظار',
+        'in_progress' => 'در حال رسیدگی',
+        'done'        => 'انجام شد',
+    ];
+}
+
+/**
+ * محاسبه‌ی وضعیت هر مرحله.
+ *
+ * @param string $status    کلید وضعیت فعلی گزارش (pending|in_progress|done)
+ * @param array  $events    گام‌های ثبت‌شده (خروجی eplakReportEvents)
+ * @param string $createdAt تاریخ ثبت گزارش
+ * @return array چهار مرحله با state = done | current | waiting و جزئیات هر مرحله
+ */
+function eplakReportFlowStages(string $status, array $events = [], string $createdAt = ''): array {
+    $labels = eplakReportFlowStageLabels();
+    $status = in_array($status, ['pending', 'in_progress', 'done'], true) ? $status : 'pending';
+
+    /* ترتیب رسیدن به هر مرحله بر اساس وضعیت فعلی */
+    $reached = [
+        'pending'     => ['created'],
+        'in_progress' => ['created', 'pending'],
+        'done'        => ['created', 'pending', 'in_progress', 'done'],
+    ];
+    $doneStages = $reached[$status] ?? ['created'];
+    $currentStage = [
+        'pending'     => 'pending',
+        'in_progress' => 'in_progress',
+        'done'        => '',
+    ][$status] ?? 'pending';
+
+    /* جزئیات هر مرحله از گام‌های واقعی */
+    $notes = ['created' => [], 'pending' => [], 'in_progress' => [], 'done' => []];
+
+    if ($createdAt !== '') {
+        $notes['created'][] = ['date' => $createdAt, 'text' => 'درخواست شهروند ثبت شد.'];
+    }
+
+    foreach ($events as $ev) {
+        $type = (string) ($ev['type'] ?? 'note');
+        $date = (string) ($ev['created_at'] ?? '');
+        $text = trim((string) ($ev['body'] ?? ''));
+        $evStatus = (string) ($ev['status'] ?? '');
+
+        if ($type === 'created') {
+            $notes['created'][] = ['date' => $date, 'text' => $text !== '' ? $text : 'درخواست شهروند ثبت شد.'];
+        } elseif ($type === 'assigned') {
+            $notes['created'][] = ['date' => $date, 'text' => $text !== '' ? $text : 'ارجاع به واحد مربوطه انجام شد.'];
+        } elseif ($type === 'status') {
+            $bucket = in_array($evStatus, ['pending', 'in_progress', 'done'], true) ? $evStatus : 'in_progress';
+            $notes[$bucket][] = ['date' => $date, 'text' => $text !== '' ? $text : ('وضعیت به «' . ($labels[$bucket] ?? $bucket) . '» تغییر کرد.')];
+        } elseif ($type === 'reply') {
+            $notes['in_progress'][] = ['date' => $date, 'text' => $text !== '' ? $text : 'پاسخ مدیریت ثبت شد.'];
+        } elseif ($type === 'media' || $type === 'edit') {
+            $notes['pending'][] = ['date' => $date, 'text' => $text !== '' ? $text : (string) ($ev['title'] ?? '')];
+        }
+    }
+
+    $stages = [];
+    foreach ($labels as $key => $label) {
+        $state = in_array($key, $doneStages, true) ? 'done' : 'waiting';
+        if ($currentStage === $key) {
+            $state = 'current';
+        }
+        /* تاریخ مرحله: اولین جزئیات ثبت‌شده روی همان مرحله */
+        $date = '';
+        foreach ($notes[$key] as $note) {
+            if (!empty($note['date'])) { $date = (string) $note['date']; break; }
+        }
+        $stages[] = [
+            'key'     => $key,
+            'label'   => $label,
+            'state'   => $state,
+            'date'    => $date,
+            'notes'   => $notes[$key],
+        ];
+    }
+    return $stages;
+}
+
+/** کلید وضعیت گزارش از متن/کلید ذخیره‌شده (فارسی یا انگلیسی) */
+function eplakReportStatusKey(string $status): string {
+    $status = trim($status);
+    $map = [
+        'در انتظار'      => 'pending',
+        'در انتظار بررسی' => 'pending',
+        'در حال انتظار'  => 'pending',
+        'در حال بررسی'   => 'in_progress',
+        'در حال پیگیری'  => 'in_progress',
+        'در حال رسیدگی'  => 'in_progress',
+        'انجام شد'       => 'done',
+        'انجام‌شده'      => 'done',
+        'تکمیل شده'      => 'done',
+    ];
+    if (isset($map[$status])) {
+        return $map[$status];
+    }
+    $key = strtolower($status);
+    return in_array($key, ['pending', 'in_progress', 'done'], true) ? $key : 'pending';
 }

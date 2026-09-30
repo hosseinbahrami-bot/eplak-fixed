@@ -48,7 +48,7 @@ if (!isset($ticket['code'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ویرایش تیکت</title>
-  <link rel="stylesheet" href="assets/style.css?v=8">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -232,10 +232,10 @@ if (!isset($ticket['code'])) {
                     در انتظار
                   </option>
                   <option value="in_progress" <?= normalizeStatusValue($ticket['status']) === 'in_progress' ? 'selected' : '' ?>>
-                    در حال بررسی
+                    در حال رسیدگی
                   </option>
                   <option value="done" <?= normalizeStatusValue($ticket['status']) === 'done' ? 'selected' : '' ?>>
-                    انجام‌شده
+                    انجام شد
                   </option>
                 </select>
               </div>
@@ -301,9 +301,9 @@ if (!isset($ticket['code'])) {
                   وضعیت فعلی:
                   <span class="<?= normalizeStatusValue($ticket['status']) === 'done' ? 'status-done' : (normalizeStatusValue($ticket['status']) === 'in_progress' ? 'status-progress' : 'status-pending') ?>" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 12px;">
                     <?php if (normalizeStatusValue($ticket['status']) === 'done'): ?>
-                      <i class="fas fa-check-circle"></i> انجام‌شده
+                      <i class="fas fa-check-circle"></i> انجام شد
                     <?php elseif (normalizeStatusValue($ticket['status']) === 'in_progress'): ?>
-                      <i class="fas fa-spinner fa-spin"></i> در حال بررسی
+                      <i class="fas fa-spinner fa-spin"></i> در حال رسیدگی
                     <?php else: ?>
                       <i class="fas fa-hourglass-half"></i> در انتظار
                     <?php endif; ?>

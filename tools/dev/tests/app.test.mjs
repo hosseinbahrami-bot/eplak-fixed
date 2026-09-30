@@ -237,10 +237,12 @@ ok('دکمه‌ی بازگشت گوشی، اول گالری را می‌بندد
 ok('اندازه‌ی فایل هر پیوست در گالری نوشته می‌شود', /formatFileSize\(m\.size/.test(reportsJs));
 
 const appCss = fs.readFileSync(path.join(ROOT, 'assets/css/style.css'), 'utf8');
+const stateSrc = fs.readFileSync(path.join(ROOT, 'core/state.js'), 'utf8');
+const iconsSrc = fs.readFileSync(path.join(ROOT, 'assets/js/icons.js'), 'utf8');
 ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=22/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  /modules\/reports\.js\?v=23/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -300,20 +302,49 @@ ok('پس از ارسال خودکار، وضعیت گزارش‌ها هم تاز
   /پیوست جامانده خودکار ارسال شد/.test(reportsJs));
 
 console.log('\n=== روند رسیدگی داخل اپ (هم‌خوان با پنل ادمین) ===');
-ok('گام‌های واقعی سرور در جزئیات گزارش رندر می‌شوند',
-  /r\.timeline\.forEach/.test(reportsJs) && /eventIcon\[step\.type\]/.test(reportsJs));
-ok('هر گام: آیکن، سازنده (شهرداری/شهروند/سامانه)، توضیح و تاریخ دارد',
-  /const actorLabel = \{ admin: 'شهرداری'/.test(reportsJs) && /timeline-actor/.test(reportsJs)
-  && /timeline-body/.test(reportsJs) && /timeline-date/.test(reportsJs));
+ok('گام‌های واقعی سرور روی چهار مرحله‌ی روند رسیدگی سوار می‌شوند',
+  /Array\.isArray\(r\.flow\) && r\.flow\.length === 4/.test(reportsJs) && /r\.flow\.map/.test(reportsJs));
+ok('پاسخ سرور، روند چهارمرحله‌ای را همراه گزارش به اپ می‌دهد (بدون محاسبه‌ی موازی)',
+  /flow: Array\.isArray\(item\.flow\) && item\.flow\.length === 4 \? item\.flow : null/.test(reportsJs)
+  && /\$row\['flow'\] = eplakReportFlowStages\(/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8')));
+ok('چهار مرحله دقیقاً همان خواسته‌ی کاربر است (ثبت گزارش → در حال انتظار → در حال رسیدگی → انجام شد)',
+  /created: 'ثبت گزارش'/.test(reportsJs) && /pending: 'در حال انتظار'/.test(reportsJs)
+  && /in_progress: 'در حال رسیدگی'/.test(reportsJs) && /done: 'انجام شد'/.test(reportsJs));
+ok('هر مرحله: آیکون پک، نشان وضعیت، توضیح و تاریخ دارد',
+  /flow-marker/.test(reportsJs) && /flow-badge/.test(reportsJs)
+  && /flow-note/.test(reportsJs) && /flow-date/.test(reportsJs));
 ok('روند پایه برای گزارش‌های بدون گام ساخته می‌شود (بدون صفحه‌ی خالی)',
-  /روند پایه وقتی گزارش هنوز در سرور گامی ندارد/.test(reportsJs) && /در انتظار اقدام شهرداری/.test(reportsJs));
-ok('گام جاری با انیمیشن نشان داده می‌شود (کار در جریان است)',
-  /classList\.add\('pulse'\)/.test(reportsJs) && /@keyframes timelinePulse/.test(appCss));
+  /const flowFromStatus = /.test(reportsJs) && /درخواست شهروند ثبت شد\./.test(reportsJs));
+ok('مرحله‌ی جاری با انیمیشن نشان داده می‌شود (کار در جریان است)',
+  /is-current/.test(reportsJs) && /@keyframes flowPulse/.test(appCss));
 ok('کارت خلاصه‌ی وضعیت بالای صفحه‌ی جزئیات هست',
   /detailStatusSummary/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))
   && /status-summary-box/.test(reportsJs) && /\.status-summary-box/.test(appCss));
-ok('کارت خلاصه، تعداد گام‌های ثبت‌شده را نشان می‌دهد',
-  /گام ثبت شده/.test(reportsJs) && /گام‌های رسیدگی/.test(reportsJs));
+ok('کارت خلاصه، تعداد مراحل سپری‌شده از چهار مرحله را نشان می‌دهد',
+  /مراحل رسیدگی/.test(reportsJs) && /flowStages\.length/.test(reportsJs));
+ok('برچسب وضعیت در اپ همان چهار مرحله‌ی درخواستی است',
+  /pending: 'در حال انتظار',\s*\n\s*in_progress: 'در حال رسیدگی',/.test(stateSrc)
+  && /done: 'انجام شد'/.test(stateSrc));
+ok('هر مرحله در پک آیکون حرفه‌ای، آیکون اختصاصی دارد',
+  /'file-plus':/.test(iconsSrc) && /'clock':/.test(iconsSrc) && /'tools':/.test(iconsSrc) && /'check-circle':/.test(iconsSrc));
+ok('پک آیکون با نسخه‌ی تازه در اپ بارگذاری می‌شود (کش قدیمی نمایش داده نشود)',
+  /assets\/js\/icons\.js\?v=13/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))
+  && /hydrateIcons/.test(iconsSrc) && /data-eplak-icon/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+const iconKeys = [...iconsSrc.slice(iconsSrc.indexOf('var ICONS'), iconsSrc.indexOf('var EMOJI_MAP')).matchAll(/^\s*'([^']+)':\s*'/gm)].map((m) => m[1]);
+const emojiPairs = [...iconsSrc.slice(iconsSrc.indexOf('var EMOJI_MAP')).matchAll(/^\s*'([^']+)':\s*'([^']+)'/gm)].map((m) => [m[1], m[2]]);
+const emojiDupes = emojiPairs.map((p) => p[0]).filter((k, i, a) => a.indexOf(k) !== i);
+const brokenRefs = emojiPairs.filter(([, v]) => !iconKeys.includes(v));
+ok('نقشه‌ی ایموجی بدون کلید تکراری و کامل است (همه به آیکون موجود اشاره می‌کنند)',
+  emojiDupes.length === 0 && brokenRefs.length === 0 && iconKeys.length >= 100 && emojiPairs.length >= 160,
+  `icons=${iconKeys.length} map=${emojiPairs.length} dupes=${emojiDupes.length} broken=${brokenRefs.length}`);
+ok('ایموجی‌های آب‌وهوا، کیفیت هوا و خدمات در پک آیکون نگاشت شده‌اند',
+  ['🌧️','🌤️','❄️','🌫️','🌡️','☀️','😊','😷','🕊️','♻️','🏛️','🗑️','🤝','📵','🔕'].every((e) => new RegExp("'" + e + "':").test(iconsSrc)));
+
+const flowBlock = reportsJs.slice(
+  reportsJs.indexOf('روند رسیدگی (چهار مرحله'),
+  reportsJs.indexOf("showScreen('screen-report-detail')"));
+ok('هیچ ایموجی‌ای در روند رسیدگی اپ باقی نمانده (همه از پک آیکون)',
+  flowBlock.length > 400 && !/⏳|✅|📋/.test(flowBlock) && /EplakIcons\.get|ICON\(/.test(flowBlock));
 ok('پیوست‌های ناخوانا (حجم صفر) همان لحظه‌ی انتخاب تشخیص داده می‌شوند',
   /if \(!file\.size\) \{/.test(reportsJs) && /ناخوانا/.test(reportsJs));
 ok('نتیجه‌ی انتخاب فایل از اندروید در گزارش فنی ثبت می‌شود',

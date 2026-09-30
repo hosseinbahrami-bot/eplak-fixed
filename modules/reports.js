@@ -365,7 +365,7 @@
         date: formatReportDate(item.created_at),
         dateTime: formatReportDateTime(item.created_at),
         status: normalizeStatusValue(item.status || 'pending'),
-        icon: '📋',
+        icon: 'report',
         iconBg: 'rgba(0,201,167,0.12)',
         desc: item.description || item.details || '',
         department: item.department || '',
@@ -380,7 +380,9 @@
           size: m.size
         })) : [],
         timeline: Array.isArray(item.timeline) ? item.timeline : [],
-        timelineCount: Number(item.timeline_count || (Array.isArray(item.timeline) ? item.timeline.length : 0)) || 0
+        timelineCount: Number(item.timeline_count || (Array.isArray(item.timeline) ? item.timeline.length : 0)) || 0,
+        /* روند رسیدگی چهارمرحله‌ای که سرور (با همان تابع پنل ادمین) می‌فرستد */
+        flow: Array.isArray(item.flow) && item.flow.length === 4 ? item.flow : null
       }));
 
       /* گزارش‌های محلی که هنوز به سرور نرسیده‌اند (بدون شناسه‌ی سروری) را
@@ -1029,7 +1031,7 @@
     if (!wrap) return;
     wrap.innerHTML = reportDraft.photos.map((item, idx) => {
       const preview = (item.kind === 'video')
-        ? '<span style="font-size:24px;">🎬</span>'
+        ? `<span class="picked-video-icon">${(window.EplakIcons ? window.EplakIcons.get('video', { size: 26 }) : '🎬')}</span>`
         : '<img src="' + item.previewUrl + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:11px;">';
       return `
       <div style="position:relative; width:68px; height:68px; border-radius:12px; background:var(--card-bg); border:1px solid var(--card-border); display:flex; align-items:center; justify-content:center; font-size:22px; overflow:hidden;">
@@ -1061,7 +1063,7 @@
   }
 
   async function submitNewReport() {
-    const iconMap = { 'سایر': '⋯', 'نظافت': '💡', 'زیرساخت': '🌿', 'زیرسبز': '🌳', 'روشنایی': '🔆' };
+    const iconMap = { 'سایر': 'info', 'نظافت': 'waste', 'زیرساخت': 'tools', 'زیرسبز': 'leaf', 'روشنایی': 'services' };
     const currentPhone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
     const title = (reportDraft.desc || '').slice(0, 28) || (reportDraft.type + ' - گزارش جدید');
     const nowIso = new Date().toISOString();
@@ -1078,7 +1080,7 @@
       date: formatReportDate(nowIso),
       dateTime: formatReportDateTime(nowIso),
       status: 'pending',
-      icon: iconMap[reportDraft.type] || '📋',
+      icon: iconMap[reportDraft.type] || 'report',
       iconBg: 'rgba(0,201,167,0.12)',
       desc: reportDraft.desc || 'بدون توضیحات',
       department: reportDraft.department || '',
@@ -1914,59 +1916,102 @@
     // قالب‌بندی کامل تاریخ همراه با ساعت برای بخش روند رسیدگی زیر ثبت گزارش
     const submitDateTime = formatReportDateTime(r.rawDate || r.created_at || r.dateTime || r.date);
 
-    /* ── روند رسیدگی ────────────────────────────────────────────────────
-       گام‌های واقعی از سرور می‌آیند (همان‌هایی که مدیر شهرداری در پنل ثبت
-       می‌کند) و اگر گزارش هنوز گامی نداشته باشد، روند پایه از روی وضعیت
-       فعلی ساخته می‌شود تا کاربر همیشه تصویر کامل را ببیند. */
-    const TIMELINE_STEPS = [
-      { key: 'created',  icon: '📝', label: 'ثبت گزارش توسط شهروند' },
-      { key: 'assigned', icon: '🏢', label: 'ارجاع به واحد مربوطه' },
-      { key: 'progress', icon: '🔎', label: 'بررسی کارشناس' },
-      { key: 'reply',    icon: '💬', label: 'پاسخ مدیریت' },
-      { key: 'done',     icon: '✅', label: 'پایان رسیدگی' }
-    ];
-    const eventIcon = {
-      created: '📝', assigned: '🏢', status: '🔄', reply: '💬',
-      edit: '✏️', media: '📎', note: '•', progress: '🔎', done: '✅'
+    /* ── روند رسیدگی (چهار مرحله، هم‌خوان با پنل ادمین) ─────────────────
+       مراحل: ثبت گزارش → در حال انتظار → در حال رسیدگی → انجام شد
+       جزئیات هر مرحله (تاریخ و متن) از گام‌های واقعی سرور می‌آید؛ اگر گزارش
+       هنوز گامی نداشته باشد، از روی وضعیت فعلی ساخته می‌شود. */
+    const FLOW_ICON = {
+      created: 'file-plus',
+      pending: 'clock',
+      in_progress: 'tools',
+      done: 'check-circle'
     };
-    const actorLabel = { admin: 'شهرداری', citizen: 'شهروند', system: 'سامانه' };
+    const FLOW_LABEL = {
+      created: 'ثبت گزارش',
+      pending: 'در حال انتظار',
+      in_progress: 'در حال رسیدگی',
+      done: 'انجام شد'
+    };
+    const ICON = (name, size) => (window.EplakIcons ? window.EplakIcons.get(name, { size: size || 18 }) : '');
 
-    const timelineBase = [];
-    const pushStep = (step) => {
-      if (!step || !step.label) return;
-      timelineBase.push({
-        icon: step.icon || '•',
-        label: step.label,
-        body: step.body || '',
-        date: step.date || '—',
-        actor: actorLabel[step.actor] || step.actor || '',
-        done: step.done !== false
-      });
+    const flowFromStatus = () => {
+      const reached = { pending: ['created'], in_progress: ['created', 'pending'], done: ['created', 'pending', 'in_progress', 'done'] };
+      const current = { pending: 'pending', in_progress: 'in_progress', done: '' }[safeStatus] || 'pending';
+      const doneList = reached[safeStatus] || ['created'];
+      return Object.keys(FLOW_LABEL).map(key => ({
+        key: key,
+        label: FLOW_LABEL[key],
+        state: current === key ? 'current' : (doneList.indexOf(key) > -1 ? 'done' : 'waiting'),
+        date: key === 'created' ? submitDateTime : '',
+        notes: key === 'created'
+          ? [{ date: submitDateTime, text: 'درخواست شهروند ثبت شد.' }]
+          : (key === 'in_progress' && replyText ? [{ date: '', text: replyText }] : [])
+      }));
     };
 
-    if (Array.isArray(r.timeline) && r.timeline.length) {
-      r.timeline.forEach(step => {
-        const when = formatReportDateTime(step.created_at || step.date || '');
-        pushStep({
-          icon: eventIcon[step.type] || '•',
-          label: step.title || step.label || 'گام رسیدگی',
-          body: step.body || '',
-          date: when,
-          actor: step.actor || 'system',
-          done: true
-        });
-      });
-    } else {
-      /* روند پایه وقتی گزارش هنوز در سرور گامی ندارد */
-      pushStep({ icon: '📝', label: 'ثبت گزارش توسط شهروند', date: submitDateTime, actor: 'citizen', done: true });
-      const progressed = safeStatus === 'in_progress' || safeStatus === 'done';
-      if (progressed) pushStep({ icon: '🏢', label: 'ارجاع به واحد مربوطه', date: submitDateTime, actor: 'system', done: true });
-      if (safeStatus === 'in_progress') pushStep({ icon: '🔎', label: 'بررسی کارشناس', date: 'در حال انجام', actor: 'admin', done: true });
-      if (replyText) pushStep({ icon: '💬', label: 'پاسخ مدیریت', body: replyText, date: '—', actor: 'admin', done: true });
-      if (safeStatus === 'done') pushStep({ icon: '✅', label: 'پایان رسیدگی', date: '—', actor: 'admin', done: true });
-      if (safeStatus !== 'done') {
-        pushStep({ icon: '⏳', label: 'در انتظار اقدام شهرداری', date: 'گام بعدی', actor: 'system', done: false });
-      }
+    const flowStages = (Array.isArray(r.flow) && r.flow.length === 4)
+      ? r.flow.map(stage => ({
+          key: stage.key,
+          label: stage.label || FLOW_LABEL[stage.key] || '',
+          state: stage.state === 'current' ? 'current' : (stage.state === 'done' ? 'done' : 'waiting'),
+          date: stage.date || '',
+          notes: Array.isArray(stage.notes) ? stage.notes : []
+        }))
+      : flowFromStatus();
+
+    const flowHtml = flowStages.map((stage, idx) => {
+      const isLast = idx === flowStages.length - 1;
+      const stateClass = stage.state === 'current' ? 'is-current' : (stage.state === 'done' ? 'is-done' : 'is-waiting');
+      const dateText = stage.date ? formatReportDateTime(stage.date) : '';
+      const notesHtml = (stage.notes || []).slice(-3).map(note => {
+        const noteDate = note && note.date ? formatReportDateTime(note.date) : '';
+        const text = note && note.text ? String(note.text) : '';
+        if (!text && !noteDate) return '';
+        return `<p class="flow-note">${text ? escapeHtml(text) : ''}${noteDate ? `<span class="flow-note-date">${escapeHtml(noteDate)}</span>` : ''}</p>`;
+      }).join('');
+      return `
+        <div class="flow-step ${stateClass}">
+          <div class="flow-marker">
+            <div class="flow-dot">${stage.state === 'done' ? ICON('check', 14) : ICON(FLOW_ICON[stage.key] || 'info', 16)}</div>
+            ${!isLast ? `<div class="flow-line ${stage.state === 'done' ? 'done' : ''}"></div>` : ''}
+          </div>
+          <div class="flow-body">
+            <div class="flow-head">
+              <h5>${escapeHtml(stage.label)}</h5>
+              ${stage.state === 'current' ? '<span class="flow-badge current">در جریان</span>' : ''}
+              ${stage.state === 'done' ? `<span class="flow-badge done">${stage.key === 'done' ? 'انجام شد' : 'سپری شد'}</span>` : ''}
+              ${stage.state === 'waiting' ? '<span class="flow-badge waiting">در انتظار</span>' : ''}
+            </div>
+            ${notesHtml}
+            ${dateText ? `<p class="flow-date">${escapeHtml(dateText)}</p>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    const timelineEl = document.getElementById('detailTimeline');
+    if (timelineEl) {
+      timelineEl.innerHTML = flowHtml;
+    }
+
+    /* ── کارت وضعیت: همان چیزی که در ستون وضعیت پنل ادمین است ─────────── */
+    const summaryEl = document.getElementById('detailStatusSummary');
+    if (summaryEl) {
+      const doneCount = flowStages.filter(x => x.state === 'done').length;
+      const waiting = safeStatus !== 'done';
+      summaryEl.innerHTML = `
+        <div class="status-summary-box ${statusMeta.className}">
+          <div class="status-summary-main">
+            <span class="status-summary-icon">${waiting ? ICON('clock', 22) : ICON('check-circle', 22)}</span>
+            <div>
+              <p class="status-summary-label">وضعیت فعلی</p>
+              <p class="status-summary-value">${escapeHtml(statusMeta.label)}</p>
+            </div>
+          </div>
+          <div class="status-summary-side">
+            <p class="status-summary-label">مراحل رسیدگی</p>
+            <p class="status-summary-value">${toPersianDigits(doneCount)} از ${toPersianDigits(flowStages.length)}</p>
+          </div>
+        </div>`;
     }
 
     activeReportId = id;
@@ -2034,7 +2079,7 @@
                   </button>`).join('')}
               </div>` : ''}
             ${mediaList.some(m => m.local) ? `
-              <p class="media-note">🔒 چند پیوست هنوز فقط روی گوشی شما ذخیره شده است؛ با وصل بودن اینترنت، خودکار به سرور می‌رود.</p>` : ''}
+              <p class="media-note">${window.EplakIcons ? window.EplakIcons.get('lock', { size: 13 }) : ''} چند پیوست هنوز فقط روی گوشی شما ذخیره شده است؛ با وصل بودن اینترنت، خودکار به سرور می‌رود.</p>` : ''}
             <p class="media-hint">برای دیدن اندازه‌ی کامل، روی عکس یا فیلم بزنید.</p>
           </div>`;
       }
@@ -2054,59 +2099,6 @@
         replyWrap.style.display = 'none';
         replyWrap.innerHTML = '';
       }
-    }
-
-    const timelineHtml = timelineBase.map((step, idx) => {
-      const isLast = idx === timelineBase.length - 1;
-      const dotClass = step.done ? 'done' : (idx > 0 && timelineBase[idx - 1].done && !step.done ? 'current' : '');
-      return `
-        <div class="timeline-row ${step.done ? 'is-done' : 'is-waiting'}">
-          <div class="timeline-marker">
-            <div class="timeline-dot ${dotClass}">${step.done ? '✓' : ''}</div>
-            ${!isLast ? `<div class="timeline-line ${step.done ? 'done' : ''}"></div>` : ''}
-          </div>
-          <div class="timeline-content">
-            <div class="timeline-head">
-              <span class="timeline-icon">${step.icon || '•'}</span>
-              <h5>${escapeHtml(step.label)}</h5>
-              ${step.actor ? `<span class="timeline-actor actor-${step.actor === 'شهرداری' ? 'admin' : (step.actor === 'شهروند' ? 'citizen' : 'system')}">${escapeHtml(step.actor)}</span>` : ''}
-            </div>
-            ${step.body ? `<p class="timeline-body">${escapeHtml(step.body)}</p>` : ''}
-            <p class="timeline-date">${escapeHtml(step.date || '—')}</p>
-          </div>
-        </div>`;
-    }).join('');
-
-    const timelineEl = document.getElementById('detailTimeline');
-    if (timelineEl) {
-      timelineEl.innerHTML = timelineHtml;
-      /* گام جاری با یک نوار متحرک نشان داده می‌شود تا کاربر بفهمد کار در
-         جریان است (هم‌خوان با روند پنل ادمین). */
-      const currentRow = timelineEl.querySelector('.timeline-row.is-waiting .timeline-dot.current');
-      if (currentRow) currentRow.classList.add('pulse');
-    }
-
-    /* ── کارت وضعیت: همان گام‌ها به‌صورت خلاصه (بالای صفحه) ─────────────
-       نظیر همان ستون «وضعیت» در پنل ادمین؛ تعداد گام‌های ثبت‌شده هم نمایش
-       داده می‌شود تا کاربر ببیند درخواستش در جریان است. */
-    const summaryEl = document.getElementById('detailStatusSummary');
-    if (summaryEl) {
-      const doneCount = timelineBase.filter(x => x.done).length;
-      const waiting = safeStatus !== 'done';
-      summaryEl.innerHTML = `
-        <div class="status-summary-box ${statusMeta.className}">
-          <div class="status-summary-main">
-            <span class="status-summary-icon">${waiting ? '⏳' : '✅'}</span>
-            <div>
-              <p class="status-summary-label">وضعیت فعلی</p>
-              <p class="status-summary-value">${escapeHtml(statusMeta.label)}</p>
-            </div>
-          </div>
-          <div class="status-summary-side">
-            <p class="status-summary-label">گام‌های رسیدگی</p>
-            <p class="status-summary-value">${toPersianDigits(doneCount)} گام ثبت شده</p>
-          </div>
-        </div>`;
     }
 
     showScreen('screen-report-detail');
@@ -2430,7 +2422,7 @@
           if (hasReply) {
             statusLabel = 'پاسخ داده شده';
           } else if (item.status === 'pending') {
-            statusLabel = 'در انتظار پاسخ';
+            statusLabel = 'در حال انتظار';
           }
         }
 
@@ -2458,7 +2450,7 @@
               <p style="font-size:11px; color:var(--text-muted); margin:0;">${escapeHtml(item.sub)}</p>
             </div>
             <div class="report-icon-box" style="background:${item.iconBg}; align-self:center; font-size:18px;">
-              ${isTicket ? '🎫' : (window.EplakIcons ? window.EplakIcons.get(item.icon) : item.icon)}
+              ${window.EplakIcons ? window.EplakIcons.get(isTicket ? 'ticket' : item.icon) : (isTicket ? '🎫' : item.icon)}
             </div>
           </div>
         `;
@@ -2665,9 +2657,9 @@
       if (hasReply) {
         statusLabel = isEn ? 'Answered' : 'پاسخ داده شده';
       } else if (t.status === 'pending') {
-        statusLabel = isEn ? 'Pending' : 'در انتظار';
+        statusLabel = isEn ? 'Waiting' : 'در حال انتظار';
       } else if (t.status === 'in_progress' || t.status === 'review') {
-        statusLabel = isEn ? 'In Review' : 'بررسی';
+        statusLabel = isEn ? 'In Progress' : 'در حال رسیدگی';
       }
       const displayDate = t.dateTime || formatReportDateTime(t.created_at);
 

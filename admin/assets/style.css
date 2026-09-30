@@ -3548,3 +3548,45 @@ body.admin-media-locked { overflow: hidden; }
   color: var(--dark-600, #475569);
 }
 .event-date { display: inline-block; margin-top: 5px; font-size: 11px; color: var(--dark-400, #94a3b8); }
+
+/* ============================================================
+   روند رسیدگی چهارمرحله‌ای در پنل ادمین (همان چیزی که در اپ دیده می‌شود)
+   ============================================================ */
+.flow-list { margin-top: 6px; }
+.flow-step { display: flex; gap: 12px; }
+
+.flow-marker { display: flex; flex-direction: column; align-items: center; flex: 0 0 36px; }
+.flow-dot {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+  background: var(--dark-50, #f8fafc);
+  border: 1.5px solid var(--dark-100, #e2e8f0);
+  color: var(--dark-400, #94a3b8);
+}
+.flow-line { width: 2px; flex: 1; min-height: 18px; background: var(--dark-100, #e2e8f0); border-radius: 2px; }
+.flow-line.done { background: var(--primary-400, #38bdf8); opacity: .6; }
+
+.flow-step.is-done .flow-dot { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.45); color: #059669; }
+.flow-step.is-current .flow-dot { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.5); color: #2563eb; animation: flowPulseAdmin 1.8s ease-in-out infinite; }
+.flow-step.is-waiting .flow-dot { opacity: .65; }
+@keyframes flowPulseAdmin {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+}
+
+.flow-body { flex: 1; padding-bottom: 16px; min-width: 0; }
+.flow-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.flow-head strong { font-size: 13.5px; }
+.flow-badge { font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.flow-badge.done { background: rgba(16, 185, 129, 0.14); color: #059669; }
+.flow-badge.current { background: rgba(59, 130, 246, 0.14); color: #2563eb; }
+.flow-badge.waiting { background: var(--dark-50, #f1f5f9); color: var(--dark-400, #94a3b8); }
+.flow-date { font-size: 11px; color: var(--dark-400, #94a3b8); }
+.flow-note {
+  margin: 6px 0 0; padding: 8px 10px; border-radius: 10px;
+  background: var(--dark-50, #f8fafc);
+  font-size: 12.5px; line-height: 1.9; color: var(--dark-600, #475569);
+}
+.event-timeline.compact .event-row { padding: 8px 0; }
+.event-timeline.compact .event-marker { width: 30px; height: 30px; flex: 0 0 30px; font-size: 12px; }

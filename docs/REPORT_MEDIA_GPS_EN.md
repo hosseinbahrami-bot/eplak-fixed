@@ -274,3 +274,54 @@ three upload paths, reporting the exact server status code for each.
    auto-upgrades to `2026-10-01.1` and creates the processing-flow table).
 2. Install the new APK (`2.0.24` or higher) — the upload fix lives in the Android code,
    so the app must be updated for it to take effect.
+
+---
+
+## 22) Four-stage processing flow, professional icon pack, and ticket-reply notifications
+
+### 1. The processing flow now has exactly four stages
+Both the app and the admin panel use:
+
+> **Report submitted → Waiting → In progress → Completed**
+
+- Status labels were unified on both sides (previously "در انتظار / در حال بررسی / انجام‌شده").
+- Every stage has its own icon, a state badge ("in progress", "passed", "waiting", "completed")
+  and a Jalali date/time; the real timeline events (step text, admin reply) are attached to
+  the matching stage.
+- The active stage pulses in the app so citizens can see work is happening.
+- The card above the report detail shows the current status and how many of the four stages
+  have been passed.
+- The admin report page renders the very same four stages, with the full internal event
+  history underneath.
+- Legacy data still works: old statuses stored as "در حال بررسی" or "انجام‌شده" are mapped
+  correctly to the new stages.
+
+### 2. One professional, consistent icon pack
+- 26 new icons were added: flow stages (`file-plus`, `clock`, `tools`, `check-circle`,
+  `hourglass`), attachments (`image`, `video`, `paperclip`, `send`, `edit`, `message`),
+  weather/climate (`thermometer`, `fog`, `snowflake`, `moon`) and notification/connectivity
+  (`bell-off`, `wifi-off`).
+- The emoji map was rebuilt: 170 unique mappings (no duplicate keys) in six topic groups, so
+  every emoji used anywhere in the app or its data renders as a pack icon.
+- Static HTML spots (ticket icons, municipality header, filter tabs, the offline gate) now use
+  the pack too; a `data-eplak-icon` hook fills any icon automatically.
+
+### 3. Bug fix: admin ticket replies now notify the citizen
+Saving a reply or status change from the admin ticket pages previously updated the database
+only — the user received nothing. Now `saveTicketReply` and `saveTicketDetails` both create a
+notification containing the ticket tracking code (e.g. `TK-0042`), the Persian status, the
+reply text and the Jalali date/time; it is stored in the in-app notification list and pushed
+via FCM (works with the app closed). Report replies use the same shared helper.
+
+### 4. New tests
+Seven tests cover the ticket notification path (create → admin reply → notification row →
+reply edit), three cover the icon pack (map integrity, weather/AQI/services mappings, fresh
+cache-busted load) and several cover the four-stage flow.
+
+### Deploy steps
+1. Extract the fresh `eplak-fixed-update.zip` over the `eplak-fixed` folder (Overwrite).
+2. Hard-refresh the browser once (Ctrl+F5) to pick up the new `icons.js` and `style.css`.
+3. Install the new APK so the app shows the four stages and the new icons.
+4. To test ticket notifications: open **Tickets** in the admin panel, open a ticket, type a
+   reply and press **Save changes**; the app's notifications list should show
+   "📣 پاسخ تیکت TK-...." with the reply text and time.

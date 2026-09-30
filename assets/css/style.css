@@ -7178,3 +7178,57 @@ body.media-viewer-locked { overflow: hidden; }
   font-size: 10.5px;
   font-weight: 700;
 }
+
+/* آیکون پیش‌نمایش فیلم در فرم ثبت گزارش (هم‌خوان با پک آیکون) */
+.picked-video-icon { display: flex; align-items: center; justify-content: center; color: var(--teal); }
+.media-note svg { vertical-align: -2px; margin-left: 4px; }
+
+/* ============================================================
+   روند رسیدگی چهارمرحله‌ای (ثبت گزارش → در حال انتظار →
+   در حال رسیدگی → انجام شد)
+   ============================================================ */
+.flow-step { display: flex; gap: 12px; }
+.flow-marker { display: flex; flex-direction: column; align-items: center; flex: 0 0 34px; }
+.flow-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card-bg); border: 1.5px solid var(--card-border);
+  color: var(--text-muted); transition: all .2s ease;
+}
+.flow-line { width: 2px; flex: 1; min-height: 16px; background: var(--card-border); border-radius: 2px; }
+.flow-line.done { background: var(--teal); opacity: .55; }
+
+.flow-step.is-done .flow-dot { background: rgba(0, 201, 167, 0.14); border-color: rgba(0, 201, 167, 0.5); color: var(--teal); }
+.flow-step.is-current .flow-dot {
+  background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.55); color: #3b82f6;
+  animation: flowPulse 1.8s ease-in-out infinite;
+}
+@keyframes flowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45); }
+  50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+}
+.flow-step.is-waiting .flow-dot { opacity: .6; }
+
+.flow-body { flex: 1; padding-bottom: 16px; min-width: 0; }
+.flow-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.flow-head h5 { font-size: 13.5px; font-weight: 800; }
+.flow-step.is-waiting .flow-head h5 { color: var(--text-muted); font-weight: 700; }
+
+.flow-badge { font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 999px; }
+.flow-badge.done { background: rgba(0, 201, 167, 0.14); color: var(--teal); }
+.flow-badge.current { background: rgba(59, 130, 246, 0.16); color: #3b82f6; }
+.flow-badge.waiting { background: rgba(100, 116, 139, 0.14); color: #64748b; }
+
+.flow-note {
+  margin-top: 6px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(15, 23, 42, 0.035);
+  font-size: 12.5px; line-height: 1.9; color: var(--text-primary);
+}
+.flow-note-date { display: block; margin-top: 3px; font-size: 11px; color: var(--text-muted); }
+.flow-date { margin-top: 5px; font-size: 11.5px; color: var(--text-muted); }
+
+/* آیکون‌های پک در دکمه‌های فیلتر و پرده‌ی بدون اینترنت */
+.filter-tab-icon { display: inline-flex; vertical-align: -3px; margin-left: 4px; }
+.filter-tab-icon svg { display: block; }
+.eplak-offline-icon svg { width: 46px; height: 46px; display: block; margin: 0 auto; color: var(--teal); }
+.lux-occ-item svg { vertical-align: -2px; color: var(--teal); }

@@ -183,8 +183,15 @@ function eplakStatusKeys(): array {
 }
 
 function eplakStatusRawValues(): array {
-    return ['pending', 'in_progress', 'review', 'done',
-            'در انتظار', 'در حال بررسی', 'انجام شده', 'انجام‌شده', 'انجام شده '];
+    /* مقادیر خامِ وضعیت که ممکن است در دیتابیس هاست باشند — هم کلیدهای
+       انگلیسی، هم برچسب‌های فارسیِ تازه، هم برچسب‌های قدیمی که از قبل
+       ذخیره شده‌اند (گزارش‌های قدیمی همیشه درست خوانده شوند). */
+    return [
+        'pending', 'in_progress', 'review', 'done',
+        'در انتظار', 'در انتظار بررسی', 'در حال انتظار',
+        'در حال بررسی', 'در حال پیگیری', 'در حال رسیدگی',
+        'انجام شده', 'انجام‌شده', 'انجام شد', 'تکمیل شده',
+    ];
 }
 
 /* تشخیص وضعیت یک ردیف گزارش.
@@ -271,14 +278,23 @@ function getReportsStatusStats(PDO $pdo): array {
 
 function normalizeStatusValue(string $status): string {
     $status = trim($status);
+    /* کلیدهای انگلیسی + همه‌ی برچسب‌های فارسی (تازه و قدیمی) تا داده‌های
+       ذخیره‌شده‌ی قبلی هم درست شناسایی شوند. */
     $map = [
         'pending' => 'pending',
         'در انتظار' => 'pending',
+        'در انتظار بررسی' => 'pending',
+        'در حال انتظار' => 'pending',
         'in_progress' => 'in_progress',
+        'review' => 'in_progress',
         'در حال بررسی' => 'in_progress',
+        'در حال پیگیری' => 'in_progress',
+        'در حال رسیدگی' => 'in_progress',
         'done' => 'done',
         'انجام شده' => 'done',
         'انجام‌شده' => 'done',
+        'انجام شد' => 'done',
+        'تکمیل شده' => 'done',
     ];
 
     return $map[$status] ?? 'pending';
@@ -286,13 +302,14 @@ function normalizeStatusValue(string $status): string {
 
 function statusLabel(string $status): string {
     $status = normalizeStatusValue($status);
+    /* همان چهار مرحله‌ای که شهروند در اپ می‌بیند */
     $labels = [
-        'pending' => 'در انتظار',
-        'in_progress' => 'در حال بررسی',
-        'done' => 'انجام‌شده',
+        'pending' => 'در حال انتظار',
+        'in_progress' => 'در حال رسیدگی',
+        'done' => 'انجام شد',
     ];
 
-    return $labels[$status] ?? 'در انتظار';
+    return $labels[$status] ?? 'در حال انتظار';
 }
 
 function statusClass(string $status): string {
@@ -427,35 +444,17 @@ function saveReportReply(PDO $pdo, int $id, string $reply, string $status): void
         /* روند رسیدگی هرگز نباید ذخیره‌ی وضعیت را متوقف کند */
     }
 
-    // ارسال خودکار اعلان به شهروند ثبت‌کننده در صورت پاسخ یا تغییر وضعیت
+    /* ── ارسال خودکار اعلان به شهروند (اگر پاسخ یا وضعیت تازه‌ای آمده) ────
+       از همان تابع مشترک تیکت‌ها استفاده می‌کنیم تا اعلان گزارش و تیکت یک
+       شکل باشند و هم در فهرست اعلان‌های اپ ثبت شوند و هم (اگر اپ بسته باشد)
+       از مسیر فایربیس به گوشی برسند. */
     try {
         $rep = getReportById($pdo, $id);
-        if ($rep && !empty($rep['user_phone'])) {
-            $statusLabels = [
-                'pending'     => 'در انتظار بررسی',
-                'in_progress' => 'در حال پیگیری و اقدام',
-                'done'        => 'تکمیل و خاتمه یافته',
-                'rejected'    => 'رد شده'
-            ];
-            $statusFa = $statusLabels[$normStatus] ?? $normStatus;
-            $code = 'EP-1403-' . str_pad((string)((int)$id + 1000), 4, '0', STR_PAD_LEFT);
-            $notifTitle = 'به‌روزرسانی گزارش ' . $code;
-            $notifBody = 'وضعیت گزارش «' . ($rep['title'] ?? 'شما') . '» به «' . $statusFa . '» تغییر یافت.';
-            if ($reply !== '') {
-                $notifBody .= ' پاسخ شهرداری: ' . mb_substr($reply, 0, 120);
-            }
-            $ins = $pdo->prepare('INSERT INTO notifications (user_phone, title, body, read_flag) VALUES (:phone, :title, :body, 0)');
-            $ins->execute([
-                ':phone' => $rep['user_phone'],
-                ':title' => $notifTitle,
-                ':body'  => $notifBody
-            ]);
-
-            /* اعلان سیستمی گوشی (حتی وقتی برنامه بسته است) */
-            eplakPushNotifyPhone($pdo, (string) $rep['user_phone'], $notifTitle, $notifBody, [
-                'url' => 'index.html',
-                'tag' => 'eplak-report-' . $id,
-            ]);
+        $phone = (string) ($rep['user_phone'] ?? '');
+        if ($phone !== '' && ($previousStatus !== $normStatus || trim($reply) !== '')) {
+            require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+            $code = 'EP-1403-' . str_pad((string) ((int) $id + 1000), 4, '0', STR_PAD_LEFT);
+            eplakNotifyReply($pdo, $phone, 'گزارش', $code, $normStatus, $reply);
         }
     } catch (Throwable $e) {
         // بدون توقف عملیات اصلی
@@ -549,11 +548,30 @@ function getTicketById(PDO $pdo, int $id): ?array {
 }
 
 function saveTicketReply(PDO $pdo, int $id, string $reply, string $status): void {
+    $normStatus = normalizeStatusValue($status);
+    $before = getTicketById($pdo, $id);
+    $beforeStatus = $before ? normalizeStatusValue((string) ($before['status'] ?? '')) : '';
+
     $stmt = $pdo->prepare('UPDATE tickets SET reply = :reply, status = :status WHERE id = :id');
     $stmt->bindValue(':reply', $reply);
-    $stmt->bindValue(':status', normalizeStatusValue($status));
+    $stmt->bindValue(':status', $normStatus);
     $stmt->bindValue(':id', $id, PDO::PARAM_INT);
     $stmt->execute();
+
+    /* ── اعلان به کاربر ─────────────────────────────────────────────────
+       پیش از این، پاسخ‌دادن به تیکت در پنل هیچ اعلانی نمی‌ساخت (نه در فهرست
+       اعلان‌های اپ، نه روی گوشی)؛ کاربر بی‌خبر می‌ماند. حالا مثل گزارش‌ها،
+       اعلان ساخته و به گوشی فرستاده می‌شود. */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+        $phone = (string) ($before['user_phone'] ?? '');
+        if ($phone !== '' && ($beforeStatus !== $normStatus || trim($reply) !== '')) {
+            $code = 'TK-' . str_pad((string) $id, 4, '0', STR_PAD_LEFT);
+            eplakNotifyReply($pdo, $phone, 'تیکت', $code, $normStatus, $reply);
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-admin:ticket.notify] ' . $e->getMessage());
+    }
 }
 
 function deleteTicketReply(PDO $pdo, int $id): void {
@@ -564,6 +582,11 @@ function deleteTicketReply(PDO $pdo, int $id): void {
 }
 
 function saveTicketDetails(PDO $pdo, int $id, string $title, string $description, string $userPhone, string $reply, string $status, string $category = '', string $department = '', string $priority = 'medium'): void {
+    /* وضعیت/پاسخ قبلی برای تشخیص «تغییر واقعی» و ساخت اعلان */
+    $before = getTicketById($pdo, $id);
+    $beforeStatus = $before ? normalizeStatusValue((string) ($before['status'] ?? '')) : '';
+    $beforeReply = $before ? trim((string) ($before['reply'] ?? '')) : '';
+
     updateTicket($pdo, $id, [
         'title' => $title,
         'description' => $description,
@@ -574,6 +597,21 @@ function saveTicketDetails(PDO $pdo, int $id, string $title, string $description
         'department' => $department,
         'priority' => $priority,
     ]);
+
+    /* اعلان به کاربر (همان قاعده‌ی saveTicketReply) — این تابع از صفحه‌ی
+       جزئیات و صفحه‌ی ویرایش تیکت صدا زده می‌شود. */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+        $normStatus = normalizeStatusValue($status);
+        $phone = trim($userPhone) !== '' ? trim($userPhone) : (string) ($before['user_phone'] ?? '');
+        $changed = ($beforeStatus !== $normStatus) || (trim($reply) !== $beforeReply);
+        if ($phone !== '' && $changed && (trim($reply) !== '' || $beforeStatus !== $normStatus)) {
+            $code = 'TK-' . str_pad((string) $id, 4, '0', STR_PAD_LEFT);
+            eplakNotifyReply($pdo, $phone, 'تیکت', $code, $normStatus, $reply);
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-admin:ticket.notify-details] ' . $e->getMessage());
+    }
 }
 
 function deleteReport(PDO $pdo, int $id): void {

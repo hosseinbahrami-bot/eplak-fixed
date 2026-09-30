@@ -80,6 +80,13 @@ if ($method === 'GET') {
             $row['media_count'] = count($row['media']);
             $row['timeline'] = $eventMap[$id] ?? [];
             $row['timeline_count'] = count($row['timeline']);
+            /* روند رسیدگی چهارمرحله‌ای — ساخته‌شده با همان تابعی که پنل ادمین
+               استفاده می‌کند، تا هر دو طرف دقیقاً یک چیز نشان دهند. */
+            $row['flow'] = eplakReportFlowStages(
+                eplakReportStatusKey((string) ($row['status'] ?? 'pending')),
+                $row['timeline'],
+                (string) ($row['created_at'] ?? '')
+            );
             if ($hasGeo) {
                 $row['lat'] = isset($row['lat']) && $row['lat'] !== null ? (float) $row['lat'] : null;
                 $row['lng'] = isset($row['lng']) && $row['lng'] !== null ? (float) $row['lng'] : null;
@@ -407,6 +414,7 @@ try {
 eplakJson([
     'success'       => true,
     'timeline'      => eplakReportEvents($pdo, $insertId),
+    'flow'          => eplakReportFlowStages('pending', eplakReportEvents($pdo, $insertId), gmdate('Y-m-d H:i:s')),
     'id'            => $insertId,
     'tracking_code' => $trackingCode,
     'lat'           => $hasGeo ? $lat : null,

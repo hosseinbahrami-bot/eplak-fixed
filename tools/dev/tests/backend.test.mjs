@@ -420,7 +420,7 @@ saveReportReply($pdo, ${SRID}, 'اکیپ شهرداری اعزام شد', 'done'
 $row = $pdo->query('SELECT status, reply FROM reports WHERE id = ${SRID}')->fetch();
 echo json_encode(['status' => $row['status'], 'reply' => $row['reply'], 'label' => statusLabel($row['status'])]);`));
 ok('پنل ادمین وضعیت را در دیتابیس ذخیره می‌کند', setStatus?.status === 'done', JSON.stringify(setStatus));
-ok('برچسب فارسی وضعیت درست ساخته می‌شود', setStatus?.label === 'انجام‌شده', String(setStatus?.label));
+ok('برچسب فارسی وضعیت درست ساخته می‌شود', setStatus?.label === 'انجام شد', String(setStatus?.label));
 
 /* همان درخواستی که اپ می‌زند (GET api/reports.php?phone=…) */
 const appGet = pickJson(await run(`
@@ -635,9 +635,36 @@ $_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin
 require_once '${APP}/admin/includes/functions.php';
 ob_start(); require '${APP}/admin/report_detail.php'; echo ob_get_clean();`));
 ok('پنل، بخش «روند رسیدگی» را نشان می‌دهد',
-  /روند رسیدگی/.test(tlDetail) && /class="event-timeline"/.test(tlDetail), String(tlDetail.length));
+  /روند رسیدگی/.test(tlDetail) && /class="flow-list"/.test(tlDetail) && /class="flow-step is-/.test(tlDetail), String(tlDetail.length));
+ok('پنل دقیقاً همان چهار مرحله‌ی اپ را نشان می‌دهد',
+  /ثبت گزارش/.test(tlDetail) && /در حال انتظار/.test(tlDetail)
+  && /در حال رسیدگی/.test(tlDetail) && /انجام شد/.test(tlDetail));
 ok('گام‌ها در پنل با سازنده (شهرداری/شهروند/سامانه) دیده می‌شوند',
   /event-actor/.test(tlDetail) && /(شهرداری|شهروند|سامانه)/.test(tlDetail));
+ok('روند رسیدگی در پنل با همان تابع مشترک اپ ساخته می‌شود',
+  /eplakReportFlowStages/.test(fs.readFileSync(path.join(APP, 'admin/report_detail.php'), 'utf8'))
+  && /function eplakReportFlowStages/.test(fs.readFileSync(path.join(APP, 'shared/media.php'), 'utf8')));
+
+/* چهار مرحله در سرور: درست، به ترتیب و با وضعیت درست */
+const flow = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+require_once '${APP}/shared/media.php';
+echo json_encode([
+  'now' => eplakReportFlowStages('in_progress', [], '2026-10-01 10:00:00'),
+  'done' => eplakReportFlowStages('done', [], ''),
+  'keys' => array_keys(eplakReportFlowStageLabels()),
+  'labels' => array_values(eplakReportFlowStageLabels()),
+]);`));
+ok('سرور چهار مرحله را به ترتیب برمی‌گرداند',
+  JSON.stringify(flow?.labels) === JSON.stringify(['ثبت گزارش', 'در حال انتظار', 'در حال رسیدگی', 'انجام شد']),
+  JSON.stringify(flow?.labels));
+ok('«در حال رسیدگی» یعنی: ثبت و انتظار سپری شده، رسیدگی در جریان، انجام‌شد هنوز نه',
+  flow?.now?.[0]?.state === 'done' && flow?.now?.[1]?.state === 'done'
+  && flow?.now?.[2]?.state === 'current' && flow?.now?.[3]?.state === 'waiting',
+  JSON.stringify((flow?.now || []).map((x) => x.key + ':' + x.state)));
+ok('وقتی کار تمام شد، مرحله‌ی «انجام شد» به‌عنوان مرحله‌ی نهایی انتخاب می‌شود',
+  flow?.done?.[2]?.state === 'done' && flow?.done?.[3]?.state === 'done');
 ok('صفحه‌ی جزئیات پنل بدون خطای PHP رندر می‌شود',
   tlDetail.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(tlDetail));
 
@@ -668,6 +695,66 @@ $_POST = ['action' => 'add_media', 'phone' => '09129999999', 'reportId' => ${TLI
 require '${APP}/api/reports.php';`));
 ok('افزودن پیوست به گزارش دیگری (شماره‌ی نامربوط) مسدود است',
   /"success":false/.test(foreignAdd), foreignAdd.slice(0, 160));
+
+/* ═══════════════════════════════════════════════════════════════════
+   پاسخ‌دادن به تیکت از پنل ادمین باید برای کاربر اعلان بسازد
+   (باگ گزارش‌شده: پاسخ مدیر هیچ اعلانی نمی‌ساخت)
+   ═══════════════════════════════════════════════════════════════════ */
+console.log('\n=== پاسخ تیکت از پنل ادمین → اعلان کاربر ===');
+const ticketSet = pickJson(await run(`
+require_once '${APP}/shared/bootstrap.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+$cols = array_column($pdo->query('PRAGMA table_info(tickets)')->fetchAll(), 'name');
+$pdo->exec("DELETE FROM tickets WHERE title = 'تیکت آزمون اعلان'");
+$ins = $pdo->prepare('INSERT INTO tickets (user_phone, title, description, category, department, priority, status, created_at) VALUES (?,?,?,?,?,?,?,?)');
+$ins->execute(['09121112233', 'تیکت آزمون اعلان', 'شرح آزمون', 'شکایت', 'خدمات شهری', 'medium', 'pending', date('Y-m-d H:i:s')]);
+$tid = (int) $pdo->lastInsertId();
+$before = (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE user_phone = '09121112233'")->fetchColumn();
+saveTicketReply($pdo, $tid, 'پاسخ مدیریت: اکیپ شهرداری تا ۴۸ ساعت آینده مراجعه می‌کند.', 'in_progress');
+$after = (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE user_phone = '09121112233'")->fetchColumn();
+$row = $pdo->query("SELECT title, body FROM notifications WHERE user_phone = '09121112233' ORDER BY id DESC LIMIT 1")->fetch();
+echo json_encode([
+  'tid' => $tid, 'cols' => $cols,
+  'before' => $before, 'after' => $after,
+  'title' => $row['title'] ?? '', 'body' => $row['body'] ?? '',
+  'status' => (string) $pdo->query("SELECT status FROM tickets WHERE id = $tid")->fetchColumn(),
+]);`));
+ok('تیکت آزمون ساخته شد و پاسخ مدیر ذخیره شد',
+  (ticketSet?.after || 0) === (ticketSet?.before || 0) + 1 && ticketSet?.status === 'in_progress',
+  JSON.stringify({ before: ticketSet?.before, after: ticketSet?.after, status: ticketSet?.status }));
+ok('پاسخ مدیر روی تیکت، اعلان کاربر را می‌سازد (برگشت‌خوردگی این باگ ممنوع)',
+  String(ticketSet?.title || '').includes('تیکت') && String(ticketSet?.title || '').includes('TK-'),
+  String(ticketSet?.title));
+ok('متن اعلان تیکت: کد پیگیری، وضعیت فارسی، پاسخ مدیر و تاریخ/ساعت',
+  String(ticketSet?.body || '').includes('در حال رسیدگی')
+  && String(ticketSet?.body || '').includes('پاسخ شهرداری')
+  && String(ticketSet?.body || '').includes('زمان:'),
+  String(ticketSet?.body).slice(0, 160));
+ok('نوع اعلان تیکت از مسیر مشترک notify ساخته می‌شود (هم اعلان درون‌برنامه‌ای، هم فایربیس)',
+  /eplakNotifyReply\(\$pdo, \$phone, 'تیکت'/.test(fs.readFileSync(path.join(APP, 'admin/includes/functions.php'), 'utf8'))
+  && /eplakPushNotifyPhone/.test(fs.readFileSync(path.join(APP, 'shared/notify_events.php'), 'utf8')));
+ok('صفحه‌ی جزئیات تیکت پنل هم اعلان می‌فرستد (نه فقط ذخیره در دیتابیس)',
+  /eplakNotifyReply/.test(fs.readFileSync(path.join(APP, 'admin/includes/functions.php'), 'utf8')));
+
+/* ویرایش متن پاسخ هم باید اعلان تازه بسازد */
+const ticketEdit = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+$tid = (int) $pdo->query("SELECT id FROM tickets WHERE title = 'تیکت آزمون اعلان' ORDER BY id DESC LIMIT 1")->fetchColumn();
+$before = (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE user_phone = '09121112233'")->fetchColumn();
+saveTicketDetails($pdo, $tid, 'تیکت آزمون اعلان', 'شرح آزمون', '09121112233', 'پاسخ تکمیلی مدیریت: کار انجام شد.', 'done', 'شکایت', 'خدمات شهری', 'medium');
+$after = (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE user_phone = '09121112233'")->fetchColumn();
+$row = $pdo->query("SELECT body FROM notifications WHERE user_phone = '09121112233' ORDER BY id DESC LIMIT 1")->fetch();
+echo json_encode(['tid' => $tid, 'before' => $before, 'after' => $after, 'body' => $row['body'] ?? '',
+  'status' => (string) $pdo->query("SELECT status FROM tickets WHERE id = $tid")->fetchColumn()]);`));
+ok('ویرایش/تغییر وضعیت تیکت از پنل هم اعلان تازه می‌سازد',
+  (ticketEdit?.after || 0) === (ticketEdit?.before || 0) + 1 && ticketEdit?.status === 'done',
+  JSON.stringify({ before: ticketEdit?.before, after: ticketEdit?.after, status: ticketEdit?.status }));
+ok('اعلان ویرایش هم وضعیت فارسی و پاسخ تازه را دارد',
+  String(ticketEdit?.body || '').includes('انجام شد')
+  && String(ticketEdit?.body || '').includes('پاسخ تکمیلی مدیریت'),
+  String(ticketEdit?.body).slice(0, 140));
 
 console.log('\n' + '='.repeat(52));
 console.log(`BACKEND: ${pass} passed, ${fail} failed`);

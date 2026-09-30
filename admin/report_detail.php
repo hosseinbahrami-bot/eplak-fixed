@@ -49,7 +49,7 @@ if ($report && !empty($report['user_phone'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات گزارش</title>
-  <link rel="stylesheet" href="assets/style.css?v=8">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="../assets/js/ep-map.js?v=1"></script>
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
@@ -170,15 +170,15 @@ if ($report && !empty($report['user_phone'])) {
               <?php
                 $statusClass = $report['status'] === 'done' ? 'status-done' : 
                               ($report['status'] === 'in_progress' ? 'status-progress' : 'status-pending');
-                $statusText = $report['status'] === 'done' ? 'انجام‌شده' :
-                             ($report['status'] === 'in_progress' ? 'در حال بررسی' : 'در انتظار');
+                $statusText = $report['status'] === 'done' ? 'انجام شد' :
+                             ($report['status'] === 'in_progress' ? 'در حال رسیدگی' : 'در انتظار');
               ?>
               <span class="<?= $statusClass ?>">
                 <?php if ($statusText === 'در انتظار'): ?>
                   <i class="fas fa-hourglass-half"></i>
-                <?php elseif ($statusText === 'در حال بررسی'): ?>
+                <?php elseif ($statusText === 'در حال رسیدگی'): ?>
                   <i class="fas fa-spinner fa-spin"></i>
-                <?php elseif ($statusText === 'انجام‌شده'): ?>
+                <?php elseif ($statusText === 'انجام شد'): ?>
                   <i class="fas fa-check-circle"></i>
                 <?php endif; ?>
                 <?= $statusText ?>
@@ -361,36 +361,63 @@ if ($report && !empty($report['user_phone'])) {
         <?php endif; ?>
       </section>
 
-      <!-- ===== روند رسیدگی (همان گام‌های اپ) ===== -->
+      <!-- ===== روند رسیدگی (چهار مرحله، همان چیزی که شهروند در اپ می‌بیند) ===== -->
+      <?php
+        $flowStatus = reportStatusOf($report);
+        $flowStages = eplakReportFlowStages($flowStatus, $reportEvents, (string) ($report['created_at'] ?? ''));
+        $flowIcon = [
+            'created'     => 'fa-file-circle-plus',
+            'pending'     => 'fa-hourglass-half',
+            'in_progress' => 'fa-screwdriver-wrench',
+            'done'        => 'fa-circle-check',
+        ];
+        $flowStateLabel = ['done' => 'سپری شد', 'current' => 'در جریان', 'waiting' => 'در انتظار'];
+      ?>
       <section class="panel timeline-panel">
         <h2>
           <i class="fas fa-stream" style="color: var(--primary-500); margin-left: 10px;"></i>
           روند رسیدگی
-          <span class="event-count"><?= htmlspecialchars(eplakFaDigits((string) count($reportEvents))) ?> گام ثبت‌شده</span>
+          <span class="event-count">وضعیت فعلی: <?= htmlspecialchars(statusLabel($flowStatus)) ?></span>
         </h2>
 
+        <div class="flow-list">
+          <?php foreach ($flowStages as $stage): ?>
+            <div class="flow-step is-<?= htmlspecialchars($stage['state']) ?>">
+              <div class="flow-marker">
+                <div class="flow-dot"><i class="fas <?= $flowIcon[$stage['key']] ?? 'fa-circle' ?>"></i></div>
+                <?php if ($stage['key'] !== 'done'): ?><div class="flow-line <?= $stage['state'] === 'done' ? 'done' : '' ?>"></div><?php endif; ?>
+              </div>
+              <div class="flow-body">
+                <div class="flow-head">
+                  <strong><?= htmlspecialchars($stage['label']) ?></strong>
+                  <span class="flow-badge <?= htmlspecialchars($stage['state']) ?>"><?= htmlspecialchars($stage['key'] === 'done' && $stage['state'] === 'done' ? 'انجام شد' : ($flowStateLabel[$stage['state']] ?? '')) ?></span>
+                  <?php if (!empty($stage['date'])): ?>
+                    <span class="flow-date"><i class="far fa-clock"></i> <?= htmlspecialchars(eplakFaDateTime(null, strtotime((string) $stage['date']) ?: null)) ?></span>
+                  <?php endif; ?>
+                </div>
+                <?php foreach (($stage['notes'] ?? []) as $note): ?>
+                  <?php if (trim((string) ($note['text'] ?? '')) !== ''): ?>
+                    <p class="flow-note"><?= nl2br(htmlspecialchars((string) $note['text'])) ?></p>
+                  <?php endif; ?>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <p class="help-text" style="margin-top:10px;">
+          هر تغییری که اینجا ثبت کنید (وضعیت یا پاسخ) بی‌درنگ در اپ شهروند دیده می‌شود و برای او اعلان می‌رود.
+        </p>
+      </section>
+
+      <?php if ($reportEvents): ?>
+      <!-- ===== تاریخچه‌ی کامل گام‌ها (برای پیگیری داخلی) ===== -->
+      <section class="panel">
+        <h2>
+          <i class="fas fa-clock-rotate-left" style="color: var(--primary-500); margin-left: 10px;"></i>
+          تاریخچه‌ی گام‌ها
+          <span class="event-count"><?= htmlspecialchars(eplakFaDigits((string) count($reportEvents))) ?> گام</span>
+        </h2>
         <?php
-        /* اگر گزارش قدیمی هنوز گامی ندارد، روند پایه از روی وضعیت ساخته
-           می‌شود تا پنل و اپ همیشه یک تصویر واحد نشان دهند. */
-        $events = $reportEvents;
-        if (!$events) {
-            $events = [[
-                'type'       => 'created',
-                'title'      => 'گزارش ثبت شد',
-                'body'       => 'این گزارش پیش از فعال شدن روند رسیدگی ثبت شده است؛ وضعیت فعلی در ستون وضعیت دیده می‌شود.',
-                'actor'      => 'system',
-                'status'     => (string) ($report['status'] ?? ''),
-                'created_at' => (string) ($report['created_at'] ?? ''),
-            ]];
-        }
-        $eventTone = [
-            'created'  => 'tone-created',
-            'assigned' => 'tone-assigned',
-            'status'   => 'tone-status',
-            'reply'    => 'tone-reply',
-            'edit'     => 'tone-edit',
-            'media'    => 'tone-media',
-        ];
         $eventIcon = [
             'created'  => 'fa-file-signature',
             'assigned' => 'fa-sitemap',
@@ -400,20 +427,15 @@ if ($report && !empty($report['user_phone'])) {
             'media'    => 'fa-paperclip',
         ];
         ?>
-        <div class="event-timeline">
-          <?php foreach ($events as $ev): ?>
-            <?php
-              $type = (string) ($ev['type'] ?? 'note');
-              $tone = $eventTone[$type] ?? 'tone-note';
-              $icon = $eventIcon[$type] ?? 'fa-circle-dot';
-              $actorLabel = eplakReportEventActorLabel((string) ($ev['actor'] ?? 'system'));
-            ?>
-            <div class="event-row <?= $tone ?>">
-              <div class="event-marker"><i class="fas <?= $icon ?>"></i></div>
+        <div class="event-timeline compact">
+          <?php foreach ($reportEvents as $ev): ?>
+            <?php $type = (string) ($ev['type'] ?? 'note'); ?>
+            <div class="event-row">
+              <div class="event-marker"><i class="fas <?= $eventIcon[$type] ?? 'fa-circle-dot' ?>"></i></div>
               <div class="event-body">
                 <div class="event-head">
                   <strong><?= htmlspecialchars((string) ($ev['title'] ?? 'گام رسیدگی')) ?></strong>
-                  <span class="event-actor actor-<?= htmlspecialchars((string) ($ev['actor'] ?? 'system')) ?>"><?= htmlspecialchars($actorLabel) ?></span>
+                  <span class="event-actor actor-<?= htmlspecialchars((string) ($ev['actor'] ?? 'system')) ?>"><?= htmlspecialchars(eplakReportEventActorLabel((string) ($ev['actor'] ?? 'system'))) ?></span>
                 </div>
                 <?php if (trim((string) ($ev['body'] ?? '')) !== ''): ?>
                   <p><?= nl2br(htmlspecialchars((string) $ev['body'])) ?></p>
@@ -423,10 +445,8 @@ if ($report && !empty($report['user_phone'])) {
             </div>
           <?php endforeach; ?>
         </div>
-        <p class="help-text" style="margin-top:10px;">
-          هر تغییری که اینجا ثبت کنید (وضعیت، پاسخ، ویرایش) بی‌درنگ در اپ شهروند هم دیده می‌شود.
-        </p>
       </section>
+      <?php endif; ?>
 
       <!-- ===== فرم ثبت پاسخ ===== -->
       <section class="panel reply-form-panel">
@@ -448,10 +468,10 @@ if ($report && !empty($report['user_phone'])) {
                   در انتظار
                 </option>
                 <option value="in_progress" <?= reportStatusOf($report) === 'in_progress' ? 'selected' : '' ?>>
-                  در حال بررسی
+                  در حال رسیدگی
                 </option>
                 <option value="done" <?= reportStatusOf($report) === 'done' ? 'selected' : '' ?>>
-                  انجام‌شده
+                  انجام شد
                 </option>
               </select>
             </div>
@@ -536,8 +556,8 @@ if ($report && !empty($report['user_phone'])) {
           if (statusMetaCard) {
             const statusMap = {
               'در انتظار': { class: 'status-pending', icon: 'fa-hourglass-half' },
-              'در حال بررسی': { class: 'status-progress', icon: 'fa-spinner fa-spin' },
-              'انجام‌شده': { class: 'status-done', icon: 'fa-check-circle' }
+              'در حال رسیدگی': { class: 'status-progress', icon: 'fa-spinner fa-spin' },
+              'انجام شد': { class: 'status-done', icon: 'fa-check-circle' }
             };
             
             const status = statusMap[statusText] || statusMap['در انتظار'];
