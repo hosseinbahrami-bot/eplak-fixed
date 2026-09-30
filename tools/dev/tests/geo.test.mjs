@@ -277,7 +277,7 @@ ok('هر دو نسخه‌ی اسکیما (SQLite و MySQL) ستون مختصات
   reportsDdl.length === 2 && reportsDdl.every((d) => /\blat\b/.test(d) && /\blng\b/.test(d) && /location_accuracy/.test(d)),
   `تعداد DDL=${reportsDdl.length}`);
 ok('نسخه‌ی اسکیما برای افزودن خودکار جدول‌ها/ستون‌ها بالا رفته است',
-  /EPLAK_SCHEMA_VERSION', '2026-10-01\.1'/.test(bootstrap));
+  /EPLAK_SCHEMA_VERSION', '2026-10-02\.1'/.test(bootstrap));
 ok('جدول روند رسیدگی (report_events) در هر دو درایور ساخته می‌شود',
   (bootstrap.match(/CREATE TABLE IF NOT EXISTS report_events/g) || []).length === 2);
 ok('کمکی بررسی وجود ستون در هسته تعریف شده است', /function eplakTableHasColumn/.test(bootstrap));
@@ -368,7 +368,7 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=17/.test(indexHtml) && /modules\/reports\.js\?v=23/.test(indexHtml)
+  /core\/storage\.js\?v=18/.test(indexHtml) && /modules\/reports\.js\?v=24/.test(indexHtml)
   && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
   && /assets\/css\/style\.css\?v=89/.test(indexHtml)
   && /assets\/js\/icons\.js\?v=13/.test(indexHtml)

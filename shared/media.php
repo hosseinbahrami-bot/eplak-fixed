@@ -248,6 +248,35 @@ function eplakMediaStoreFile(PDO $pdo, int $reportId, array $file): array {
         return ['ok' => false, 'error' => 'حجم فایل بیش از حد مجاز است (حداکثر ' . round($maxBytes / 1048576) . ' مگابایت).'];
     }
 
+    /* ── جلوگیری از ذخیره‌ی تکراری ─────────────────────────────────────
+       اگر همین فایل (نام و حجم یکسان) قبلاً برای همین گزارش ذخیره شده باشد،
+       نسخه‌ی دوم روی سرور ساخته نمی‌شود؛ همان رکورد قبلی برگردانده می‌شود.
+       علت: وقتی یک ارسال بی‌پاسخ می‌ماند، اپ دوباره تلاش می‌کند و فایروال/
+       شبکه ممکن است فایل را دو بار به سرور برساند (پیوست‌های تکراری در پنل). */
+    try {
+        $dupStmt = $pdo->prepare('SELECT id, kind, file_path, original_name, mime_type, size_bytes
+                                  FROM report_media
+                                  WHERE report_id = :rid AND original_name = :name AND size_bytes = :size
+                                  ORDER BY id ASC LIMIT 1');
+        $dupStmt->execute([':rid' => $reportId, ':name' => $originalName, ':size' => $size]);
+        $dupRow = $dupStmt->fetch(PDO::FETCH_ASSOC);
+        if ($dupRow) {
+            return [
+                'ok'    => true,
+                'media' => [
+                    'kind' => (string) $dupRow['kind'],
+                    'path' => (string) $dupRow['file_path'],
+                    'url'  => eplakMediaUrl((string) $dupRow['file_path']),
+                    'name' => (string) ($dupRow['original_name'] !== '' ? $dupRow['original_name'] : $originalName),
+                    'mime' => (string) $dupRow['mime_type'],
+                    'size' => (int) $dupRow['size_bytes'],
+                ],
+            ];
+        }
+    } catch (Throwable $e) {
+        /* اگر بررسی تکراری ممکن نشد، مسیر عادی ادامه می‌یابد */
+    }
+
     $subDir = date('Y/m');
     $absoluteDir = eplakMediaUploadRoot() . '/' . $subDir;
     if (!eplakMediaEnsureDir($absoluteDir)) {

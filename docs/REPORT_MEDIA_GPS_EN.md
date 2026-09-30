@@ -325,3 +325,49 @@ cache-busted load) and several cover the four-stage flow.
 4. To test ticket notifications: open **Tickets** in the admin panel, open a ticket, type a
    reply and press **Save changes**; the app's notifications list should show
    "📣 پاسخ تیکت TK-...." with the reply text and time.
+
+
+---
+
+## 23) One request = one tracking code, and photos/videos upload together
+
+### 1. Root cause of the duplicate reports
+When an upload got stuck in the host firewall, the app sent the report **twice** —
+once with media and, as a safety net, once without. If the first response was lost,
+the server stored both, giving two reports with two tracking codes (one with media,
+one without).
+
+### 2. Fix: a unique request id
+- The app now generates a unique id (`EPL-…`) per request and sends it with **every
+  attempt** (with media, without media, offline retry).
+- Before creating a report, the server looks the id up; if it exists it does **not**
+  create a second report, returns the **same tracking code**, attaches any media from
+  the new attempt to the existing report, and sends no duplicate notification.
+- A `client_ref` column with a **unique constraint** was added, so even two perfectly
+  simultaneous requests cannot create two reports (the second resolves to the first).
+- The server also refuses to store the same file twice (same name + size on the same
+  report), and a repeated final chunk no longer creates a second file.
+- The app locks the submit button: two taps on “ثبت نهایی” produce one request.
+
+### 3. Photos and videos upload simultaneously
+- Files used to be uploaded one at a time; now up to **3 files upload at once**
+  (configurable via `window.EPLAK_MEDIA_UPLOAD_CONCURRENCY`, default 3).
+- Preparing files (reading photo and video to base64) is parallel too.
+- Attachment order on the server stays correct and progress is more accurate.
+
+### 4. Tests
+- 9 new anti-duplication tests (resubmitting the same request with and without media
+  → same id and code, exactly one row, no duplicate file, DB unique constraint, while
+  genuinely different requests still create separate reports).
+- 5 new tests for parallel upload and the unique id.
+- Verified with a real run: submitting one request three times yields
+  `1 EP-1403-0001`, `rows: 1`, `media: 1`, `notif: 1`.
+
+### Deploy steps
+1. Extract the fresh `eplak-fixed-update.zip` over the `eplak-fixed` folder
+   (Overwrite); the schema auto-upgrades to `2026-10-02.1` and adds `client_ref`.
+2. Install the new APK (the old app does not send the unique id).
+3. Test: submit a report with a photo **and** a video — the app shows one row with one
+   tracking code, and the admin panel shows one report with both attachments.
+4. Previously created duplicates are not deleted automatically; remove them from the
+   admin panel (Reports → delete) if you want.

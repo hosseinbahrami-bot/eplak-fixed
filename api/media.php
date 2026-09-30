@@ -145,6 +145,27 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
 
     $partPath = $tmpDir . '/' . $uploadId . '.part';
     $metaPath = $tmpDir . '/' . $uploadId . '.json';
+    $donePath = $tmpDir . '/' . $uploadId . '.done';
+    $doneJsonPath = $tmpDir . '/' . $uploadId . '.done.json';
+
+    /* ── اگر همین ارسال قبلاً کامل شده باشد، دوباره فایل ساخته نمی‌شود ──
+       (شبکه‌ی بی‌پاسخ → تلاش دوباره‌ی اپ → جلوگیری از پیوست تکراری) */
+    if (is_file($doneJsonPath)) {
+        $done = json_decode((string) @file_get_contents($doneJsonPath), true);
+        if (is_array($done) && (int) ($done['report_id'] ?? 0) === $reportId) {
+            $files = eplakMediaForReport($pdo, $reportId);
+            eplakJson([
+                'success'     => true,
+                'received'    => (int) ($done['total'] ?? $total),
+                'total'       => (int) ($done['total'] ?? $total),
+                'done'        => true,
+                'already'     => true,
+                'media'       => $done['media'] ?? [],
+                'media_count' => count($files),
+            ]);
+            exit;
+        }
+    }
 
     /* ترتیب تکه‌ها بررسی می‌شود تا فایل خراب ساخته نشود */
     $expected = 0;
@@ -216,6 +237,15 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
         @unlink($partPath);
         eplakJson(['success' => false, 'error' => $stored['error']], 400);
     }
+
+    /* نشانه‌ی «این ارسال تمام شد» تا تکه‌ی آخرِ تکراری فایل دوم نسازد */
+    @file_put_contents($doneJsonPath, json_encode([
+        'report_id' => $reportId,
+        'upload_id' => $uploadId,
+        'total'     => $total,
+        'media'     => $stored['media'],
+        'at'        => time(),
+    ], JSON_UNESCAPED_UNICODE));
 
     $files = eplakMediaForReport($pdo, $reportId);
     eplakJson([

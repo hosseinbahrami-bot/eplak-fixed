@@ -317,12 +317,18 @@
       try {
         const res = await window.syncDataToBackend('reports', {
           userPhone: phone,
+          /* همان شناسه‌ی یکتای درخواست: اگر نسخه‌ی اول به سرور رسیده باشد،
+             دوباره‌فرستادن، گزارش تکراری نمی‌سازد (همان کد برمی‌گردد). */
+          client_ref: r.clientRef || '',
           title: r.title,
           description: r.desc || r.title,
           category: r.subDepartment || r.department || 'سایر',
           department: r.department || '',
           subDepartment: r.subDepartment || '',
-          location: r.location || ''
+          location: r.location || '',
+          /* مختصات دقیق هم حفظ می‌شود تا ارسال دیرهنگام، موقعیت را از دست ندهد */
+          lat: (typeof r.lat === 'number') ? r.lat : null,
+          lng: (typeof r.lng === 'number') ? r.lng : null
         });
         if (res && res.id) {
           r.backendId = res.id;
@@ -1062,15 +1068,32 @@
     showScreen('screen-report-step4');
   }
 
+  let reportSubmitInFlight = false;    /* دو ضربه روی «ثبت نهایی» = یک درخواست */
+  let reportSubmitWatchdog = null;     /* نگهبان: اگر ارسال گیر کرد، قفل باز شود */
+
   async function submitNewReport() {
+    if (reportSubmitInFlight) {
+      return;                        /* ثبت قبلی در جریان است؛ دوباره نساز */
+    }
+    reportSubmitInFlight = true;
+    clearTimeout(reportSubmitWatchdog);
+    reportSubmitWatchdog = setTimeout(() => { reportSubmitInFlight = false; }, 90000);
+    try {
     const iconMap = { 'سایر': 'info', 'نظافت': 'waste', 'زیرساخت': 'tools', 'زیرسبز': 'leaf', 'روشنایی': 'services' };
     const currentPhone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
     const title = (reportDraft.desc || '').slice(0, 28) || (reportDraft.type + ' - گزارش جدید');
     const nowIso = new Date().toISOString();
     const code = 'EP-1403-' + String(1000 + reports.length + 1).padStart(4, '0');
 
+    /* شناسه‌ی یکتای درخواست — همراه همه‌ی تلاش‌های ارسال می‌رود تا اگر اپ
+       مجبور شد گزارش را دوباره بفرستد (یا کاربر دکمه را دو بار بزند)، سرور
+       فقط یک گزارش بسازد و همان یک کد پیگیری برگردد. */
+    const clientRef = 'EPL-' + Date.now().toString(36).toUpperCase() + '-'
+      + Math.random().toString(36).slice(2, 8).toUpperCase();
+
     const newReport = {
       id: `r${reportIdCounter++}`,
+      clientRef,
       code,
       title,
       location: reportDraft.location || 'نامشخص',
@@ -1080,6 +1103,7 @@
       date: formatReportDate(nowIso),
       dateTime: formatReportDateTime(nowIso),
       status: 'pending',
+      clientRef: clientRef,
       icon: iconMap[reportDraft.type] || 'report',
       iconBg: 'rgba(0,201,167,0.12)',
       desc: reportDraft.desc || 'بدون توضیحات',
@@ -1118,6 +1142,7 @@
     const draftPhotos = (reportDraft.photos || []).slice();
     const draftPayload = {
       userPhone: currentPhone,
+      client_ref: clientRef,          /* سرور با همین شناسه، تکراری‌ها را حذف می‌کند */
       title: newReport.title,
       description: newReport.desc || newReport.title,
       category: newReport.subDepartment || newReport.department || 'سایر',
@@ -1177,18 +1202,20 @@
       const readInlineItems = async () => {
         if (!inlineFiles.length) return [];
         setUploadStatus('در حال آماده‌سازی ' + toPersianDigits(filesToUpload.length) + ' پیوست (عکس/فیلم)…');
-        const items = [];
-        for (const file of inlineFiles) {
+        /* همه‌ی فایل‌ها موازی خوانده می‌شوند تا عکس و فیلم سریع‌تر و با هم
+           آماده شوند (قبلاً یکی‌یکی خوانده می‌شد و زمان می‌برد). */
+        const readOne = async (file) => {
           const dataUrl = (typeof window.eplakReadFileAsDataUrl === 'function')
             ? await window.eplakReadFileAsDataUrl(file)
             : '';
-          if (!dataUrl) {
-            showToast('خواندن فایل «' + file.name + '» ممکن نشد؛ دوباره تلاش کنید');
-            return null;
-          }
-          items.push({ name: file.name || 'attachment', mime: file.type || '', data: dataUrl });
+          return dataUrl ? { name: file.name || 'attachment', mime: file.type || '', data: dataUrl } : null;
+        };
+        const results = await Promise.all(inlineFiles.map(readOne));
+        if (results.some(item => item === null)) {
+          showToast('خواندن یکی از فایل‌ها ممکن نشد؛ دوباره تلاش کنید');
+          return null;
         }
-        return items;
+        return results.filter(Boolean);
       };
 
       const postReport = (payload) => {
@@ -1437,6 +1464,15 @@
             showToast(reason !== '' ? ('گزارش ذخیره نشد: ' + reason) : 'گزارش ذخیره نشد');
             return;
           }
+          /* سرور تشخیص داد همین درخواست قبلاً ثبت شده است؛ پس فقط شناسه و کد
+             همان گزارش قبلی را می‌گیریم و چیز تازه‌ای ساخته نمی‌شود. */
+          if (backendRes.deduped) {
+            newReport.deduped = true;
+            saveUploadLog({
+              time: (new Date()).toLocaleString('fa-IR'),
+              text: 'سرور همین درخواست را قبلاً ثبت کرده بود؛ کد پیگیری تکراری ساخته نشد.'
+            });
+          }
           if (backendRes.id) {
             newReport.backendId = backendRes.id;
             newReport.id = String(backendRes.id);
@@ -1527,7 +1563,21 @@
           console.warn('[reports] background sync note:', err);
           setUploadStatus('⚠️ ارسال به سرور انجام نشد؛ با وصل بودن اینترنت دوباره تلاش کنید', 'error');
           showToast('ارسال گزارش به سرور انجام نشد؛ با وصل بودن اینترنت دوباره تلاش می‌شود');
+        })
+        .finally(() => {
+          /* قفل ثبت باز می‌شود تا کاربر بتواند درخواست بعدی را ثبت کند */
+          clearTimeout(reportSubmitWatchdog);
+          reportSubmitInFlight = false;
         });
+    } else {
+      clearTimeout(reportSubmitWatchdog);
+      reportSubmitInFlight = false;
+    }
+    } catch (err) {
+      /* خطای غیرمنتظره: قفل را آزاد کن تا ثبت بعدی ممکن باشد */
+      clearTimeout(reportSubmitWatchdog);
+      reportSubmitInFlight = false;
+      throw err;
     }
   }
   window.submitNewReport = submitNewReport;

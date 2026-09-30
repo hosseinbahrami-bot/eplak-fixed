@@ -222,6 +222,13 @@ if (!$input) {
 
 /* ── ثبت گزارش جدید ─────────────────────────────────────────────────── */
 $phone         = eplakNormalizePhone($input['phone'] ?? ($input['userPhone'] ?? ''));
+/* شناسه‌ی یکتای درخواست (کلاینت): اگر همین درخواست قبلاً ثبت شده باشد،
+   دوباره رکورد و کد پیگیری تازه ساخته نمی‌شود — همان کد قبلی برگردانده
+   می‌شود. علت واقعی باگ: وقتی ارسال همراه پیوست در فایروال هاست گیر می‌کرد،
+   اپ یک‌بار «با پیوست» و یک‌بار «بدون پیوست» می‌فرستاد و سرور هر دو را
+   ثبت می‌کرد؛ نتیجه: دو گزارش با دو کد پیگیری. */
+$clientRef     = strtoupper(preg_replace('/[^A-Za-z0-9\-]/', '', (string) ($input['client_ref'] ?? ($input['clientRef'] ?? ''))) ?? '');
+$clientRef     = substr($clientRef, 0, 64);
 $subject       = eplakStr($input['subject'] ?? ($input['title'] ?? ''), 255);
 $details       = eplakStr($input['details'] ?? ($input['description'] ?? ''), 4000);
 $reportType    = eplakStr($input['reportType'] ?? ($input['category'] ?? 'سایر'), 100);
@@ -247,6 +254,95 @@ if ($reportType === '') {
 
 $hasGeo = false;   /* بعداً داخل تراکنش مقدار می‌گیرد؛ اینجا برای اطمینان تعریف می‌شود */
 
+/* ── تکراری؟ ──────────────────────────────────────────────────────────
+   اگر همین «شناسه‌ی یکتای درخواست» قبلاً ثبت شده باشد، گزارش تازه ساخته
+   نمی‌شود؛ فقط پیوست‌های همین درخواست (اگر همراه آمده باشد) به همان گزارش
+   اضافه می‌شوند و همان کد پیگیری برمی‌گردد. */
+$existingId = 0;
+if ($clientRef !== '' && eplakTableHasColumn($pdo, 'reports', 'client_ref')) {
+    try {
+        $findStmt = $pdo->prepare('SELECT id FROM reports WHERE client_ref = :ref LIMIT 1');
+        $findStmt->execute([':ref' => $clientRef]);
+        $existingId = (int) ($findStmt->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        $existingId = 0;
+    }
+}
+
+if ($existingId > 0) {
+    /* پیوست‌های همین تلاش را به گزارش موجود اضافه می‌کنیم تا هیچ عکس/فیلمی
+       از دست نرود (اکنون عکس و فیلم با هم فرستاده می‌شوند). */
+    $dupMedia = [];
+    $dupMediaErrors = [];
+    $mediaInput = $input['media'] ?? [];
+    if (is_array($mediaInput)) {
+        $count = 0;
+        foreach ($mediaInput as $item) {
+            if (!is_array($item) || $count >= EPLAK_MEDIA_MAX_PER_REPORT) {
+                continue;
+            }
+            $data = (string) ($item['data'] ?? ($item['base64'] ?? ''));
+            if ($data === '') {
+                continue;
+            }
+            $declaredMime = (string) ($item['mime'] ?? ($item['type'] ?? ''));
+            if (strpos($data, 'data:') === 0 && strpos($data, 'base64,') !== false) {
+                [$meta, $data] = explode('base64,', $data, 2);
+                if (preg_match('#data:([^;]+)#', $meta, $m)) {
+                    $declaredMime = $m[1];
+                }
+            }
+            $binary = base64_decode(preg_replace('/\s+/', '', $data) ?? '', true);
+            if ($binary === false || $binary === '') {
+                $dupMediaErrors[] = 'محتوای فایل «' . eplakStr($item['name'] ?? 'پیوست', 80) . '» قابل خواندن نبود.';
+                continue;
+            }
+            $result = eplakMediaStoreBinary($pdo, $existingId, $binary, (string) ($item['name'] ?? 'file'), $declaredMime);
+            if ($result['ok']) {
+                $dupMedia[] = $result['media'];
+            } else {
+                $dupMediaErrors[] = $result['error'];
+            }
+            $count++;
+        }
+    }
+
+    /* اگر پیوست تازه‌ای به گزارش قبلی اضافه شد، همان گام در روند رسیدگی ثبت می‌شود */
+    if ($dupMedia) {
+        try {
+            eplakReportEventAdd(
+                $pdo,
+                $existingId,
+                'media',
+                'پیوست‌ها ثبت شد',
+                'تعداد ' . count($dupMedia) . ' فایل (عکس/فیلم) به گزارش پیوست شد.',
+                'citizen',
+                ''
+            );
+        } catch (Throwable $e) {
+            error_log('[eplak-api:reports.dedupe-media] ' . $e->getMessage());
+        }
+    }
+
+    $dupCode = 'EP-1403-' . str_pad((string) $existingId, 4, '0', STR_PAD_LEFT);
+    eplakJson([
+        'success'       => true,
+        'deduped'       => true,          /* اپ می‌فهمد گزارش تازه ساخته نشده */
+        'id'            => $existingId,
+        'tracking_code' => $dupCode,
+        'media'         => $dupMedia,
+        'media_count'   => count($dupMedia),
+        'media_errors'  => $dupMediaErrors,
+        'timeline'      => eplakReportEvents($pdo, $existingId),
+        'flow'          => eplakReportFlowStages(
+            eplakReportStatusKey((string) $pdo->query('SELECT status FROM reports WHERE id = ' . $existingId)->fetchColumn()),
+            eplakReportEvents($pdo, $existingId),
+            ''
+        ),
+    ]);
+    exit;
+}
+
 try {
     $pdo->beginTransaction();
 
@@ -264,6 +360,10 @@ try {
         && eplakTableHasColumn($pdo, 'reports', 'lng');
     $hasAcc = $hasGeo && eplakTableHasColumn($pdo, 'reports', 'location_accuracy');
 
+    /* اگر ستون شناسه‌ی یکتا وجود دارد، همراه INSERT ثبت می‌شود تا حتی دو
+       درخواست هم‌زمان هم نتوانند دو گزارش تکراری بسازند. */
+    $hasRef = ($clientRef !== '') && eplakTableHasColumn($pdo, 'reports', 'client_ref');
+
     if ($hasGeo) {
         $cols = $hasAcc
             ? 'user_phone, title, description, category, department, sub_department, location, lat, lng, location_accuracy, status'
@@ -271,6 +371,10 @@ try {
         $vals = $hasAcc
             ? ':phone, :title, :description, :category, :department, :sub_department, :location, :lat, :lng, :accuracy, :status'
             : ':phone, :title, :description, :category, :department, :sub_department, :location, :lat, :lng, :status';
+        if ($hasRef) {
+            $cols .= ', client_ref';
+            $vals .= ', :client_ref';
+        }
         $stmtReport = $pdo->prepare('INSERT INTO reports (' . $cols . ') VALUES (' . $vals . ')');
         $params = [
             ':phone'          => $phone,
@@ -287,11 +391,19 @@ try {
         if ($hasAcc) {
             $params[':accuracy'] = $locationAcc;
         }
+        if ($hasRef) {
+            $params[':client_ref'] = $clientRef;
+        }
         $stmtReport->execute($params);
     } else {
-        $stmtReport = $pdo->prepare('INSERT INTO reports (user_phone, title, description, category, department, sub_department, location, status)
-                                     VALUES (:phone, :title, :description, :category, :department, :sub_department, :location, :status)');
-        $stmtReport->execute([
+        $plainCols = 'user_phone, title, description, category, department, sub_department, location, status';
+        $plainVals = ':phone, :title, :description, :category, :department, :sub_department, :location, :status';
+        if ($hasRef) {
+            $plainCols .= ', client_ref';
+            $plainVals .= ', :client_ref';
+        }
+        $stmtReport = $pdo->prepare('INSERT INTO reports (' . $plainCols . ') VALUES (' . $plainVals . ')');
+        $plainParams = [
             ':phone'          => $phone,
             ':title'          => $subject,
             ':description'    => $details,
@@ -300,7 +412,11 @@ try {
             ':sub_department' => $subDepartment,
             ':location'       => $location,
             ':status'         => 'pending',
-        ]);
+        ];
+        if ($hasRef) {
+            $plainParams[':client_ref'] = $clientRef;
+        }
+        $stmtReport->execute($plainParams);
     }
     $insertId = (int) $pdo->lastInsertId();
 
@@ -308,6 +424,31 @@ try {
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
+    }
+    /* اگر دو درخواست دقیقاً هم‌زمان با یک شناسه برسند، قید یکتای client_ref
+       درخواست دوم را رد می‌کند؛ به‌جای خطا، همان گزارش ثبت‌شده برگردانده
+       می‌شود تا کاربر فقط یک کد پیگیری ببیند. */
+    $isDup = ($clientRef !== '')
+        && (stripos($e->getMessage(), 'Duplicate') !== false || stripos($e->getMessage(), 'UNIQUE') !== false);
+    if ($isDup && eplakTableHasColumn($pdo, 'reports', 'client_ref')) {
+        try {
+            $findStmt = $pdo->prepare('SELECT id FROM reports WHERE client_ref = :ref LIMIT 1');
+            $findStmt->execute([':ref' => $clientRef]);
+            $raceId = (int) ($findStmt->fetchColumn() ?: 0);
+            if ($raceId > 0) {
+                eplakJson([
+                    'success'       => true,
+                    'deduped'       => true,
+                    'id'            => $raceId,
+                    'tracking_code' => 'EP-1403-' . str_pad((string) $raceId, 4, '0', STR_PAD_LEFT),
+                    'media'         => [],
+                    'media_count'   => 0,
+                    'timeline'      => eplakReportEvents($pdo, $raceId),
+                ]);
+            }
+        } catch (Throwable $inner) {
+            /* اگر پیدا کردن گزارش قبلی ممکن نشد، خطای اصلی گزارش می‌شود */
+        }
     }
     eplakServerError($e, 'reports.create');
 }

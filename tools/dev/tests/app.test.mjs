@@ -242,7 +242,7 @@ const iconsSrc = fs.readFileSync(path.join(ROOT, 'assets/js/icons.js'), 'utf8');
 ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=23/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  /modules\/reports\.js\?v=24/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -339,6 +339,34 @@ ok('نقشه‌ی ایموجی بدون کلید تکراری و کامل است
   `icons=${iconKeys.length} map=${emojiPairs.length} dupes=${emojiDupes.length} broken=${brokenRefs.length}`);
 ok('ایموجی‌های آب‌وهوا، کیفیت هوا و خدمات در پک آیکون نگاشت شده‌اند',
   ['🌧️','🌤️','❄️','🌫️','🌡️','☀️','😊','😷','🕊️','♻️','🏛️','🗑️','🤝','📵','🔕'].every((e) => new RegExp("'" + e + "':").test(iconsSrc)));
+
+console.log('\n=== یک درخواست = یک کد پیگیری (سمت اپ) ===');
+ok('هر درخواست یک «شناسه‌ی یکتا» می‌گیرد و همراه payload به سرور می‌رود',
+  /const clientRef = 'EPL-'/.test(reportsJs) && /client_ref: clientRef/.test(reportsJs)
+  && /clientRef: clientRef,/.test(reportsJs));
+ok('شناسه‌ی یکتا روی خود گزارش ذخیره می‌شود (بین تلاش‌های بعدی ثابت می‌ماند)',
+  /clientRef,\s*\n\s*code,/.test(reportsJs));
+ok('اگر کاربر دو بار روی «ثبت نهایی» بزند، فقط یک گزارش ساخته می‌شود',
+  /let reportSubmitInFlight = false/.test(reportsJs) && /if \(reportSubmitInFlight\) \{\s*\n\s*return;/.test(reportsJs));
+ok('پاسخ «تکراری» سرور باعث ساخته شدن گزارش/کد تازه در اپ نمی‌شود',
+  /if \(backendRes\.deduped\) \{/.test(reportsJs) && /کد پیگیری تکراری ساخته نشد/.test(reportsJs)
+  && /\$row\['flow'\] = eplakReportFlowStages\(/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8'))
+  && /'deduped'       => true/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8')));
+ok('سرور پیش از ساخت گزارش، وجود شناسه‌ی یکتا را بررسی می‌کند',
+  /SELECT id FROM reports WHERE client_ref = :ref/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8')));
+
+console.log('\n=== عکس و فیلم با هم ارسال می‌شوند (موازی) ===');
+ok('ارسال فایل‌ها موازی است (نه یکی‌یکی) — تعداد خطوط هم‌زمان قابل تنظیم',
+  /function mediaUploadConcurrency/.test(storageSrc) && /EPLAK_MEDIA_UPLOAD_CONCURRENCY/.test(storageSrc)
+  && /async function runMediaPool/.test(storageSrc));
+ok('هر دو مسیر ارسال (تکه‌تکه و پشتیبان) از استخر موازی استفاده می‌کنند',
+  (storageSrc.match(/runMediaPool\(remaining/g) || []).length === 2);
+ok('فایل‌های همراه گزارش (عکس و فیلم) هم موازی خوانده می‌شوند',
+  /Promise\.all\(inlineFiles\.map\(readOne\)\)/.test(reportsJs));
+ok('درصد پیشرفت با شمارنده‌ی دقیق محاسبه می‌شود (نه تخمینی)',
+  /progressDone/.test(storageSrc) && /markProgressDone/.test(storageSrc));
+ok('ارسال دیرهنگام گزارش‌های آفلاین هم شناسه‌ی یکتا و مختصات را با خود می‌برد',
+  /client_ref: r\.clientRef \|\| ''/.test(reportsJs) && /lat: \(typeof r\.lat === 'number'\)/.test(reportsJs));
 
 const servicesJs = fs.readFileSync(path.join(ROOT, 'modules/services.js'), 'utf8');
 const liveJs = fs.readFileSync(path.join(ROOT, 'modules/live.js'), 'utf8');

@@ -463,8 +463,12 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         location_accuracy DOUBLE NULL,
         status VARCHAR(50) DEFAULT 'pending',
         reply TEXT,
+        client_ref VARCHAR(64) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
+    /* جلوگیری از ثبت تکراری: هر درخواست اپ یک «شناسه‌ی یکتا» می‌سازد و سرور
+       همان را دوباره برنمی‌گرداند (ایندکس یکتا روی MySQL). */
+    try { $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_client_ref ON reports (client_ref) WHERE client_ref <> ''"); } catch (Throwable $e) {}
 
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS news (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -664,7 +668,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-10-01.1');   /* + جدول روند رسیدگی (report_events) */
+    define('EPLAK_SCHEMA_VERSION', '2026-10-02.1');   /* + شناسه‌ی یکتای درخواست (reports.client_ref) برای جلوگیری از ثبت تکراری */
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -1139,7 +1143,9 @@ function eplakGetPdo(): PDO {
         location_accuracy DECIMAL(8,2) NULL,
         status VARCHAR(50) DEFAULT 'pending',
         reply TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        client_ref VARCHAR(64) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_reports_client_ref (client_ref)
     )");
 
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS news (

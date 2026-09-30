@@ -38,6 +38,7 @@ $out['depts'] = (int) $pdo->query('SELECT COUNT(*) FROM departments')->fetchColu
 $out['tables'] = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
 $out['schema'] = eplakAppSetting($pdo, 'schema_version', '');
 $out['send_cols'] = array_column($pdo->query('PRAGMA table_info(notification_sends)')->fetchAll(), 'name');
+$out['report_cols'] = array_column($pdo->query('PRAGMA table_info(reports)')->fetchAll(), 'name');
 $out['fcm_hidden'] = true;
 $pdo->exec("INSERT INTO users (phone, name) VALUES ('09121112233','آزمون')");
 $out['sent'] = sendNotification($pdo, 'عنوان', 'متن', 'all', [], 'admin');
@@ -47,7 +48,9 @@ ok('بذرها اجرا شدند (۶ خبر/دانستنی + ۶۵ واحد)', db
 const wanted = ['notifications', 'notification_reads', 'notification_deletes', 'device_tokens', 'push_subscriptions', 'report_media', 'app_settings'];
 const missing = wanted.filter((t) => !(db?.tables || []).includes(t));
 ok('همه‌ی جدول‌های لازم ساخته شدند', missing.length === 0, 'گم‌شده: ' + missing.join(', '));
-ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-(09-30|10-01)\./.test(String(db?.schema)), String(db?.schema));
+ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-(09-30|10-0[12])\./.test(String(db?.schema)), String(db?.schema));
+ok('ستون شناسه‌ی یکتای درخواست به جدول گزارش‌ها اضافه شد (پایه‌ی جلوگیری از تکرار)',
+  (db?.report_cols || []).includes('client_ref'), JSON.stringify(db?.report_cols || []));
 ok('ستون‌های شمارش فایربیس ساخته شدند', (db?.send_cols || []).includes('fcm_sent') && (db?.send_cols || []).includes('fcm_failed'), JSON.stringify(db?.send_cols));
 ok('ارسال اعلان کار می‌کند (عمومی + کاربر)', db?.sent === 2 && db?.recipients === 2, JSON.stringify({ sent: db?.sent, recipients: db?.recipients }));
 
@@ -695,6 +698,99 @@ $_POST = ['action' => 'add_media', 'phone' => '09129999999', 'reportId' => ${TLI
 require '${APP}/api/reports.php';`));
 ok('افزودن پیوست به گزارش دیگری (شماره‌ی نامربوط) مسدود است',
   /"success":false/.test(foreignAdd), foreignAdd.slice(0, 160));
+
+/* ═══════════════════════════════════════════════════════════════════
+   «یک درخواست، یک کد پیگیری» — گزارش تکراری ساخته نشود
+   (باگ گزارش‌شده: وقتی ارسال با پیوست گیر می‌کرد، دو گزارش با دو کد و
+    یکی بدون پیوست ساخته می‌شد)
+   ═══════════════════════════════════════════════════════════════════ */
+console.log('\n=== یک درخواست = یک گزارش (ضد تکرار) ===');
+
+/* تابع کمکی: همان درخواستی که اپ می‌زند، با شناسه‌ی یکتا */
+const submitOnce = (ref, withMedia) => run(`
+$_POST = [
+  'phone' => '09121112233', 'title' => 'چاله خیابان ۲', 'description' => 'توضیح تکرار',
+  'category' => 'سایر', 'client_ref' => '${ref}',
+];
+${withMedia ? `$_POST['media'] = [['name' => 'photo.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==']];` : ''}
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'application/json';
+require '${APP}/api/reports.php';`);
+
+const DUP_REF = 'EPL-TEST' + Date.now().toString(36).toUpperCase();
+
+/* ۱) ارسال «با پیوست» */
+const firstSubmit = pickJson(await submitOnce(DUP_REF, true));
+ok('درخواست اول با پیوست ثبت می‌شود',
+  firstSubmit?.success === true && !!firstSubmit?.id, JSON.stringify(firstSubmit).slice(0, 140));
+
+/* ۲) همان درخواست دوباره (همان شناسه) → نباید گزارش دوم بسازد */
+const secondSubmit = pickJson(await submitOnce(DUP_REF, true));
+ok('ارسال دوباره‌ی همان درخواست، گزارش دوم نمی‌سازد',
+  secondSubmit?.success === true && Number(secondSubmit?.id) === Number(firstSubmit?.id),
+  `first=${firstSubmit?.id} second=${secondSubmit?.id}`);
+ok('کد پیگیری بار دوم هم همان کد اول است (کد تکراری ساخته نمی‌شود)',
+  String(secondSubmit?.tracking_code) === String(firstSubmit?.tracking_code),
+  `${firstSubmit?.tracking_code} / ${secondSubmit?.tracking_code}`);
+ok('پاسخ بار دوم با نشانه‌ی «تکراری» علامت خورده تا اپ گزارش تازه نسازد',
+  secondSubmit?.deduped === true);
+ok('در دیتابیس فقط یک گزارش با این شناسه هست',
+  (pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+echo json_encode(['n' => (int) $pdo->query("SELECT COUNT(*) FROM reports WHERE client_ref = '${DUP_REF}'")->fetchColumn()]);`)))?.n === 1);
+
+/* ۳) همان درخواست، این بار «بدون پیوست» — سناریوی دقیق باگ کاربر */
+const thirdSubmit = pickJson(await submitOnce(DUP_REF, false));
+ok('ارسال «بدون پیوست» همان درخواست هم گزارش تازه نمی‌سازد (سناریوی دقیق باگ)',
+  Number(thirdSubmit?.id) === Number(firstSubmit?.id) && thirdSubmit?.deduped === true,
+  `id=${thirdSubmit?.id} deduped=${thirdSubmit?.deduped}`);
+ok('خروجی نشان می‌دهد کاربر برای همان درخواست فقط یک رکورد دارد',
+  (pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+$rows = $pdo->query("SELECT id FROM reports WHERE client_ref = '${DUP_REF}'")->fetchAll(PDO::FETCH_COLUMN);
+echo json_encode(['ids' => array_map('intval', $rows)]);`)))?.ids?.length === 1);
+
+/* ۴) پیوست‌های ارسال تکراری حذف نمی‌شوند و به همان گزارش می‌چسبند */
+const mediaCountAfter = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/shared/media.php';
+echo json_encode(['media' => count(eplakMediaForReport($pdo, ${firstSubmit?.id || 0}))]);`));
+ok('پیوست‌ها روی همان گزارش اول باقی می‌مانند (درخواست دوم بدون پیوست چیزی را خراب نمی‌کند)',
+  (mediaCountAfter?.media || 0) >= 1, String(mediaCountAfter?.media));
+
+/* ۵) فایل تکراری (نام+حجم یکسان) روی سرور دو بار ذخیره نمی‌شود */
+const dupFile = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/shared/media.php';
+$rid = ${firstSubmit?.id || 0};
+$before = count(eplakMediaForReport($pdo, $rid));
+$bin = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+$res = eplakMediaStoreBinary($pdo, $rid, $bin, 'photo.png', 'image/png');
+$after = count(eplakMediaForReport($pdo, $rid));
+echo json_encode(['ok' => $res['ok'], 'before' => $before, 'after' => $after]);`));
+ok('همان فایل (نام و حجم یکسان) بار دوم روی سرور ذخیره نمی‌شود',
+  dupFile?.ok === true && dupFile?.after === dupFile?.before,
+  JSON.stringify(dupFile));
+
+/* ۶) دو درخواست «واقعاً متفاوت» همچنان دو گزارش جدا می‌سازند */
+const otherRef = DUP_REF + '-B';
+const other = pickJson(await submitOnce(otherRef, false));
+ok('درخواست دیگری با شناسه‌ی متفاوت، گزارش تازه‌ی خودش را می‌سازد (بدون سرکوب اشتباه)',
+  !!other?.id && Number(other.id) !== Number(firstSubmit?.id) && other?.deduped !== true);
+ok('هر دو درخواست، کد پیگیری جداگانه دارند',
+  String(other?.tracking_code) !== String(firstSubmit?.tracking_code));
+
+/* ۷) قید یکتا در سطح دیتابیس (ضامن نهایی ضد تکرار موازی) */
+const uniqueCheck = await run(`
+require_once '${APP}/admin/includes/db.php';
+try {
+  $pdo->exec("INSERT INTO reports (user_phone, title, description, category, status, client_ref) VALUES ('09121112233','x','y','سایر','pending','${DUP_REF}')");
+  echo json_encode(['blocked' => false]);
+} catch (Throwable $e) {
+  echo json_encode(['blocked' => true]);
+}`);
+ok('دیتابیس اجازه‌ی دو گزارش با یک شناسه‌ی یکتا را نمی‌دهد (قید یکتا)',
+  /"blocked":true/.test(uniqueCheck), String(uniqueCheck).slice(0, 120));
 
 /* ═══════════════════════════════════════════════════════════════════
    پاسخ‌دادن به تیکت از پنل ادمین باید برای کاربر اعلان بسازد

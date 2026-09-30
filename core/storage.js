@@ -253,6 +253,45 @@
   const MEDIA_CHUNK_MIN = 24 * 1024;
   const MEDIA_CHUNK_STEPS = [200 * 1024, 100 * 1024, 50 * 1024, 25 * 1024];
 
+  /* ── موازی‌سازی ارسال فایل‌ها ─────────────────────────────────────────
+     عکس و فیلم باید «با هم» ارسال شوند، نه یکی‌یکی؛ پس چند فایل هم‌زمان
+     می‌روند (پیش‌فرض ۳ فایل). تعداد با window.EPLAK_MEDIA_UPLOAD_CONCURRENCY
+     قابل تنظیم است و نتیجه همیشه به ترتیب فهرست اصلی برگردانده می‌شود. */
+  function mediaUploadConcurrency() {
+    const custom = Number(window.EPLAK_MEDIA_UPLOAD_CONCURRENCY);
+    if (isFinite(custom) && custom >= 1 && custom <= 6) return Math.floor(custom);
+    return 3;
+  }
+
+  async function runMediaPool(items, worker, onDone) {
+    const list = Array.from(items || []);
+    const results = new Array(list.length);
+    let cursor = 0;
+    let finished = 0;
+    const lanes = Math.min(mediaUploadConcurrency(), Math.max(1, list.length));
+
+    async function lane() {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= list.length) return;
+        try {
+          results[idx] = await worker(list[idx], idx);
+        } catch (e) {
+          results[idx] = { ok: false, error: (e && e.message) ? e.message : 'upload-failed' };
+        }
+        finished++;
+        if (typeof onDone === 'function') {
+          try { onDone(finished, list.length); } catch (e) {}
+        }
+      }
+    }
+
+    const runners = [];
+    for (let i = 0; i < lanes; i++) runners.push(lane());
+    await Promise.all(runners);
+    return results;
+  }
+
   function mediaChunkSize() {
     const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
     return (isFinite(custom) && custom >= MEDIA_CHUNK_MIN) ? custom : MEDIA_CHUNK_DEFAULT;
@@ -389,11 +428,16 @@
     let unsupported = false;
     let blocked = false;
 
+    let progressDone = 0;          /* تعداد فایل‌های تمام‌شده (برای درصد دقیق) */
     const reportProgress = () => {
       if (typeof onProgress === 'function' && list.length) {
-        const done = list.length - remaining.length;
-        onProgress(Math.min(99, Math.round((done / list.length) * 100)));
+        if (progressDone < list.length - remaining.length) progressDone = list.length - remaining.length;
+        onProgress(Math.min(99, Math.round((progressDone / list.length) * 100)));
       }
+    };
+    const markProgressDone = () => {
+      progressDone = Math.min(list.length, progressDone + 1);
+      reportProgress();
     };
 
     const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
@@ -404,44 +448,51 @@
     for (let stage = 0; stage < sizes.length && remaining.length; stage++) {
       const size = sizes[stage];
       const stillFailed = [];
-      for (const file of remaining) {
-        const res = await uploadSingleMediaFile(file, size, reportId, phone, () => {}, false);
-        if (res.ok) {
+      /* چند فایل هم‌زمان فرستاده می‌شوند تا عکس و فیلم با هم بالا بروند */
+      const results = await runMediaPool(remaining, (file) => {
+        return uploadSingleMediaFile(file, size, reportId, phone, () => {}, false);
+      }, () => markProgressDone());
+      results.forEach((res, idx) => {
+        const file = remaining[idx];
+        if (res && res.ok) {
           if (res.media) savedMedia.push(res.media);
           reportProgress();
         } else {
-          lastError = res.error || lastError;
-          lastStatus = res.status || lastStatus;
-          if (res.unsupported) unsupported = true;
-          if (res.blocked) blocked = true;
+          lastError = (res && res.error) || lastError;
+          lastStatus = (res && res.status) || lastStatus;
+          if (res && res.unsupported) unsupported = true;
+          if (res && res.blocked) blocked = true;
           /* خطای منطقی (مثلاً حجم زیاد یا نوع نامجاز) با کوچک‌تر کردن تکه حل
              نمی‌شود؛ آن فایل کنار گذاشته می‌شود تا وقت کاربر تلف نشود. */
-          if (!res.blocked && !res.unsupported && res.status === 0) {
+          if (res && !res.blocked && !res.unsupported && res.status === 0) {
             hardFailed.push(file);
           } else {
             stillFailed.push(file);
           }
         }
-      }
+      });
       remaining = stillFailed;
     }
 
     /* مرحله‌ی پشتیبان: دروازه‌ی گزارش‌ها (بدون تکه‌تکه) */
     if (remaining.length) {
       const stillFailed = [];
-      for (const file of remaining) {
-        const res = await uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true);
-        if (res.ok) {
+      const results = await runMediaPool(remaining, (file) => {
+        return uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true);
+      }, () => markProgressDone());
+      results.forEach((res, idx) => {
+        const file = remaining[idx];
+        if (res && res.ok) {
           if (res.media) savedMedia.push(res.media);
           reportProgress();
         } else {
           stillFailed.push(file);
-          lastError = res.error || lastError;
-          lastStatus = res.status || lastStatus;
-          if (res.unsupported) unsupported = true;
-          if (res.blocked) blocked = true;
+          lastError = (res && res.error) || lastError;
+          lastStatus = (res && res.status) || lastStatus;
+          if (res && res.unsupported) unsupported = true;
+          if (res && res.blocked) blocked = true;
         }
-      }
+      });
       remaining = stillFailed;
     }
 
