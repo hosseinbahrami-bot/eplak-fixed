@@ -259,6 +259,14 @@ case "$CODE_RESCUE" in
   *) say "| وضعیت | کد $CODE_RESCUE |"; RESCUE_PRESENT="no" ;;
 esac
 
+# فایل‌های CI گیت‌هاب روی هاست لازم نیستند (از بسته‌ی تازه حذف شده‌اند)
+CODE_CI=$(grab "$BASE/.github/workflows/live-check.yml" "$TMP/ci.out")
+if [ "$CODE_CI" = "200" ]; then
+  say "| فایل‌های CI گیت‌هاب روی هاست | ⚠️ هست — لازم نیست؛ می‌توانید پوشه‌ی \`.github\` را پاک کنید (اختیاری) |"
+else
+  say "| فایل‌های CI گیت‌هاب روی هاست | ✅ نیست (درست است) |"
+fi
+
 # ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
 hdr "۶) لینک‌های دانلود (گیت‌هاب)"
 ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/eplak-fixed-update.zip"

@@ -4,7 +4,7 @@
 #  ----------------------------------------------------------------------------
 #  این اسکریپت از کد فعلی یک فایل zip می‌سازد که می‌توانید در هاست Extract کنید.
 #  داخل بسته فقط «کد» است؛ این‌ها عمداً قرار نمی‌گیرند تا داده‌ی سایت پاک نشود:
-#     data/  ·  uploads/  ·  shared/config.php  ·  .git/
+#     data/  ·  uploads/  ·  shared/config.php  ·  .git/  ·  .github/ (فایل‌های CI)
 #
 #  اجرا:   bash tools/build-update-package.sh
 #  خروجی:  eplak-fixed-update.zip  در ریشه‌ی پروژه
@@ -18,7 +18,7 @@ echo "→ ساخت $OUT از کد فعلی…"
 rm -f "$OUT"
 
 zip -q -r "$OUT" . \
-  -x ".git/*" ".arena/*" "node_modules/*" \
+  -x ".git/*" ".github/*" ".arena/*" "node_modules/*" \
      "android-app/*" "backend/*" "views/*" "tools/*" \
      "data/*" "uploads/*" "test-fixtures/*" \
      "*.zip" ".gitignore" ".gitattributes" ".vscode/*" \
