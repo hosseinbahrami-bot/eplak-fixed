@@ -83,6 +83,8 @@ say "- تعداد اشاره به fcm در فایل: \`$(countof "$LIVE" 'fcm')\
 
 NEW_WEB="no"
 ENGINE_OK="no"
+NEW_VER_PAGE="no"
+APK_FCM="no"
 if has "$LIVE" "registerAppDevice"; then NEW_WEB="yes"; fi
 
 # ── ۳) سرویس اعلان سرور ────────────────────────────────────────────────────
@@ -192,6 +194,7 @@ for f in "admin/version.php" "admin/notification_view.php" "admin/notifications.
     note="✅ هست"
   fi
   say "| $f | $pc | $note |"
+  if [ "$f" = "admin/version.php" ] && [ "$pc" != "404" ]; then NEW_VER_PAGE="yes"; fi
 done
 
 # ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
@@ -218,6 +221,50 @@ for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$
 done
 say ""
 say "> لینک‌ها: بسته‌ی سایت ← \`$ZIP_URL\` • اپ اندروید ← \`$APK_URL\`"
+
+# ── ۷) وضعیت فایل APK منتشرشده (از روی صفحه‌ی Releases) ───────────────────
+hdr "۷) اپ اندروید منتشرشده"
+REL_JSON="$TMP/release.json"
+gh api "repos/hosseinbahrami-bot/eplak-fixed/releases/tags/v2.0-eplak-update" > "$REL_JSON" 2>/dev/null || echo '{}' > "$REL_JSON"
+
+APK_SIZE=$(python3 - "$REL_JSON" <<'PYEOF' 2>/dev/null || echo 0
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    for a in d.get("assets", []):
+        if a.get("name") == "eplak-app.apk":
+            print(a.get("size", 0))
+except Exception:
+    print(0)
+PYEOF
+)
+BODY_TXT=$(python3 - "$REL_JSON" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("body", ""))
+except Exception:
+    print("")
+PYEOF
+)
+VER=$(printf '%s' "$BODY_TXT" | grep -oE 'نسخه‌ی اپ \| `[^`]+`' | head -1 | grep -oE '`[^`]+`' | tr -d '`')
+COMMIT=$(printf '%s' "$BODY_TXT" | grep -oE 'کامیت \| `[^`]+`' | head -1 | grep -oE '`[^`]+`' | tr -d '`')
+FCM_LINE=$(printf '%s' "$BODY_TXT" | grep -oE 'اعلان فایربیس \(اپ بسته\) \| [^|]+' | head -1 | sed 's/.*| //' | sed 's/ *$//')
+LINK_LINE=$(printf '%s' "$BODY_TXT" | grep -oE 'متصل به پروژه‌ی [0-9]+' | head -1)
+
+say "| مورد | مقدار |"
+say "|---|---|"
+say "| نسخه‌ی اپ | \`${VER:-؟}\` |"
+say "| کامیت ساخته‌شده | \`${COMMIT:-؟}\` |"
+say "| حجم فایل | ${APK_SIZE:-0} بایت |"
+say "| وضعیت فایربیس داخل اپ | ${FCM_LINE:-؟} |"
+say "| اتصال پروژه | ${LINK_LINE:-—} |"
+if printf '%s' "$FCM_LINE" | grep -q "فعال"; then
+  say "| نتیجه | ✅ اپ با اعلان فایربیس ساخته شده است |"
+  APK_FCM="yes"
+else
+  say "| نتیجه | ⏳ اپ فعلی بدون فایربیس ساخته شده |"
+  APK_FCM="no"
+fi
 
 # ── نتیجه‌ی نهایی ─────────────────────────────────────────────────────────
 hdr "نتیجه"
@@ -246,6 +293,27 @@ else
   say ""
   say "یعنی فایل \`eplak-fixed-update.zip\` هنوز روی هاست باز نشده است."
 fi
+
+# چک‌لیست وضعیت سه قدم اصلی
+say ""
+say "**چک‌لیست:**"
+say ""
+if has "$PUSH" '"fcm_ready":true'; then
+  say "- ✅ کلید سرویس فایربیس در پنل ثبت شده (سرور آماده‌ی ارسال است)"
+else
+  say "- ⏳ کلید سرویس فایربیس در پنل ثبت نشده — پنل ادمین → تنظیمات → «اعلان فایربیس»"
+fi
+if [ "$NEW_VER_PAGE" = "yes" ]; then
+  say "- ✅ بسته‌ی تازه‌ی سایت روی هاست باز شده (صفحه‌ی «بررسی نسخه» هست)"
+else
+  say "- ⏳ بسته‌ی تازه‌ی سایت روی هاست باز نشده — فایل eplak-fixed-update.zip را Extract کنید"
+fi
+if [ "$APK_FCM" = "yes" ]; then
+  say "- ✅ فایل APK منتشرشده با اعلان فایربیس ساخته شده (نصبش کنید)"
+else
+  say "- ⏳ فایل APK فعلی فایربیس ندارد"
+fi
+say "- 📱 برای دیدن تعداد گوشی‌های ثبت‌شده: پنل ادمین → «بررسی نسخه» (باید بزرگ‌تر از صفر باشد)"
 
 if [ ${#ISSUES[@]} -gt 0 ]; then
   say ""
