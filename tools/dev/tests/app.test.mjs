@@ -197,6 +197,84 @@ const refreshed = await s7.refreshNotificationsNow();
 ok('refreshNotificationsNow فهرست را از سرور می‌خواند',
   refreshed === true && calls.some((c) => typeof c === 'object' && String(c.url).includes('/notifications.php')));
 
+/* ---------- ۹) تازه‌سازی وضعیت گزارش‌ها و گالری پیوست‌ها ---------- */
+console.log('\n=== تازه‌سازی وضعیت گزارش‌ها (پنل ادمین ← اپ) ===');
+const reportsJs = fs.readFileSync(path.join(ROOT, 'modules/reports.js'), 'utf8');
+
+ok('آدرس API در همه‌ی درخواست‌ها «فراخوانی» شده است (نه خودِ تابع)',
+  !/\$\{apiBase\}/.test(reportsJs) && (reportsJs.match(/\$\{apiBase\(\)\}/g) || []).length >= 6,
+  'تعداد موارد درست: ' + (reportsJs.match(/\$\{apiBase\(\)\}/g) || []).length);
+ok('فهرست گزارش‌ها از سرور خوانده می‌شود (مسیر درست API)',
+  /\$\{apiBase\(\)\}\/reports\.php\?phone=/.test(reportsJs));
+ok('حذف گزارش هم از مسیر درست API انجام می‌شود',
+  /\$\{apiBase\(\)\}\/reports\.php\?action=delete/.test(reportsJs));
+ok('کارهای تیکت هم از مسیر درست انجام می‌شوند',
+  /\$\{apiBase\(\)\}\/tickets\.php/.test(reportsJs));
+ok('فهرست واحدها از سرور خوانده می‌شود',
+  /\$\{apiBase\(\)\}\/departments\.php/.test(reportsJs));
+
+ok('وضعیت گزارش‌ها خودکار تازه می‌شود (هر ۴۵ ثانیه)',
+  /REPORTS_REFRESH_MS = 45000/.test(reportsJs) && /setInterval\(/.test(reportsJs));
+ok('با برگشتن اپ از پس‌زمینه هم وضعیت‌ها تازه می‌شوند',
+  /visibilitychange/.test(reportsJs) && /refreshReportsNow/.test(reportsJs));
+ok('در پس‌زمینه بودن اپ، درخواست بی‌فایده زده نمی‌شود',
+  /document\.visibilityState === 'hidden'/.test(reportsJs));
+ok('پس از تازه‌سازی، فهرست/جزئیات دوباره رندر می‌شود',
+  /function repaintReportsScreens/.test(reportsJs) && /skipBackend: true/.test(reportsJs));
+ok('وضعیت تازه از سرور به مقدار داخلی اپ نگاشت می‌شود',
+  /status: normalizeStatusValue\(item\.status \|\| 'pending'\)/.test(reportsJs));
+
+console.log('\n=== گالری عکس و فیلم در اپ ===');
+ok('کاشی‌های عکس در گالری ساخته می‌شوند', /media-tile/.test(reportsJs) && /media-strip/.test(reportsJs));
+ok('فیلم‌ها با پیش‌نمایش و آیکن پخش نشان داده می‌شوند',
+  /media-video-card/.test(reportsJs) && /media-play-badge/.test(reportsJs));
+ok('نمایش تمام‌صفحه (لایت‌باکس) برای پیوست‌ها هست',
+  /function openReportMedia/.test(reportsJs) && /function closeReportMedia/.test(reportsJs));
+ok('بین پیوست‌ها می‌توان جلو/عقب رفت',
+  /function stepReportMedia/.test(reportsJs) && /media-viewer-nav/.test(reportsJs));
+ok('دکمه‌ی بازگشت گوشی، اول گالری را می‌بندد',
+  /reportMediaViewer/.test(fs.readFileSync(path.join(ROOT, 'core/router.js'), 'utf8')));
+ok('اندازه‌ی فایل هر پیوست در گالری نوشته می‌شود', /formatFileSize\(m\.size/.test(reportsJs));
+
+const appCss = fs.readFileSync(path.join(ROOT, 'assets/css/style.css'), 'utf8');
+ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
+  /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
+ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
+  /modules\/reports\.js\?v=20/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+
+console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
+ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
+  /UPLOAD_LOG_KEY/.test(reportsJs) && /function saveUploadLog/.test(reportsJs));
+ok('کاربر می‌تواند جزئیات فنی را ببیند',
+  /function showUploadDetails/.test(reportsJs) && /نمایش جزئیات فنی ارسال/.test(reportsJs));
+
+/* ---------- ۱۰) هیچ تابعی در قالب رشته‌ای «بدون فراخوانی» جاگذاری نشده ---------- */
+console.log('\n=== بررسی سراسری: جاگذاری تابع بدون فراخوانی در رشته‌ها ===');
+const walk = (dir, out = []) => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (['.git', 'node_modules', 'uploads', 'data', 'build'].includes(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
+    else if (entry.name.endsWith('.js')) out.push(full);
+  }
+  return out;
+};
+const suspicious = [];
+for (const file of walk(ROOT)) {
+  const src = fs.readFileSync(file, 'utf8');
+  const funcs = new Set([
+    ...Array.from(src.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g), (m) => m[1]),
+    ...Array.from(src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>)/g), (m) => m[1]),
+  ]);
+  for (const m of src.matchAll(/\$\{([A-Za-z_$][\w$]*)\}(?![\(\w])/g)) {
+    if (funcs.has(m[1])) {
+      suspicious.push(path.relative(ROOT, file) + ':' + (src.slice(0, m.index).split('\n').length) + ' → ${' + m[1] + '}');
+    }
+  }
+}
+ok('هیچ تابعی بدون () داخل رشته‌های قالبی جاگذاری نشده است',
+  suspicious.length === 0, suspicious.slice(0, 4).join(' | '));
+
 console.log('\n' + '='.repeat(52));
 console.log(`APP: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));

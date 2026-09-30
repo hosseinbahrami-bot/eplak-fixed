@@ -2,6 +2,20 @@
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 
+/* تغییر سریع وضعیت از خود فهرست گزارش‌ها:
+   مدیر از همان جدول، وضعیت را عوض می‌کند و روی همین صفحه می‌ماند. */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['quick_status_id'])) {
+    eplakRequireCsrf();
+    $quickId = (int) $_POST['quick_status_id'];
+    $quickStatus = (string) ($_POST['status'] ?? 'pending');
+    $quickReply = trim((string) ($_POST['reply'] ?? ''));
+    if ($quickId > 0 && getReportById($pdo, $quickId)) {
+        saveReportReply($pdo, $quickId, $quickReply, $quickStatus);
+    }
+    header('Location: reports.php?status_saved=1');
+    exit;
+}
+
 $reports = getAllReports($pdo);
 
 /* تعداد عکس/فیلم هر گزارش — برای نشان دادن پیوست‌های ارسالی شهروند در فهرست */
@@ -14,7 +28,7 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>مدیریت گزارش‌ها</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=7">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <!-- Font Awesome for icons -->
@@ -52,6 +66,12 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
         </div>
       </header>
 
+      <?php if (isset($_GET['status_saved'])): ?>
+        <div class="alert alert-success" style="margin:0 20px 14px; padding:12px 16px; border-radius:12px; background:var(--success-bg); color:var(--success); font-weight:600;">
+          <i class="fas fa-check-circle"></i> وضعیت گزارش با موفقیت تغییر کرد و همین حالا در اپ کاربر دیده می‌شود.
+        </div>
+      <?php endif; ?>
+
       <!-- آمار سریع -->
       <div class="stats-mini">
         <div class="stat-item">
@@ -60,11 +80,15 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
         </div>
         <div class="stat-item">
           <i class="fas fa-hourglass-half" style="color: #d97706;"></i>
-          <span>در انتظار: <strong><?= count(array_filter($reports, fn($r) => $r['status'] === 'در انتظار')) ?></strong></span>
+          <span>در انتظار: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'pending')) ?></strong></span>
+        </div>
+        <div class="stat-item">
+          <i class="fas fa-spinner" style="color: #3b82f6;"></i>
+          <span>در حال بررسی: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'in_progress')) ?></strong></span>
         </div>
         <div class="stat-item">
           <i class="fas fa-check-circle" style="color: #16a34a;"></i>
-          <span>انجام‌شده: <strong><?= count(array_filter($reports, fn($r) => $r['status'] === 'انجام‌شده')) ?></strong></span>
+          <span>انجام‌شده: <strong><?= count(array_filter($reports, fn($r) => reportStatusOf($r) === 'done')) ?></strong></span>
         </div>
       </div>
 
@@ -73,10 +97,11 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
           <h2><i class="fas fa-table" style="color: #0f766e; margin-left: 10px;"></i>لیست گزارش‌ها</h2>
           <div class="panel-actions">
             <input type="text" id="searchReport" placeholder="جستجوی گزارش..." class="search-input">
-            <select class="filter-select">
+            <select class="filter-select" id="statusFilter">
               <option value="all">همه وضعیت‌ها</option>
-              <option value="در انتظار">در انتظار</option>
-              <option value="انجام‌شده">انجام‌شده</option>
+              <option value="pending">در انتظار</option>
+              <option value="in_progress">در حال بررسی</option>
+              <option value="done">انجام‌شده</option>
             </select>
           </div>
         </div>
@@ -119,11 +144,22 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
                   </td>
                   <td>
                     <?php
-                      $statusClass = $report['status'] === 'انجام‌شده' ? 'status-done' : 'status-pending';
+                      /* وضعیت‌ها ممکن است با کلید انگلیسی یا برچسب فارسی ذخیره شده
+                         باشند؛ با reportStatusOf هر دو حالت درست نمایش داده می‌شود. */
+                      $rowStatus = reportStatusOf($report);
+                      $statusClass = statusClass($rowStatus);
                     ?>
-                    <span class="<?= $statusClass ?>">
-                      <?= htmlspecialchars($report['status']) ?>
-                    </span>
+                    <form method="post" action="reports.php" class="inline-status-form">
+                      <?= eplakCsrfField() ?>
+                      <input type="hidden" name="quick_status_id" value="<?= (int) $report['id'] ?>">
+                      <input type="hidden" name="reply" value="<?= htmlspecialchars((string) ($report['reply'] ?? '')) ?>">
+                      <select name="status" class="status-select <?= $statusClass ?>"
+                              onchange="this.form.submit()" title="تغییر وضعیت این گزارش">
+                        <option value="pending" <?= $rowStatus === 'pending' ? 'selected' : '' ?>>در انتظار</option>
+                        <option value="in_progress" <?= $rowStatus === 'in_progress' ? 'selected' : '' ?>>در حال بررسی</option>
+                        <option value="done" <?= $rowStatus === 'done' ? 'selected' : '' ?>>انجام‌شده</option>
+                      </select>
+                    </form>
                   </td>
                   <td>
                     <?php
@@ -150,7 +186,7 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
                       <a href="report_detail.php?id=<?= (int)$report['id'] ?>" class="btn-action view" title="مشاهده و پاسخ">
                         <i class="fas fa-eye"></i>
                       </a>
-                      <a href="actions.php?type=report_edit&id=<?= (int)$report['id'] ?><?= eplakCsrfQuery() ?>" class="btn-action edit" title="ویرایش">
+                      <a href="report_edit.php?id=<?= (int)$report['id'] ?>" class="btn-action edit" title="ویرایش گزارش">
                         <i class="fas fa-pen"></i>
                       </a>
                       <a href="actions.php?type=report_delete&id=<?= (int)$report['id'] ?><?= eplakCsrfQuery() ?>" class="btn-action delete" title="حذف" onclick="return confirm('آیا از حذف این گزارش اطمینان دارید؟')">

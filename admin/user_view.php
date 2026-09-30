@@ -39,7 +39,7 @@ $ticketDone = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['st
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>پروفایل کاربر</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=7">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">

@@ -185,3 +185,49 @@ Three safeguards were added as well:
 | PHP upload cap | 64 MB | `.htaccess` (`upload_max_filesize`) |
 
 Note: photos are compressed inside the app, so an 8 MB phone photo becomes roughly 200–500 KB and the upload almost always succeeds.
+
+---
+
+## 20) Status refresh, polished attachment gallery, and edit-button fix
+
+### 1. Admin status change now reaches the app immediately
+- Root cause: `modules/reports.js` built six API URLs with `${apiBase}` (no parentheses),
+  so the function text itself ended up inside the URL and every report-list request failed
+  silently. The app therefore never picked up new statuses.
+- Fix: all six now use `${apiBase()}`.
+- In addition, the app refreshes report statuses every 45 seconds (and whenever it returns
+  from the background), so a change made by the municipality appears within seconds.
+
+### 2. Quick status change from the admin reports list
+- Each row's status cell now has a select (Pending / In progress / Done).
+- Changing it saves immediately, keeps the existing admin reply, and shows a green
+  confirmation banner at the top of the list.
+
+### 3. Edit button (fully broken before)
+- Root cause: the button linked to `actions.php?type=report_edit&id=…`, but no such action
+  exists in `admin/actions.php`, so it bounced back to the dashboard.
+- Fix: the link now points to the real page, `report_edit.php?id=…`.
+
+### 4. Admin attachment gallery (smaller and much nicer)
+- Photos render as 104px rounded square chips with a soft shadow and a size label.
+- Videos show a preview with a play badge and a size label.
+- Clicking a chip opens a fullscreen lightbox; `Esc` closes it.
+- A download button appears on hover.
+
+### 5. In-app attachment gallery (proper size, pretty)
+- In the report detail screen, photos are square tiles and videos are preview cards with a
+  play badge.
+- Tapping opens a fullscreen viewer with close/prev/next, a counter, and `Esc` / arrows;
+  the Android back button closes the viewer first.
+
+### 6. Upload diagnostics
+- Every upload attempt is logged (file count, size, server status code, error message).
+- If an attachment fails, a "Show technical details" button appears under the status message;
+  send that text to support so the exact cause can be identified.
+- Final verification: the app asks the server how many attachments were stored, so the
+  "Uploading…" message never stays on screen.
+
+### Deploy steps
+1. Download the fresh `eplak-fixed-update.zip` from the Releases page.
+2. In your host's File Manager, upload it into the `eplak-fixed` folder and **Extract** (overwrite).
+3. Fully close and reopen the app (or press `Ctrl+F5` in a browser).

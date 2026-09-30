@@ -6937,3 +6937,169 @@ html.day .svc-ad-slim { border-color: rgba(0, 150, 130, 0.28); box-shadow: 0 5px
 .haji-banner .home-ad-badge { bottom: 9px; left: 10px; }
 html.day .haji-banner { border-color: rgba(180, 120, 30, 0.4); box-shadow: 0 8px 20px -6px rgba(0,0,0,0.25); }
 @media (prefers-reduced-motion: reduce) { .haji-banner::before { animation: none !important; } }
+
+/* ============================================================
+   گالری تصاویر و فیلم‌های گزارش در اپ (modules/reports.js)
+   ------------------------------------------------------------
+   عکس‌ها به‌صورت کارت‌های مربعی کوچک و مرتب، فیلم‌ها با پیش‌نمایش و
+   آیکن پخش، و ضربه روی هر کدام = نمایش تمام‌صفحه (لایت‌باکس).
+   ============================================================ */
+.media-count-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(0, 201, 167, 0.14);
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.media-card { padding: 12px; }
+
+.media-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.media-tile {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.media-tile:active { transform: scale(0.97); }
+.media-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.media-tile-broken { display: none; }
+
+.media-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.media-video-card {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0b1220;
+  cursor: pointer;
+}
+.media-video-card video {
+  width: 100%;
+  height: 108px;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.media-play-badge {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.media-video-card .media-play-badge svg { margin-right: 3px; }
+.media-video-meta {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+}
+
+.media-hint,
+.media-note {
+  margin: 10px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.9;
+  color: var(--text-muted);
+}
+.media-note { color: #b45309; }
+
+/* ── نمایش تمام‌صفحه ─────────────────────────────────────── */
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 12, 20, 0.94);
+  backdrop-filter: blur(3px);
+}
+.media-viewer.open { display: flex; }
+body.media-viewer-locked { overflow: hidden; }
+
+.media-viewer-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 54px 12px 62px;
+}
+.media-viewer-stage img,
+.media-viewer-stage video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  background: #000;
+}
+
+.media-viewer-close,
+.media-viewer-nav {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+.media-viewer-close { top: 14px; left: 14px; }
+.media-viewer-nav { top: 50%; margin-top: -20px; }
+.media-viewer-nav.prev { right: 12px; }
+.media-viewer-nav.next { left: 12px; }
+
+.media-viewer-foot {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #e5e7eb;
+  font-size: 12.5px;
+}

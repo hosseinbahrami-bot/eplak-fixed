@@ -202,6 +202,20 @@
      ۴. روی خانه با دو بار زدن سریع خارج می‌شود
   ========================================================= */
   function handleAppBack(fromPopState) {
+    // ۰. اگر گالری عکس/فیلم (نمایش تمام‌صفحه) باز است، همان بسته شود
+    const mediaViewer = document.getElementById('reportMediaViewer');
+    if (mediaViewer && mediaViewer.classList.contains('open')) {
+      if (typeof window.closeReportMedia === 'function') {
+        window.closeReportMedia();
+      } else {
+        mediaViewer.classList.remove('open');
+      }
+      if (fromPopState) {
+        try { window.history.pushState({ screenId: getCurrentActiveScreenId() }, '', '#' + getCurrentActiveScreenId()); } catch (e) {}
+      }
+      return true;
+    }
+
     // ۱. اگر منوی باز داریم، آن را ببند
     const homePanel = document.getElementById('homeProfileActionsPanel');
     if (homePanel && (homePanel.style.display === 'block' || homePanel.classList.contains('active'))) {

@@ -355,8 +355,10 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
   /allowUniversalAccessFromFileURLs = true/.test(main));
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
-ok('کش‌باستر دو فایل تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=15/.test(indexHtml) && /modules\/reports\.js\?v=19/.test(indexHtml) && /ep-map\.js\?v=2/.test(indexHtml));
+ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
+  /core\/storage\.js\?v=15/.test(indexHtml) && /modules\/reports\.js\?v=20/.test(indexHtml)
+  && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
+  && /assets\/css\/style\.css\?v=86/.test(indexHtml));
 
 /* ══════════ ۸) پایش زنده: پیش‌پرواز و سقف حجم بدنه ══════════ */
 console.log('\n=== پایش زنده (live-check) ===');

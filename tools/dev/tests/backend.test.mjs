@@ -401,6 +401,168 @@ for (const f of navPages) {
 ok('صفحات پنل با منوی کنار، لینک «بررسی نسخه» دارند', navCount >= 20 && missingLink.length === 0,
    `صفحات دارای منو: ${navCount} • بدون لینک: ${missingLink.join(', ') || 'هیچ'}`);
 
+console.log('\n=== پنل ادمین: تغییر وضعیت ← دیده شدن در اپ ===');
+
+/* گزارش تازه برای آزمون تغییر وضعیت از پنل */
+const statusReport = pickJson(await run(`
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+$_POST = ['phone' => '09121112233', 'title' => 'گزارش آزمون وضعیت', 'description' => 'توضیح', 'category' => 'سایر'];
+require '${APP}/api/reports.php';`));
+const SRID = Number(statusReport?.id || 0);
+ok('گزارش آزمون وضعیت ساخته شد', SRID > 0, JSON.stringify(statusReport).slice(0, 120));
+
+/* همان کاری که دکمه‌ی «ثبت پاسخ / تغییر وضعیت» پنل انجام می‌دهد */
+const setStatus = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+require '${APP}/admin/includes/functions.php';
+saveReportReply($pdo, ${SRID}, 'اکیپ شهرداری اعزام شد', 'done');
+$row = $pdo->query('SELECT status, reply FROM reports WHERE id = ${SRID}')->fetch();
+echo json_encode(['status' => $row['status'], 'reply' => $row['reply'], 'label' => statusLabel($row['status'])]);`));
+ok('پنل ادمین وضعیت را در دیتابیس ذخیره می‌کند', setStatus?.status === 'done', JSON.stringify(setStatus));
+ok('برچسب فارسی وضعیت درست ساخته می‌شود', setStatus?.label === 'انجام‌شده', String(setStatus?.label));
+
+/* همان درخواستی که اپ می‌زند (GET api/reports.php?phone=…) */
+const appGet = pickJson(await run(`
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_GET = ['phone' => '09121112233'];
+require '${APP}/api/reports.php';`));
+const appRow = (appGet?.reports || []).find((r) => Number(r.id) === SRID);
+ok('اپ همین وضعیت تازه را از سرور می‌گیرد', appRow?.status === 'done', JSON.stringify(appRow?.status));
+ok('پاسخ مدیریت هم به اپ می‌رسد', String(appRow?.reply || '').includes('اکیپ شهرداری'), String(appRow?.reply));
+
+/* نگاشت مقدارهای قدیمی/فارسی به وضعیت درست (گزارش‌های قدیمی هاست) */
+const legacyStatuses = pickJson(await run(`
+require '${APP}/admin/includes/functions.php';
+echo json_encode([
+  'fa_pending' => reportStatusOf(['status' => 'در انتظار', 'department' => '']),
+  'fa_progress' => reportStatusOf(['status' => 'در حال بررسی', 'department' => '']),
+  'fa_done' => reportStatusOf(['status' => 'انجام‌شده', 'department' => '']),
+  'swapped' => reportStatusOf(['status' => 'آموزش و پرورش', 'department' => 'done']),
+  'class_done' => statusClass('done'),
+]);`));
+ok('وضعیت‌های فارسی قدیمی هم درست خوانده می‌شوند',
+  legacyStatuses?.fa_pending === 'pending' && legacyStatuses?.fa_done === 'done', JSON.stringify(legacyStatuses));
+ok('ردیف‌های جابه‌جا‌شده‌ی قدیمی هم تشخیص داده می‌شوند', legacyStatuses?.swapped === 'done', JSON.stringify(legacyStatuses));
+
+/* تغییر وضعیت از خود فهرست گزارش‌ها (کشوی وضعیت) */
+const listHtml = String(await run(`
+$_SESSION = [];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['SCRIPT_NAME'] = '/admin/reports.php';
+$_SERVER['PHP_SELF'] = '/admin/login.php';
+require '${APP}/admin/auth.php';
+$_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
+require '${APP}/admin/includes/functions.php';
+ob_start(); require '${APP}/admin/reports.php'; echo ob_get_clean();`));
+
+ok('فهرست گزارش‌ها بدون خطای PHP رندر می‌شود',
+  listHtml.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(listHtml), String(listHtml.length));
+const editHrefs = Array.from(listHtml.matchAll(/href="([^"]*report[^"]*)"/g), (m) => m[1]).slice(0, 6);
+ok('دکمه‌ی «ویرایش» به صفحه‌ی ویرایش می‌رود (قبلاً به actions.php می‌رفت و کار نمی‌کرد)',
+  /href="report_edit\.php\?id=\d+/.test(listHtml) && !/type=report_edit/.test(listHtml),
+  editHrefs.join(' | '));
+ok('کشوی تغییر سریع وضعیت در فهرست گزارش‌ها هست',
+  /class="status-select/.test(listHtml) && /name="status"/.test(listHtml));
+ok('برچسب فارسی وضعیت (نه کلید انگلیسی) در فهرست دیده می‌شود',
+  /(در انتظار|در حال بررسی|انجام‌شده)\s*<\/option>/.test(listHtml) && !/>\s*done\s*</.test(listHtml));
+
+/* صفحه‌ی ویرایش گزارش باید کامل و بدون خطا باشد */
+const editId = SRID;
+const editHtml = String(await run(`
+$_SESSION = [];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['SCRIPT_NAME'] = '/admin/report_edit.php';
+$_SERVER['PHP_SELF'] = '/admin/login.php';
+$_GET = ['id' => '${editId}'];
+require '${APP}/admin/auth.php';
+$_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
+require '${APP}/admin/includes/functions.php';
+ob_start(); require '${APP}/admin/report_edit.php'; echo ob_get_clean();`));
+ok('صفحه‌ی ویرایش گزارش بدون خطا باز می‌شود',
+  editHtml.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(editHtml), String(editHtml.length));
+ok('فرم ویرایش، فیلدهای گزارش را دارد',
+  /name="title"/.test(editHtml) && /name="status"/.test(editHtml) && /name="user_phone"/.test(editHtml));
+
+/* ذخیره‌ی ویرایش (همان POST صفحه) و دیدن نتیجه در اپ */
+const edited = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+require '${APP}/admin/includes/functions.php';
+updateReport($pdo, ${editId}, [
+  'user_phone' => '09121112233', 'title' => 'عنوان ویرایش‌شده', 'description' => 'توضیح ویرایش‌شده',
+  'category' => 'سایر', 'department' => 'آموزش و پرورش', 'sub_department' => 'ابتدایی',
+  'location' => 'خیابان امام خمینی', 'status' => 'in_progress',
+]);
+$row = $pdo->query('SELECT title, department, status FROM reports WHERE id = ${editId}')->fetch();
+echo json_encode(['title' => $row['title'], 'dept' => $row['department'], 'status' => $row['status']]);`));
+ok('ویرایش گزارش ذخیره می‌شود', edited?.title === 'عنوان ویرایش‌شده' && edited?.dept === 'آموزش و پرورش', JSON.stringify(edited));
+
+/* همان درخواستی که اپ می‌زند، پس از ویرایش */
+const editedInApp = pickJson(await run(`
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_GET = ['phone' => '09121112233'];
+require '${APP}/api/reports.php';`));
+const editedRow = (editedInApp?.reports || []).find((r) => Number(r.id) === editId);
+ok('ویرایش وضعیت و عنوان هم در اپ دیده می‌شود',
+  editedRow?.status === 'in_progress' && editedRow?.title === 'عنوان ویرایش‌شده',
+  JSON.stringify({ s: editedRow?.status, t: editedRow?.title }));
+
+console.log('\n=== گالری پیوست‌ها در پنل ادمین ===');
+const detailHtml = String(await run(`
+$_SESSION = [];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['SCRIPT_NAME'] = '/admin/report_detail.php';
+$_SERVER['PHP_SELF'] = '/admin/login.php';
+$_GET = ['id' => '${CRID}'];
+require '${APP}/admin/auth.php';
+$_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
+require '${APP}/admin/includes/functions.php';
+ob_start(); require '${APP}/admin/report_detail.php'; echo ob_get_clean();`));
+ok('صفحه‌ی جزئیات گزارش بدون خطا رندر می‌شود',
+  detailHtml.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(detailHtml), String(detailHtml.length));
+ok('پیوست‌های شهروند در گالری نشان داده می‌شوند',
+  /media-strip-admin/.test(detailHtml) && /media-chip/.test(detailHtml));
+ok('روی هر پیوست، نمایش تمام‌صفحه باز می‌شود',
+  /eplakAdminMediaOpen/.test(detailHtml) && /admin-media-viewer/.test(detailHtml));
+ok('حجم هر پیوست روی کارت نوشته می‌شود', /media-chip-size/.test(detailHtml));
+const adminCss = fs.readFileSync(`${APP}/admin/assets/style.css`, 'utf8');
+ok('کارت‌های پیوست کوچک و مربعی‌اند (اندازه‌ی مناسب پنل)',
+  /\.media-chip \{/.test(adminCss) && /aspect-ratio: 1 \/ 1/.test(adminCss) && /minmax\(104px/.test(adminCss));
+ok('نمایش تمام‌صفحه‌ی پنل استایل دارد', /\.admin-media-viewer\.open/.test(adminCss));
+
+/* تغییر سریع وضعیت از خود فهرست گزارش‌ها (POST به reports.php) */
+/* مسیر واقعی: ارسال فرم کشوی وضعیت به خود صفحه‌ی فهرست (صفحه با ریدایرکت تمام می‌شود) */
+await run(`
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['SCRIPT_NAME'] = '/admin/reports.php';
+$_SERVER['PHP_SELF'] = '/admin/login.php';
+require '${APP}/admin/auth.php';
+$_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
+require '${APP}/admin/includes/functions.php';
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['SCRIPT_NAME'] = '/admin/reports.php';
+$_SERVER['PHP_SELF'] = '/admin/reports.php';
+$_POST = ['quick_status_id' => '${editId}', 'status' => 'done', 'reply' => 'کار تمام شد', '_token' => eplakCsrfToken()];
+ob_start();
+require '${APP}/admin/reports.php';
+echo ob_get_clean();`);
+
+/* نتیجه‌ی همان درخواست را از دیتابیس می‌خوانیم */
+const quickSwitch = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+require '${APP}/admin/includes/functions.php';
+$row = $pdo->query('SELECT status, reply FROM reports WHERE id = ${editId}')->fetch();
+echo json_encode(['status' => $row['status'] ?? '', 'reply' => $row['reply'] ?? '']);`));
+ok('تغییر وضعیت از خود فهرست (کشوی وضعیت) ذخیره می‌شود',
+  quickSwitch?.status === 'done' && quickSwitch?.reply === 'کار تمام شد', JSON.stringify(quickSwitch));
+
+const afterQuick = pickJson(await run(`
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_GET = ['phone' => '09121112233'];
+require '${APP}/api/reports.php';`));
+const afterQuickRow = (afterQuick?.reports || []).find((r) => Number(r.id) === editId);
+ok('وضعیت تغییر‌یافته از فهرست هم بلافاصله در اپ دیده می‌شود', afterQuickRow?.status === 'done', String(afterQuickRow?.status));
+
 console.log('\n' + '='.repeat(52));
 console.log(`BACKEND: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));

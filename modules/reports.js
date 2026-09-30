@@ -169,7 +169,7 @@
     }
 
     try {
-      const response = await fetch(`${apiBase}/departments.php`);
+      const response = await fetch(`${apiBase()}/departments.php`);
       if (!response.ok) throw new Error('bad response');
       const data = await response.json();
       const list = Array.isArray(data?.departments) ? data.departments : [];
@@ -281,7 +281,7 @@
   }
 
   async function requestBackendDelete(backendId, phone) {
-    const response = await fetch(`${apiBase}/reports.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
+    const response = await fetch(`${apiBase()}/reports.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', id: backendId, phone })
@@ -350,7 +350,7 @@
       await flushPendingDeletes(phone);
       await flushPendingCreates(phone);
 
-      const response = await fetch(`${apiBase}/reports.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
+      const response = await fetch(`${apiBase()}/reports.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('reports fetch failed');
       const data = await response.json();
       const rows = (Array.isArray(data?.reports) ? data.reports : [])
@@ -1232,6 +1232,16 @@
         const unsupported = !!(chunkRes && chunkRes.unsupported);
         const blocked = !!(chunkRes && chunkRes.blocked);
 
+        /* ثبت گزارش فنی این تلاش (برای پیگیری در صورت نرسیدن فایل) */
+        saveUploadLog({
+          time: (new Date()).toLocaleString('fa-IR'),
+          text: 'ارسال تکه‌تکه — ' + toPersianDigits(files.length) + ' فایل • موفق: '
+            + toPersianDigits(saved.length) + ' • ناموفق: ' + toPersianDigits(failedCount)
+            + ' • روی سرور: ' + toPersianDigits(serverCount)
+            + (chunkRes && chunkRes.status ? (' • کد سرور: ' + toPersianDigits(chunkRes.status)) : '')
+            + (chunkRes && chunkRes.error ? (' • پیام: ' + chunkRes.error) : '')
+        });
+
         if (failedCount === 0 && (saved.length || serverCount > 0)) {
           setUploadStatus('✅ ' + toPersianDigits(Math.max(serverCount, saved.length))
             + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
@@ -1251,9 +1261,77 @@
         }
         showToast('پیوست‌ها نرسیدند؛ دکمه‌ی تلاش دوباره را بزنید');
         offerMediaRetry(files, phone);
+        offerUploadDetailsButton();
       };
 
-      /* ── دکمه‌ی «تلاش دوباره» برای پیوست‌هایی که نرسیده‌اند ───────────────
+      /* ── گزارش فنی ارسال پیوست‌ها ────────────────────────────────────────
+     نتیجه‌ی هر تلاش (حجم، تعداد، کد پاسخ سرور و پیام خطا) در حافظه‌ی اپ
+     نگه داشته می‌شود تا اگر پیوستی نرسید، کاربر بتواند متن دقیق را برای
+     پشتیبانی بفرستد (دکمه‌ی «جزئیات فنی» در صفحه‌ی ثبت گزارش). */
+  const UPLOAD_LOG_KEY = 'eplak_last_media_upload';
+
+  function saveUploadLog(entry) {
+    try {
+      if (!window.localStorage) return;
+      const list = (() => {
+        try { return JSON.parse(window.localStorage.getItem(UPLOAD_LOG_KEY) || '[]'); }
+        catch (e) { return []; }
+      })();
+      list.unshift(entry);
+      window.localStorage.setItem(UPLOAD_LOG_KEY, JSON.stringify(list.slice(0, 5)));
+    } catch (e) { /* بی‌اهمیت */ }
+  }
+
+  function readUploadLog() {
+    try {
+      if (!window.localStorage) return [];
+      const list = JSON.parse(window.localStorage.getItem(UPLOAD_LOG_KEY) || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+  }
+
+  function uploadLogText() {
+    const list = readUploadLog();
+    if (!list.length) return 'هنوز تلاشی برای ارسال پیوست ثبت نشده است.';
+    return list.map(function (item, i) {
+      return (i + 1) + ') ' + (item.time || '') + ' — ' + (item.text || '');
+    }).join('\n');
+  }
+
+  /* دکمه‌ی «جزئیات فنی» زیر پیام وضعیت (فقط وقتی مشکلی بوده) */
+  function showUploadDetails() {
+    const text = uploadLogText();
+    showToast('جزئیات فنی آخرین ارسال‌ها را در کادر پایین صفحه ببینید');
+    const host = document.getElementById('reportUploadStatus');
+    if (!host || !host.parentNode) return;
+    let box = document.getElementById('reportUploadDetails');
+    if (!box) {
+      box = document.createElement('pre');
+      box.id = 'reportUploadDetails';
+      box.style.cssText = 'margin:10px 0 0; padding:10px 12px; border-radius:12px; background:rgba(15,23,42,0.06); ' +
+        'color:var(--text-muted); font-size:11px; line-height:1.9; text-align:right; direction:rtl; white-space:pre-wrap;';
+      host.parentNode.insertBefore(box, host.nextSibling);
+    }
+    box.textContent = text;
+    box.style.display = 'block';
+  }
+  window.showUploadDetails = showUploadDetails;
+
+  function offerUploadDetailsButton() {
+    const host = document.getElementById('reportUploadStatus');
+    if (!host || !host.parentNode) return;
+    if (document.getElementById('reportUploadDetailsBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'reportUploadDetailsBtn';
+    btn.type = 'button';
+    btn.textContent = 'نمایش جزئیات فنی ارسال';
+    btn.style.cssText = 'margin:8px 6px 0 0; padding:7px 12px; border:1px solid var(--card-border); border-radius:10px; ' +
+      'background:transparent; color:var(--text-muted); font-family:inherit; font-size:12px; cursor:pointer;';
+    btn.onclick = showUploadDetails;
+    host.parentNode.insertBefore(btn, host.nextSibling);
+  }
+
+  /* ── دکمه‌ی «تلاش دوباره» برای پیوست‌هایی که نرسیده‌اند ───────────────
          فایل‌ها در همان نشست در حافظه نگه داشته می‌شوند تا با یک ضربه، دوباره
          و بدون ساختن گزارش تکراری ارسال شوند. */
       function offerMediaRetry(files, phone) {
@@ -1293,6 +1371,11 @@
             const why = outcome.note || uploadNote || 'ارتباط با سرور برقرار نشد';
             setUploadStatus('⚠️ ' + why + ' — گزارش در گوشی ذخیره شد و با وصل شدن اینترنت از «درخواست‌های من» قابل پیگیری است', 'error');
             showToast(why);
+            saveUploadLog({
+              time: (new Date()).toLocaleString('fa-IR'),
+              text: 'ارسال گزارش ناموفق — ' + toPersianDigits(filesToUpload.length) + ' پیوست • دلیل: ' + why
+            });
+            offerUploadDetailsButton();
             return;
           }
           if (backendRes.success === false) {
@@ -1315,6 +1398,16 @@
           delete newReport.pendingSync;
 
           const savedInline = Array.isArray(backendRes.media) ? backendRes.media : [];
+          if (filesToUpload.length) {
+            saveUploadLog({
+              time: (new Date()).toLocaleString('fa-IR'),
+              text: 'ارسال همراه گزارش — ' + toPersianDigits(filesToUpload.length) + ' فایل • ذخیره‌شده: '
+                + toPersianDigits(savedInline.length)
+                + (mediaDeferred ? ' • مرحله‌ی همراه گزارش ناموفق بود و به مسیر تکه‌تکه منتقل شد' : '')
+                + (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length
+                    ? (' • خطا: ' + backendRes.media_errors.join(' / ')) : '')
+            });
+          }
           if (savedInline.length) {
             newReport.media = savedInline.map(item => ({
               kind: item.kind,
@@ -1343,6 +1436,30 @@
           if (stillToSend.length && newReport.backendId) {
             await sendMediaChunked(stillToSend, '');
           }
+
+          /* ── تأیید نهایی پیوست‌ها ────────────────────────────────────────
+             اگر پیام صفحه هنوز «در حال ارسال…» است، یعنی پاسخ سرور روشن
+             نبود؛ این‌بار تعداد پیوست‌های ذخیره‌شده را مستقیم از سرور
+             می‌پرسیم تا وضعیت قطعی شود و پیام مبهم روی صفحه نماند. */
+          const statusEl = document.getElementById('reportUploadStatus');
+          const stillSending = !!(statusEl && (statusEl.textContent || '').indexOf('در حال ارسال') > -1);
+          if (filesToUpload.length && newReport.backendId && stillSending) {
+            let confirmed = 0;
+            if (typeof window.eplakMediaStatus === 'function') {
+              try {
+                const st = await window.eplakMediaStatus(newReport.backendId, currentPhone);
+                if (st) confirmed = Number(st.count) || 0;
+              } catch (e) {}
+            }
+            if (confirmed > 0) {
+              setUploadStatus('✅ ' + toPersianDigits(confirmed) + ' پیوست ارسال و در پنل شهرداری ثبت شد', 'done');
+              clearMediaRetry();
+            } else {
+              setUploadStatus('⚠️ پیوست‌ها روی سرور ثبت نشدند؛ با اینترنت پایدار دکمه‌ی «تلاش دوباره» را بزنید', 'error');
+              offerMediaRetry(filesToUpload, currentPhone);
+              offerUploadDetailsButton();
+            }
+          }
           if (typeof loadReportsFromBackend === 'function') {
             loadReportsFromBackend(currentPhone, { silent: true });
           }
@@ -1361,6 +1478,75 @@
     }
   }
   window.submitNewReport = submitNewReport;
+
+  /* ═══════════════════════════════════════════════════════════
+     تازه‌سازی خودکار وضعیت گزارش‌ها
+     -----------------------------------------------------------
+     وقتی مدیر شهرداری وضعیت گزارش را در پنل ادمین تغییر می‌دهد، کاربر
+     باید بدون بستن و باز کردن اپ، وضعیت تازه را ببیند. هر ۴۵ ثانیه
+     (و هر بار که اپ از پس‌زمینه برمی‌گردد) فهرست گزارش‌ها از سرور
+     خوانده و صفحه‌ی جاری دوباره رندر می‌شود.
+  ═══════════════════════════════════════════════════════════ */
+  const REPORTS_REFRESH_MS = 45000;
+  let reportsRefreshTimer = null;
+
+  function currentReportsFilter() {
+    const active = document.querySelector('#reportsFilterTabs .filter-tab.active');
+    const value = active && active.dataset ? active.dataset.filter : 'all';
+    return (value === 'done' || value === 'pending' || value === 'review' || value === 'all') ? value : 'all';
+  }
+
+  function repaintReportsScreens() {
+    const listWrap = document.getElementById('reportsListWrap');
+    if (listWrap && typeof renderReportsList === 'function') {
+      renderReportsList(currentReportsFilter(), { skipBackend: true });
+    }
+    if (typeof renderProfileReportsSummary === 'function' && document.getElementById('profileReportsList')) {
+      renderProfileReportsSummary({ skipBackend: true });
+    }
+    /* اگر جزئیات یک گزارش باز است، همان گزارش با داده‌ی تازه دوباره نشان
+       داده می‌شود تا وضعیت/پاسخ تازه فوراً دیده شود. */
+    if (activeReportId && document.getElementById('screen-report-detail')
+        && document.getElementById('screen-report-detail').classList.contains('active')) {
+      openReportDetail(activeReportId);
+    }
+  }
+
+  async function refreshReportsNow(options) {
+    const phone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
+    if (!phone) return false;
+    const opts = options || {};
+    const requireVisible = (typeof opts.onlyIfVisible === 'boolean') ? opts.onlyIfVisible : true;
+    if (requireVisible && document.visibilityState === 'hidden') {
+      return false;   /* اپ در پس‌زمینه است؛ درخواست بی‌فایده نزن */
+    }
+    const before = JSON.stringify(reports.map(r => [String(r.id), normalizeStatusValue(r.status), r.reply || '', (r.media || []).length]));
+    await loadReportsFromBackend(phone, { silent: true });
+    const after = JSON.stringify(reports.map(r => [String(r.id), normalizeStatusValue(r.status), r.reply || '', (r.media || []).length]));
+    if (before !== after || opts.forceRender) repaintReportsScreens();
+    return true;
+  }
+  window.refreshReportsNow = refreshReportsNow;
+
+  function startReportsAutoRefresh() {
+    if (reportsRefreshTimer) return;
+    reportsRefreshTimer = setInterval(function () {
+      if (!getCurrentPhone()) return;
+      refreshReportsNow().catch(function () {});
+    }, REPORTS_REFRESH_MS);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      refreshReportsNow().catch(function () {});
+    }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startReportsAutoRefresh);
+  } else {
+    startReportsAutoRefresh();
+  }
 
   /* با باز شدن صفحه‌ی «موقعیت»، نقشه ساخته می‌شود و با بازگشت به آن،
      کاشی‌ها یک‌بار دیگر هم‌اندازه‌گیری می‌شوند تا کامل دیده شوند. */
@@ -1662,29 +1848,59 @@
       ? (r.department + ' / ' + r.subDepartment) : '—';
     document.getElementById('detailDesc').textContent = r.desc;
 
-    /* عکس‌ها و فیلم‌های ارسالی برای این گزارش */
+    /* ── عکس‌ها و فیلم‌های ارسالی برای این گزارش ──────────────────────
+       نمایش به‌صورت «گالری»: عکس‌های مربعی کوچک و مرتب (بدون به‌هم‌ریختگی
+       صفحه)، فیلم‌ها با پیش‌نمایش و آیکن پخش، و با ضربه روی هر کدام، نمایش
+       تمام‌صفحه (لایت‌باکس) باز می‌شود. */
     const mediaWrap = document.getElementById('detailMediaWrap');
     if (mediaWrap) {
-      const mediaList = Array.isArray(r.media) ? r.media : [];
+      const mediaList = (Array.isArray(r.media) ? r.media : [])
+        .filter(m => m && (m.url || m.previewUrl))
+        .map(m => ({
+          kind: m.kind === 'video' ? 'video' : 'image',
+          url: mediaUrlOf(m.url || m.previewUrl || ''),
+          name: m.name || '',
+          size: m.size || 0,
+          local: !!m.local
+        }));
+
       if (!mediaList.length) {
         mediaWrap.style.display = 'none';
         mediaWrap.innerHTML = '';
+        detailMediaList = [];
       } else {
+        const images = mediaList.filter(m => m.kind === 'image');
+        const videos = mediaList.filter(m => m.kind === 'video');
+        detailMediaList = mediaList;
         mediaWrap.style.display = 'block';
         mediaWrap.innerHTML = `
-          <div class="section-title" style="padding:0 4px;">${translateText('تصاویر و فیلم‌های ارسالی')}</div>
-          <div class="glass-card" style="padding:14px;">
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              ${mediaList.map(m => (m.kind === 'video')
-                ? `<video src="${escapeHtml(mediaUrlOf(m.url || ''))}" controls preload="metadata" playsinline
-                          style="width:100%; max-width:320px; border-radius:12px; background:#000;"></video>`
-                : `<a href="${escapeHtml(mediaUrlOf(m.url || ''))}" target="_blank" rel="noopener"
-                      style="display:block; width:86px; height:86px; border-radius:12px; overflow:hidden; border:1px solid var(--card-border);">
-                     <img src="${escapeHtml(mediaUrlOf(m.url || ''))}" alt="${escapeHtml(m.name || '')}" loading="lazy"
-                          style="width:100%; height:100%; object-fit:cover;"
-                          onerror="this.closest('a').style.display='none';">
-                   </a>`).join('')}
-            </div>
+          <div class="section-title" style="padding:0 4px;">
+            ${translateText('تصاویر و فیلم‌های ارسالی')}
+            <span class="media-count-chip">${toPersianDigits(mediaList.length)}</span>
+          </div>
+          <div class="glass-card media-card">
+            ${images.length ? `
+              <div class="media-strip">
+                ${images.map((m, i) => `
+                  <button type="button" class="media-tile" onclick="openReportMedia(${mediaList.indexOf(m)})">
+                    <img src="${escapeHtml(m.url)}" alt="${escapeHtml(m.name)}" loading="lazy"
+                         onerror="this.parentNode.classList.add('media-tile-broken');">
+                  </button>`).join('')}
+              </div>` : ''}
+            ${videos.length ? `
+              <div class="media-video-grid">
+                ${videos.map(m => `
+                  <button type="button" class="media-video-card" onclick="openReportMedia(${mediaList.indexOf(m)})">
+                    <video src="${escapeHtml(m.url)}" preload="metadata" playsinline muted></video>
+                    <span class="media-play-badge">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+                    </span>
+                    <span class="media-video-meta">${escapeHtml(formatFileSize(m.size || 0))}</span>
+                  </button>`).join('')}
+              </div>` : ''}
+            ${mediaList.some(m => m.local) ? `
+              <p class="media-note">🔒 چند پیوست هنوز فقط روی گوشی شما ذخیره شده است؛ با وصل بودن اینترنت، خودکار به سرور می‌رود.</p>` : ''}
+            <p class="media-hint">برای دیدن اندازه‌ی کامل، روی عکس یا فیلم بزنید.</p>
           </div>`;
       }
     }
@@ -1723,6 +1939,105 @@
     showScreen('screen-report-detail');
   }
 
+
+  /* ═══════════════════════════════════════════════════════════
+     گالری عکس و فیلم گزارش (نمایش تمام‌صفحه / لایت‌باکس)
+     -----------------------------------------------------------
+     کاربر با ضربه روی هر عکس یا فیلم، آن را بزرگ و تمام‌صفحه می‌بیند؛
+     با دکمه‌ی «بستن» یا ضربه روی پس‌زمینه برمی‌گردد و می‌تواند بین
+     پیوست‌ها جلو/عقب برود.
+  ═══════════════════════════════════════════════════════════ */
+  let detailMediaList = [];
+  let mediaViewerIndex = 0;
+
+  function ensureMediaViewer() {
+    let box = document.getElementById('reportMediaViewer');
+    if (box) return box;
+    box = document.createElement('div');
+    box.id = 'reportMediaViewer';
+    box.className = 'media-viewer';
+    box.innerHTML = `
+      <button type="button" class="media-viewer-close" onclick="closeReportMedia()" aria-label="بستن">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+      <button type="button" class="media-viewer-nav prev" onclick="stepReportMedia(-1)" aria-label="قبلی">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15,5 8,12 15,19"/></svg>
+      </button>
+      <button type="button" class="media-viewer-nav next" onclick="stepReportMedia(1)" aria-label="بعدی">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9,5 16,12 9,19"/></svg>
+      </button>
+      <div class="media-viewer-stage" id="reportMediaStage"></div>
+      <div class="media-viewer-foot" id="reportMediaFoot"></div>`;
+    box.addEventListener('click', function (ev) {
+      /* ضربه روی پس‌زمینه (نه روی خود عکس/فیلم) = بستن */
+      if (ev.target === box || (ev.target && ev.target.className === 'media-viewer-stage')) {
+        closeReportMedia();
+      }
+    });
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function renderMediaViewer() {
+    const box = ensureMediaViewer();
+    const stage = document.getElementById('reportMediaStage');
+    const foot = document.getElementById('reportMediaFoot');
+    const item = detailMediaList[mediaViewerIndex];
+    if (!item || !stage) return;
+    stage.innerHTML = (item.kind === 'video')
+      ? `<video src="${escapeHtml(item.url)}" controls autoplay playsinline preload="metadata"></video>`
+      : `<img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.name)}">`;
+    if (foot) {
+      const counter = toPersianDigits(mediaViewerIndex + 1) + ' از ' + toPersianDigits(detailMediaList.length);
+      const meta = (item.kind === 'video' ? 'فیلم' : 'عکس')
+        + (item.size ? ' • ' + formatFileSize(item.size) : '');
+      foot.textContent = counter + ' — ' + meta;
+    }
+    const prev = box.querySelector('.media-viewer-nav.prev');
+    const next = box.querySelector('.media-viewer-nav.next');
+    const many = detailMediaList.length > 1;
+    if (prev) prev.style.display = many ? 'flex' : 'none';
+    if (next) next.style.display = many ? 'flex' : 'none';
+  }
+
+  let mediaViewerOpen = false;
+
+  function openReportMedia(index) {
+    if (!Array.isArray(detailMediaList) || !detailMediaList.length) return;
+    mediaViewerIndex = Math.max(0, Math.min(detailMediaList.length - 1, Number(index) || 0));
+    mediaViewerOpen = true;
+    const box = ensureMediaViewer();
+    box.classList.add('open');
+    document.body.classList.add('media-viewer-locked');
+    renderMediaViewer();
+  }
+  window.openReportMedia = openReportMedia;
+
+  function closeReportMedia() {
+    const box = document.getElementById('reportMediaViewer');
+    if (!box) return;
+    box.classList.remove('open');
+    document.body.classList.remove('media-viewer-locked');
+    const stage = document.getElementById('reportMediaStage');
+    if (stage) stage.innerHTML = '';   /* پخش فیلم قطع می‌شود */
+    mediaViewerOpen = false;
+  }
+  window.closeReportMedia = closeReportMedia;
+
+  function stepReportMedia(delta) {
+    if (!mediaViewerOpen || detailMediaList.length < 2) return;
+    mediaViewerIndex = (mediaViewerIndex + delta + detailMediaList.length) % detailMediaList.length;
+    renderMediaViewer();
+  }
+  window.stepReportMedia = stepReportMedia;
+
+  /* با دکمه‌ی بازگشت گوشی، اول گالری بسته شود (نه صفحه) */
+  document.addEventListener('keydown', function (ev) {
+    if (!mediaViewerOpen) return;
+    if (ev.key === 'Escape') closeReportMedia();
+    else if (ev.key === 'ArrowLeft') stepReportMedia(1);
+    else if (ev.key === 'ArrowRight') stepReportMedia(-1);
+  });
 
   /* =========================================================
      Track Request
@@ -2397,7 +2712,7 @@
     } catch (e) { /* ignore */ }
   }
   async function requestTicketBackendDelete(backendId, phone) {
-    const response = await fetch(`${apiBase}/tickets.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
+    const response = await fetch(`${apiBase()}/tickets.php?action=delete&id=${encodeURIComponent(backendId)}&phone=${encodeURIComponent(phone)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', id: backendId, phone })
@@ -2428,7 +2743,7 @@
     ticketsSyncInFlight = (async () => {
     try {
       await flushPendingTicketDeletes(phone);
-      const response = await fetch(`${apiBase}/tickets.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
+      const response = await fetch(`${apiBase()}/tickets.php?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' });
       if (!response.ok) throw new Error('tickets fetch failed');
       const data = await response.json();
       const rows = (Array.isArray(data?.tickets) ? data.tickets : [])
@@ -2478,7 +2793,7 @@
     if (sendBtn) sendBtn.textContent = btnBusy;
 
     try {
-      const response = await fetch(`${apiBase}/tickets.php`, {
+      const response = await fetch(`${apiBase()}/tickets.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

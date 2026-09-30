@@ -44,7 +44,7 @@ if ($report && !empty($report['user_phone'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات گزارش</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=7">
   <script src="../assets/js/ep-map.js?v=1"></script>
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
@@ -253,38 +253,32 @@ if ($report && !empty($report['user_phone'])) {
             </span>
 
             <?php if ($mediaImages): ?>
-              <div class="media-gallery">
-                <?php foreach ($mediaImages as $media): ?>
-                  <figure class="media-thumb">
-                    <a href="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>" target="_blank" rel="noopener">
-                      <img src="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>"
-                           alt="<?= htmlspecialchars($media['name'] ?: 'عکس گزارش') ?>" loading="lazy">
-                    </a>
-                    <figcaption>
-                      <i class="fas fa-image"></i>
-                      <?= htmlspecialchars(formatBytesFa((int) $media['size'])) ?>
-                      <a class="media-dl" href="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>" download title="دانلود">
-                        <i class="fas fa-download"></i>
-                      </a>
-                    </figcaption>
+              <div class="media-strip-admin">
+                <?php foreach ($mediaImages as $mi => $media): ?>
+                  <?php $imgUrl = adminMediaUrl((string) $media['path']); ?>
+                  <figure class="media-chip" role="button" tabindex="0"
+                          onclick="eplakAdminMediaOpen('image', '<?= htmlspecialchars($imgUrl, ENT_QUOTES) ?>', '<?= htmlspecialchars($media['name'] ?: 'عکس گزارش', ENT_QUOTES) ?>', <?= $mi ?>)">
+                    <img src="<?= htmlspecialchars($imgUrl) ?>" alt="<?= htmlspecialchars($media['name'] ?: 'عکس گزارش') ?>" loading="lazy">
+                    <span class="media-chip-size"><?= htmlspecialchars(formatBytesFa((int) $media['size'])) ?></span>
+                    <a class="media-chip-dl" href="<?= htmlspecialchars($imgUrl) ?>" download title="دانلود"
+                       onclick="event.stopPropagation();"><i class="fas fa-download"></i></a>
                   </figure>
                 <?php endforeach; ?>
               </div>
+              <p class="media-hint-admin"><i class="fas fa-hand-pointer"></i> برای دیدن اندازه‌ی بزرگ، روی عکس بزنید.</p>
             <?php endif; ?>
 
             <?php if ($mediaVideos): ?>
-              <div class="media-videos">
-                <?php foreach ($mediaVideos as $media): ?>
-                  <figure class="media-video">
-                    <video controls preload="metadata" playsinline
-                           src="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>"></video>
-                    <figcaption>
-                      <i class="fas fa-video"></i>
-                      <?= htmlspecialchars(formatBytesFa((int) $media['size'])) ?>
-                      <a class="media-dl" href="<?= htmlspecialchars(adminMediaUrl((string) $media['path'])) ?>" download title="دانلود فیلم">
-                        <i class="fas fa-download"></i>
-                      </a>
-                    </figcaption>
+              <div class="media-strip-admin media-strip-video">
+                <?php foreach ($mediaVideos as $vi => $media): ?>
+                  <?php $vidUrl = adminMediaUrl((string) $media['path']); ?>
+                  <figure class="media-chip media-chip-video" role="button" tabindex="0"
+                          onclick="eplakAdminMediaOpen('video', '<?= htmlspecialchars($vidUrl, ENT_QUOTES) ?>', '<?= htmlspecialchars($media['name'] ?: 'فیلم گزارش', ENT_QUOTES) ?>', <?= $vi ?>)">
+                    <video preload="metadata" muted playsinline src="<?= htmlspecialchars($vidUrl) ?>#t=0.4"></video>
+                    <span class="media-chip-play"><i class="fas fa-play"></i></span>
+                    <span class="media-chip-size"><?= htmlspecialchars(formatBytesFa((int) $media['size'])) ?></span>
+                    <a class="media-chip-dl" href="<?= htmlspecialchars($vidUrl) ?>" download title="دانلود فیلم"
+                       onclick="event.stopPropagation();"><i class="fas fa-download"></i></a>
                   </figure>
                 <?php endforeach; ?>
               </div>
@@ -293,6 +287,37 @@ if ($report && !empty($report['user_phone'])) {
             <p class="help-text" style="margin-top: 10px;">
               اگر فایلی نمایش داده نشد، دسترسی پوشه‌ی <code>uploads</code> را بررسی کنید (باید قابل خواندن باشد).
             </p>
+
+            <!-- نمایش تمام‌صفحه‌ی پیوست (بدون باز کردن تب تازه) -->
+            <div id="adminMediaViewer" class="admin-media-viewer" onclick="if (event.target === this) eplakAdminMediaClose();">
+              <button type="button" class="admin-media-close" onclick="eplakAdminMediaClose()" title="بستن">&times;</button>
+              <div id="adminMediaStage" class="admin-media-stage"></div>
+              <div id="adminMediaFoot" class="admin-media-foot"></div>
+            </div>
+            <script>
+              function eplakAdminMediaOpen(kind, url, name, index) {
+                var box = document.getElementById('adminMediaViewer');
+                var stage = document.getElementById('adminMediaStage');
+                var foot = document.getElementById('adminMediaFoot');
+                if (!box || !stage) return;
+                stage.innerHTML = (kind === 'video')
+                  ? '<video src="' + url + '" controls autoplay playsinline></video>'
+                  : '<img src="' + url + '" alt="' + name + '">';
+                if (foot) foot.textContent = (kind === 'video' ? 'فیلم پیوست' : 'عکس پیوست') + ' شماره ' + (index + 1) + ' — ' + name;
+                box.classList.add('open');
+                document.body.classList.add('admin-media-locked');
+              }
+              function eplakAdminMediaClose() {
+                var box = document.getElementById('adminMediaViewer');
+                var stage = document.getElementById('adminMediaStage');
+                if (stage) stage.innerHTML = '';
+                if (box) box.classList.remove('open');
+                document.body.classList.remove('admin-media-locked');
+              }
+              document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') eplakAdminMediaClose();
+              });
+            </script>
           </div>
           <?php else: ?>
           <div class="detail-item full-width">

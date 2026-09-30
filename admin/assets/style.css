@@ -3315,3 +3315,169 @@ html[data-theme="dark"] .empty-note { color: var(--dark-400); }
 }
 .media-badge i { font-size: 11px; }
 .media-badge.none { background: var(--dark-100, #f1f5f9); color: var(--dark-400); font-weight: 500; }
+
+
+/* ============================================================
+   گالری پیوست‌های گزارش در پنل ادمین (نسخه‌ی جمع‌وجور و شکیل)
+   ------------------------------------------------------------
+   عکس‌ها به‌صورت کارت‌های مربعی کوچک، فیلم‌ها با پیش‌نمایش و آیکن پخش؛
+   با کلیک، پیوست در حالت تمام‌صفحه (لایت‌باکس) باز می‌شود.
+   ============================================================ */
+.media-strip-admin {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.media-chip {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--dark-200);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--dark-50);
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.media-chip:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary-400, #38bdf8);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+.media-chip img,
+.media-chip video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #0f172a;
+}
+
+.media-chip-size {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.62);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1.7;
+}
+
+.media-chip-dl {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--dark-600, #475569);
+  font-size: 11px;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.media-chip:hover .media-chip-dl { opacity: 1; }
+.media-chip-dl:hover { color: var(--primary-500); }
+
+.media-chip-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.media-hint-admin {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--dark-400, #94a3b8);
+}
+
+/* تغییر سریع وضعیت از فهرست گزارش‌ها */
+.inline-status-form { margin: 0; }
+.status-select {
+  padding: 5px 10px;
+  border-radius: var(--radius-full, 999px);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  text-align: center;
+}
+.status-select.status-pending { color: var(--warning); background: var(--warning-bg); border-color: var(--warning); }
+.status-select.status-progress { color: var(--info); background: var(--info-bg); border-color: var(--info); }
+.status-select.status-done { color: var(--success); background: var(--success-bg); border-color: var(--success); }
+
+/* ── نمایش تمام‌صفحه‌ی پیوست (پنل ادمین) ───────────────────── */
+.admin-media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 15, 25, 0.92);
+  backdrop-filter: blur(3px);
+}
+.admin-media-viewer.open { display: flex; }
+body.admin-media-locked { overflow: hidden; }
+
+.admin-media-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 58px 18px;
+}
+.admin-media-stage img,
+.admin-media-stage video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 14px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+  background: #000;
+}
+
+.admin-media-close {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-media-foot {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #e2e8f0;
+  font-size: 12.5px;
+}
