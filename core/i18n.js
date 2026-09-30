@@ -229,6 +229,17 @@
       'notifs_title': 'اعلان‌ها',
       'notif_title': 'اعلان‌ها',
       'notifs_empty': 'اعلانی برای نمایش وجود ندارد',
+      'notif_read_all': 'خواندن همه',
+      'notif_delete_all': 'حذف همه',
+      'notif_delete_one': 'حذف این اعلان',
+      'notif_deleted': 'اعلان حذف شد',
+      'notif_deleted_all': 'همه‌ی اعلان‌ها حذف شدند',
+      /* اتصال اینترنت */
+      'offline_title': 'بدون اینترنت اتصال ممکن نیست',
+      'offline_desc': 'این برنامه فقط در حالت آنلاین کار می‌کند. اتصال اینترنت گوشی را بررسی کنید و دوباره تلاش کنید.',
+      'offline_retry': 'تلاش مجدد',
+      'offline_checking': 'در حال بررسی اتصال…',
+      'offline_toast': 'اینترنت قطع است؛ پس از وصل شدن دوباره تلاش کنید',
       'edit_profile_title': 'ویرایش پروفایل',
       'map_nearby_title': 'اماکن و خدمات نزدیک',
 
@@ -540,6 +551,17 @@
       'notifs_title': 'Notifications',
       'notif_title': 'Notifications',
       'notifs_empty': 'No notifications to display',
+      'notif_read_all': 'Mark all read',
+      'notif_delete_all': 'Delete all',
+      'notif_delete_one': 'Delete this notification',
+      'notif_deleted': 'Notification deleted',
+      'notif_deleted_all': 'All notifications deleted',
+      /* Connection */
+      'offline_title': 'No internet connection',
+      'offline_desc': 'This app only works online. Check your phone internet and try again.',
+      'offline_retry': 'Try again',
+      'offline_checking': 'Checking connection…',
+      'offline_toast': 'You are offline; try again once the connection is back',
       'edit_profile_title': 'Edit Profile',
       'map_nearby_title': 'Nearby Places & Services',
 
@@ -650,6 +672,11 @@
      نقشه مستقیم عبارات فارسی به انگلیسی برای ترجمه خودکار
   ========================================================= */
   var PHRASE_MAP_FA_TO_EN = {
+    'بدون اینترنت اتصال ممکن نیست': 'No internet connection',
+    'تلاش مجدد': 'Try again',
+    'حذف همه': 'Delete all',
+    'خواندن همه': 'Mark all read',
+    'حذف این اعلان': 'Delete this notification',
     'خانه': 'Home',
     'پیشخوان': 'Dashboard',
     'خدمات': 'Services',

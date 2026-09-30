@@ -1867,6 +1867,10 @@
         if (data.id) newTicket.id = String(data.id);
         if (typeof saveTickets === 'function') saveTickets(phone);
         if (typeof renderUserTicketsList === 'function') renderUserTicketsList();
+        /* اعلان فوری «ثبت درخواست با کد پیگیری» برای همین کاربر */
+        if (typeof window.refreshNotificationsNow === 'function') {
+          try { window.refreshNotificationsNow(); } catch (e) {}
+        }
       }
     }).catch(function (err) {
       console.warn('[meeting] background sync note:', err);

@@ -159,7 +159,11 @@ Summary:
 **B) Put the file in the project (so the APK is built with Firebase)**
 Place it at `android-app/app/google-services.json` and push it to GitHub
 (you can upload it through the GitHub website). The APK build then runs
-automatically and produces a new APK **with Firebase enabled**.
+automatically and produces a new APK **with the Firebase code and config baked in**.
+
+> ❗ Until you confirm on your own phone that a notification arrives while the app is
+> fully closed, no document or screen claims “phone notifications are active”.
+> Unverified claims are not allowed.
 
 **C) Put the service key in the admin panel (needed for server-side sending)**
 1. Firebase → ⚙️ **Project settings** → **Service accounts** → **Generate new private key**.
@@ -192,8 +196,40 @@ notification — no more “Unread” while the citizen has read it.
 
 ---
 
+### 6.1.7) Four new behaviours in the app
+
+**1) Instant notification for every submitted request**
+Whenever a citizen submits a request/report/message, the server immediately creates a personal notification:
+
+> Your request with tracking code `EP-1403-0012` was registered on ۱۴۰۵/۰۷/۰۸ at ۱۶:۰۵.
+
+It appears in the app's own notification list and (when Firebase is configured) is pushed to the phone.
+Files: `shared/notify_events.php`, `shared/fa_datetime.php`, called from `api/reports.php` and `api/tickets.php`.
+
+**2) Deleting notifications**
+On the **اعلان‌ها (Notifications)** screen: every row has a trash button, and next to
+**خواندن همه (Mark all read)** there is **حذف همه (Delete all)**.
+Deletion is per user — shared/broadcast notifications stay for everybody else (`notification_deletes` table).
+Offline deletions are queued and sent automatically once the connection is back.
+
+**3) The app only works online**
+With no internet, a full-screen **«بدون اینترنت اتصال ممکن نیست»** panel (with a
+**تلاش مجدد / Try again** button) blocks the whole UI; it disappears as soon as the connection returns.
+Files: `api/ping.php` and `modules/online-guard.js`.
+
+**4) Sign-in is not remembered inside the app**
+After leaving the app with the double-back exit, the stored account is wiped: next launch
+asks for the phone number and the verification code again. (Browser sessions are unchanged.)
+
+---
+
 ## 7) Quick checklist after the update
 
+- [ ] `https://eplak.ir/eplak-fixed/api/ping.php` returns `"online":true`
+- [ ] In the app, turn the phone internet off → «بدون اینترنت اتصال ممکن نیست» appears
+- [ ] Submit a request in the app → the notification list shows “… registered on … with tracking code …” instantly
+- [ ] Trash button deletes one notification; «حذف همه» deletes all
+- [ ] Double-back to exit, reopen the app → the login + verification code screen appears
 - [ ] `https://eplak.ir/eplak-fixed/` opens and loads the new app version
 - [ ] `https://eplak.ir/eplak-fixed/admin/login.php` → login works
 - [ ] **Settings**: change username and password, then log in with the new ones

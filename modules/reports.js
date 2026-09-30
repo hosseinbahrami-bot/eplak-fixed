@@ -711,6 +711,12 @@
           if (typeof loadReportsFromBackend === 'function') {
             loadReportsFromBackend(currentPhone, { silent: true });
           }
+          /* اعلان «درخواست شما ثبت شد» تا این لحظه در سرور ساخته شده است؛
+             همین حالا فهرست اعلان‌ها را تازه می‌کنیم تا پیام و کد پیگیری
+             بلافاصله به کاربر نشان داده شود. */
+          if (typeof window.refreshNotificationsNow === 'function') {
+            try { window.refreshNotificationsNow(); } catch (e) {}
+          }
         })
         .catch(err => {
           console.warn('[reports] background sync note:', err);

@@ -7,6 +7,9 @@
    POST (form/json) action=read   → علامت‌گذاری به‌عنوان خوانده‌شده
         فیلدها: action=read, phone, device, id  یا  ids=1,2,3  یا  all=1
         پاسخ: {success, read:true, marked:N}
+   POST (form/json) action=delete → حذف اعلان از فهرست همین کاربر
+        فیلدها: action=delete, phone, device, id  یا  ids=1,2,3  یا  all=1
+        پاسخ: {success, deleted:true, hidden:N}
 
    نکته‌ی «خوانده شدن»: وضعیت خوانده‌شده برای هر کاربر جداگانه در جدول
    notification_reads نگه داشته می‌شود (توضیح کامل در shared/notification_reads.php).
@@ -82,6 +85,50 @@ $wantedIds = static function () use ($input): array {
 };
 
 try {
+    /* ── حذف اعلان از فهرست همین کاربر ──────────────────────────────── */
+    if ($action === 'delete' && $readerKey !== '') {
+        $ids = $wantedIds();
+
+        /* «حذف همه» = هر اعلانی که همین کاربر می‌بیند */
+        if (!$ids || (int) $input('all', 0) === 1) {
+            if ($phone !== '') {
+                $stmt = $pdo->prepare("SELECT id FROM notifications WHERE user_phone = :phone OR user_phone = 'all' OR user_phone = ''");
+                $stmt->execute([':phone' => $phone]);
+            } else {
+                $stmt = $pdo->query("SELECT id FROM notifications WHERE user_phone = 'all' OR user_phone = ''");
+            }
+            $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        /* فقط اعلان‌هایی که واقعاً به این کاربر مربوط‌اند حذف می‌شوند
+           (کسی نمی‌تواند اعلان اختصاصی کاربر دیگر را حذف کند). */
+        if ($ids) {
+            $in  = implode(',', array_fill(0, count($ids), '?'));
+            $sql = "SELECT id FROM notifications WHERE id IN ($in)";
+            $par = $ids;
+            if ($phone !== '') {
+                $sql .= " AND (user_phone = ? OR user_phone = 'all' OR user_phone = '')";
+                $par[] = $phone;
+            } else {
+                $sql .= " AND (user_phone = 'all' OR user_phone = '')";
+            }
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($par);
+            $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        $hidden = eplakNotificationHide($pdo, $ids, $readerKey);
+
+        echo json_encode([
+            'success' => true,
+            'deleted' => true,
+            'hidden'  => $hidden,
+            'ids'     => $ids,
+            'reader'  => $readerKey,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     /* ── علامت‌گذاری به‌عنوان خوانده‌شده ───────────────────────────────── */
     if ($action === 'read' && $readerKey !== '') {
         $ids = $wantedIds();
@@ -168,13 +215,18 @@ try {
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
 
-    /* وضعیت خوانده‌شدن مخصوص همین کاربر (رسیدهای خواندن) */
-    $ids  = array_map(static fn(array $r) => (int) $r['id'], $rows);
-    $read = eplakNotificationReadSet($pdo, $ids, $readerKey);
+    /* وضعیت خوانده‌شدن و حذف‌شدن مخصوص همین کاربر */
+    $ids     = array_map(static fn(array $r) => (int) $r['id'], $rows);
+    $read    = eplakNotificationReadSet($pdo, $ids, $readerKey);
+    $hidden  = eplakNotificationHiddenSet($pdo, $ids, $readerKey);
 
     $items = [];
     foreach ($rows as $r) {
         $id = (int) $r['id'];
+        if (isset($hidden[$id])) {
+            /* کاربر این اعلان را حذف کرده است؛ در فهرست او نمایش داده نمی‌شود */
+            continue;
+        }
         $isRead = ((int) $r['read_flag'] === 1) || isset($read[$id]);
         $items[] = [
             'id'         => $id,

@@ -44,10 +44,10 @@ $out['sent'] = sendNotification($pdo, 'عنوان', 'متن', 'all', [], 'admin'
 $out['recipients'] = count(getNotificationRecipients($pdo, (int) $pdo->query('SELECT MAX(id) FROM notification_sends')->fetchColumn()));
 echo json_encode($out);`));
 ok('بذرها اجرا شدند (۶ خبر/دانستنی + ۶۵ واحد)', db?.news === 6 && db?.depts === 65, `news=${db?.news} depts=${db?.depts}`);
-const wanted = ['notifications', 'notification_reads', 'device_tokens', 'push_subscriptions', 'report_media', 'app_settings'];
+const wanted = ['notifications', 'notification_reads', 'notification_deletes', 'device_tokens', 'push_subscriptions', 'report_media', 'app_settings'];
 const missing = wanted.filter((t) => !(db?.tables || []).includes(t));
 ok('همه‌ی جدول‌های لازم ساخته شدند', missing.length === 0, 'گم‌شده: ' + missing.join(', '));
-ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-09-26\./.test(String(db?.schema)), String(db?.schema));
+ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-09-30\./.test(String(db?.schema)), String(db?.schema));
 ok('ستون‌های شمارش فایربیس ساخته شدند', (db?.send_cols || []).includes('fcm_sent') && (db?.send_cols || []).includes('fcm_failed'), JSON.stringify(db?.send_cols));
 ok('ارسال اعلان کار می‌کند (عمومی + کاربر)', db?.sent === 2 && db?.recipients === 2, JSON.stringify({ sent: db?.sent, recipients: db?.recipients }));
 
@@ -63,6 +63,15 @@ const stored = upload?.media?.[0];
 ok('عکس در uploads/reports ذخیره شد', String(stored?.path || '').startsWith('uploads/reports/'), String(stored?.path));
 ok('عکس روی دیسک است', !!stored && fs.existsSync(`${APP}/${stored.path}`));
 ok('آدرس عکس نسبی است', !/^https?:/i.test(String(stored?.url || '')), String(stored?.url));
+
+/* اعلان فوری بعد از ثبت گزارش از مسیر واقعی API (بدون هیچ تنظیم اضافه) */
+const notifyAfter = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+$row = $pdo->query("SELECT title, body FROM notifications WHERE user_phone = '09121112233' ORDER BY id DESC LIMIT 1")->fetch();
+echo json_encode(['title' => $row['title'] ?? '', 'body' => $row['body'] ?? '']);`));
+ok('ثبت گزارش از مسیر API، اعلان فوری برای همان کاربر می‌سازد',
+  String(notifyAfter?.body || '').includes('کد پیگیری'), String(notifyAfter?.body));
+ok('متن اعلان، تاریخ و ساعت ثبت را دارد', String(notifyAfter?.body || '').includes('ساعت'), String(notifyAfter?.body));
 
 const guard = fs.existsSync(`${APP}/uploads/.htaccess`) ? fs.readFileSync(`${APP}/uploads/.htaccess`, 'utf8') : '';
 ok('نگهبان uploads نسخه‌ی سالم ساخته شد', guard.includes('eplak-media-guard-v2'));

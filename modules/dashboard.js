@@ -387,6 +387,7 @@
         const title = (isEn && enItem) ? enItem.title : n.title;
         const body = (isEn && enItem) ? enItem.body : n.body;
         const time = (isEn && enItem) ? enItem.time : (n.time || n.date || '');
+        const deleteLabel = t('notif_delete_one', isEn ? 'Delete this notification' : 'حذف این اعلان');
         return `
           <div class="report-item" onclick="markNotifRead('${n.id}')" style="${n.read ? 'opacity:0.6;' : ''}">
             ${!n.read ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--orange);flex-shrink:0;"></span>' : '<span style="width:8px;height:8px;flex-shrink:0;"></span>'}
@@ -395,6 +396,11 @@
               <p>${escapeHtml(body)} · ${time}</p>
             </div>
             <div class="report-icon-box" style="background:rgba(0,201,167,0.12);">${window.EplakIcons ? window.EplakIcons.get(n.icon || '🔔') : (n.icon || '🔔')}</div>
+            <button type="button" class="notif-delete-btn" title="${deleteLabel}" aria-label="${deleteLabel}"
+                    onclick="event.stopPropagation(); deleteNotif('${n.id}');"
+                    style="flex-shrink:0; width:34px; height:34px; border-radius:10px; border:1px solid rgba(255,60,60,0.28); background:rgba(255,60,60,0.10); color:#FF6666; display:grid; place-items:center; cursor:pointer;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
           </div>
         `;
       }).join('');
@@ -436,6 +442,31 @@
     reportReadToServer(id, false);
   }
 
+  function deleteAllNotifs() {
+    var isEn = (window.i18n && typeof window.i18n.getLanguage === 'function')
+      ? window.i18n.getLanguage() === 'en'
+      : (window.i18n && window.i18n.currentLang === 'en');
+    if (!notifications.length) {
+      showToast(isEn ? 'No notifications to delete' : 'اعلانی برای حذف وجود ندارد');
+      return;
+    }
+    const question = isEn ? 'Delete all notifications?' : 'همه‌ی اعلان‌ها حذف شوند؟';
+    if (typeof confirm === 'function' && !confirm(question)) return;
+    var done = function () {
+      notifications.length = 0;
+      if (typeof saveNotifications === 'function') saveNotifications();
+      renderNotifications();
+      showToast(isEn ? 'All notifications deleted' : 'همه‌ی اعلان‌ها حذف شدند');
+    };
+    try {
+      if (typeof window.deleteAllNotifications === 'function') {
+        window.deleteAllNotifications().then(done).catch(done);
+        return;
+      }
+    } catch (e) {}
+    done();
+  }
+
   function markAllNotifsRead() {
     const isEn = (window.i18n && typeof window.i18n.getLanguage === 'function')
       ? window.i18n.getLanguage() === 'en'
@@ -457,4 +488,5 @@
   }
 
   window.flushPendingReadReports = flushPendingReadReports;
+  window.deleteAllNotifs = deleteAllNotifs;
 

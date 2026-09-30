@@ -298,9 +298,17 @@ function eplakFcmSendOne(PDO $pdo, array $device, string $accessToken, string $p
                 'notification' => [
                     'channel_id' => 'eplak_alerts',
                     'sound'      => 'default',
-                    /* لمس اعلان، اپ را باز می‌کند (کلاس اصلی) */
-                    'click_action' => 'OPEN_MAIN_ACTIVITY',
+                    /* اولویت بالا: اعلان در حالت خواب/بسته بودن اپ هم فوراً می‌رسد */
+                    'notification_priority' => 'PRIORITY_HIGH',
+                    /* توجه: click_action عمداً تنظیم نمی‌شود. اگر اکشن داده شود و
+                       اپ فیلتر intent متناظر را نداشته باشد، اندروید اعلان را
+                       کلاً نمایش نمی‌دهد (همین باعث می‌شد اعلان در حالت بسته
+                       بودن اپ نرسد). بدون click_action، لمس اعلان خود اپ را
+                       باز می‌کند که همان نتیجه‌ی مطلوب است. */
                 ],
+            ],
+            'apns'         => [
+                'headers' => ['apns-priority' => '10'],
             ],
             'data'     => $data,
         ],

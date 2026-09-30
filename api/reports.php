@@ -228,10 +228,21 @@ try {
     $mediaErrors[] = 'ذخیره‌ی برخی فایل‌ها ناموفق بود.';
 }
 
+/* ── اعلان فوری برای خودِ کاربر: «درخواست شما ثبت شد» ─────────────────
+   این اعلان هم در فهرست اعلان‌های اپ/سایت دیده می‌شود و هم (اگر فایربیس فعال
+   باشد) بلافاصله روی گوشی می‌رسد؛ حتی وقتی برنامه بسته است. */
+$trackingCode = 'EP-1403-' . str_pad((string) $insertId, 4, '0', STR_PAD_LEFT);
+try {
+    require_once __DIR__ . '/../shared/notify_events.php';
+    eplakNotifyRequestCreated($pdo, $phone, 'درخواست', $trackingCode);
+} catch (Throwable $e) {
+    error_log('[eplak-api:reports.notify] ' . $e->getMessage());
+}
+
 eplakJson([
     'success'       => true,
     'id'            => $insertId,
-    'tracking_code' => 'EP-1403-' . str_pad((string) $insertId, 4, '0', STR_PAD_LEFT),
+    'tracking_code' => $trackingCode,
     'media'         => $savedMedia,
     'media_count'   => count($savedMedia),
     'media_errors'  => $mediaErrors,

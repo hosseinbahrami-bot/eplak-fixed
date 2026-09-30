@@ -137,16 +137,65 @@ const notice = s3.document.getElementById('notifDeviceNotice').innerHTML;
 ok('به کاربر وضعیت دقیق اعلان نشان داده می‌شود', notice.length > 20, notice.slice(0, 80));
 
 /* ---------- ۵) اپ با فایربیس ---------- */
-console.log('\n=== اپ با فایربیس فعال ===');
+console.log('\n=== اپ با فایربیس ===');
 const s4 = buildSandbox({ android: true, fcmToken: 'T' });
 s4.renderDeviceNotice();
-ok('پیام «حتی وقتی برنامه بسته باشد» نمایش داده می‌شود', s4.document.getElementById('notifDeviceNotice').innerHTML.includes('بسته'));
+const notice4 = s4.document.getElementById('notifDeviceNotice').innerHTML;
+ok('ادعای تأییدنشده‌ی «اعلان گوشی کامل فعال است» نوشته نمی‌شود',
+  !notice4.includes('کامل فعال است') && !notice4.includes('حتی وقتی برنامه بسته باشد'), notice4.slice(0, 90));
+ok('به کاربر می‌گوید اعلان داخل برنامه کار می‌کند', notice4.includes('داخل برنامه'));
+ok('راهنمای واقعی تنظیمات گوشی به کاربر داده می‌شود',
+  notice4.includes('تنظیمات گوشی') && notice4.includes('ای‌پلاک'));
 
 /* ---------- ۶) مرورگر ---------- */
 console.log('\n=== مرورگر/دستگاه بدون اعلان پس‌زمینه ===');
 const s5 = buildSandbox({});
 s5.renderDeviceNotice();
-ok('راهنمای «افزودن به صفحه اصلی» نمایش داده می‌شود', s5.document.getElementById('notifDeviceNotice').innerHTML.includes('افزودن به صفحه اصلی'), s5.document.getElementById('notifDeviceNotice').innerHTML.slice(0, 90));
+const notice5 = s5.document.getElementById('notifDeviceNotice').innerHTML;
+ok('متن دستگاه بدون اعلان پس‌زمینه صادقانه است و ادعای صفحه‌ی قفل نمی‌کند',
+  notice5.includes('اعلان‌های تازه در فهرست') && !notice5.includes('صفحه‌ی قفل'), notice5.slice(0, 90));
+
+/* ---------- ۷) حذف اعلان ---------- */
+console.log('\n=== حذف اعلان از فهرست کاربر ===');
+calls.length = 0;
+const s6 = buildSandbox({ android: true, fcmToken: 'T' });
+s6.notifications = [
+  { id: 'srv-21', title: 'الف', body: 'متن الف', read: false, time: '۱۰:۰۰' },
+  { id: 'srv-22', title: 'ب', body: 'متن ب', read: true, time: '۱۱:۰۰' }
+];
+const rDel = await s6.deleteNotifications([21], false);
+const delBody = new URLSearchParams(String(calls.at(-1).body));
+ok('حذف با کنش delete به سرور می‌رود',
+  String(calls.at(-1).url).endsWith('/notifications.php') && delBody.get('action') === 'delete');
+ok('شناسه‌ی اعلان بدون پیشوند srv- حذف می‌شود', delBody.get('ids') === '21', delBody.get('ids'));
+ok('شماره‌ی کاربر همراه درخواست حذف است', delBody.get('phone') === '09123456789');
+ok('پاسخ موفق سرور پذیرفته می‌شود', rDel.ok === true);
+
+calls.length = 0;
+await s6.deleteNotifications(null, true);
+const delAllBody = new URLSearchParams(String(calls.at(-1).body));
+ok('«حذف همه» با all=1 فرستاده می‌شود', delAllBody.get('all') === '1' && !delAllBody.get('ids'));
+
+/* ---------- ۸) صف حذف وقتی اینترنت نیست ---------- */
+console.log('\n=== صف حذف در حالت قطعی اینترنت ===');
+const s7 = buildSandbox({ android: true, fcmToken: 'T' });
+s7.notifications = [{ id: 'srv-31', title: 'ج', body: 'متن ج', read: false, time: '۱۲:۰۰' }];
+calls.length = 0;
+s7.fetch = async () => { throw new Error('offline'); };
+await s7.deleteNotif('srv-31');
+ok('اعلان در حالت آفلاین از فهرست خود کاربر پاک می‌شود', !s7.notifications.some((n) => String(n.id) === 'srv-31'));
+ok('وقتی اینترنت نیست، حذف در صف می‌ماند (گم نمی‌شود)', s7.eplakPendingDeletes().length === 1, JSON.stringify(s7.eplakPendingDeletes()));
+
+calls.length = 0;
+s7.fetch = async (url, o) => { calls.push({ url, body: o && o.body }); return { ok: true, json: async () => ({ success: true, deleted: true }) }; };
+await s7.flushPendingDeleteNotifs();
+const retryBody = new URLSearchParams(String(calls.at(-1).body));
+ok('با برگشتن اینترنت، حذف دوباره به سرور می‌رود', retryBody.get('action') === 'delete' && retryBody.get('ids') === '31', String(calls.at(-1).body));
+
+calls.length = 0;
+const refreshed = await s7.refreshNotificationsNow();
+ok('refreshNotificationsNow فهرست را از سرور می‌خواند',
+  refreshed === true && calls.some((c) => typeof c === 'object' && String(c.url).includes('/notifications.php')));
 
 console.log('\n' + '='.repeat(52));
 console.log(`APP: ${pass} passed, ${fail} failed`);

@@ -606,6 +606,10 @@
     if (typeof window.flushPendingReadReports === 'function') {
       try { window.flushPendingReadReports(); } catch (e) {}
     }
+    /* «حذف‌های» عقب‌افتاده (وقتی اینترنت نبود) حالا به سرور می‌رسند */
+    if (typeof window.flushPendingDeleteNotifs === 'function') {
+      try { window.flushPendingDeleteNotifs(); } catch (e) {}
+    }
 
     // Trigger alerts for newly arrived announcements
     if (!isInitialNotifs && newItemsFound.length > 0) {
@@ -658,6 +662,8 @@
       return false;
     }
   }
+
+  window.syncNotifications = syncNotifications;
 
   async function syncReportsLive() {
     try {
@@ -759,6 +765,148 @@
   }
   window.registerAppDevice = registerAppDevice;
 
+  /* ───────────────────────────────────────────────────────────
+     حذف اعلان (فقط از فهرست همین کاربر)
+
+     اعلان‌های پنل ادمین برای همه‌ی کاربران یک ردیف مشترک دارند؛ پس حذف واقعی
+     ردیف، اعلان را برای بقیه هم پاک می‌کند. سرور به‌جای پاک کردن، «حذف‌شده برای
+     این کاربر» ثبت می‌کند و از این‌پس آن اعلان را برای او نمی‌فرستد.
+  ─────────────────────────────────────────────────────────── */
+  var pendingDeleteNotifs = [];
+
+  async function deleteNotifications(ids, all) {
+    var list = notificationIdsForServer(ids);
+    if (!all && !list.length) {
+      return { ok: false, reason: 'nothing_to_delete' };
+    }
+
+    var payload = {
+      action: 'delete',
+      phone: currentPhoneSafe(),
+      device: deviceId()
+    };
+    if (all) {
+      payload.all = 1;
+    } else {
+      payload.ids = list.join(',');
+    }
+
+    try {
+      var body = new URLSearchParams();
+      Object.keys(payload).forEach(function (key) { body.append(key, payload[key]); });
+
+      var res = await fetch(apiBase() + '/notifications.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: body.toString()
+      });
+      var data = await res.json().catch(function () { return null; });
+      if (data && data.success === true) {
+        return { ok: true, data: data };
+      }
+      return { ok: false, reason: 'server', details: data && data.error };
+    } catch (e) {
+      return { ok: false, reason: 'network', details: e && e.message };
+    }
+  }
+  window.deleteNotifications = deleteNotifications;
+
+  /* حذف محلی + اطلاع به سرور (اگر اینترنت نبود، در صف می‌ماند) */
+  function deleteNotifLocal(ids, all) {
+    if (typeof notifications === 'undefined' || !Array.isArray(notifications)) return;
+    var wanted = (ids || []).map(function (id) { return String(id); });
+    var keep = [];
+    notifications.forEach(function (n) {
+      var idStr = String(n.id);
+      var isServer = idStr.indexOf('srv-') === 0;
+      var remove = all
+        ? true
+        : (wanted.indexOf(idStr) !== -1 || wanted.indexOf(idStr.replace(/^srv-/, '')) !== -1);
+      if (remove) {
+        /* اعلان‌های سروری باید سمت سرور هم «حذف برای این کاربر» ثبت شوند */
+        if (isServer) {
+          var numeric = parseInt(idStr.replace(/^srv-/, ''), 10);
+          if (numeric > 0) pendingDeleteNotifs.push(numeric);
+        }
+        return;
+      }
+      keep.push(n);
+    });
+    notifications.length = 0;
+    Array.prototype.push.apply(notifications, keep);
+    if (typeof saveNotifications === 'function') {
+      try { saveNotifications(); } catch (e) {}
+    }
+    if (typeof renderNotifications === 'function') {
+      try { renderNotifications(); } catch (e) {}
+    }
+  }
+
+  /* حذف همه‌ی اعلان‌ها (سرور: حذف برای همین کاربر) */
+  function deleteAllNotifications() {
+    if (typeof notifications === 'undefined' || !notifications.length) {
+      return { ok: true, reason: 'already_empty' };
+    }
+    deleteNotifLocal(null, true);
+    pendingDeleteNotifs.length = 0; /* همه با all حذف می‌شوند */
+    return deleteNotifications(null, true).then(function (result) {
+      if (result && result.ok === false && result.reason === 'network') {
+        pendingDeleteNotifs.push('all');
+      }
+      return result;
+    });
+  }
+  window.deleteAllNotifications = deleteAllNotifications;
+
+  /* حذف یک اعلان از زبان رابط کاربری (دکمه‌ی سطل‌زباله‌ی هر اعلان) */
+  function deleteNotif(id) {
+    var isEn = false;
+    try {
+      isEn = (window.i18n && typeof window.i18n.getLanguage === 'function' && window.i18n.getLanguage() === 'en');
+    } catch (e) {}
+
+    var numeric = notificationIdsForServer([id]);
+    deleteNotifLocal([id], false);
+
+    if (!numeric.length) {
+      if (typeof showToast === 'function') showToast(isEn ? 'Notification deleted' : 'اعلان حذف شد');
+      return;
+    }
+    deleteNotifications(numeric, false).then(function (result) {
+      if (result && result.ok === false && result.reason === 'network') {
+        pendingDeleteNotifs.push(numeric[0]);
+      }
+      if (typeof showToast === 'function') showToast(isEn ? 'Notification deleted' : 'اعلان حذف شد');
+    });
+  }
+  window.deleteNotif = deleteNotif;
+
+  async function flushPendingDeleteNotifs() {
+    if (!pendingDeleteNotifs.length) return;
+    var queue = pendingDeleteNotifs.splice(0, pendingDeleteNotifs.length);
+    var all = queue.indexOf('all') !== -1;
+    var ids = queue.filter(function (v) { return v !== 'all'; });
+    if (all) {
+      await deleteNotifications(null, true);
+    } else if (ids.length) {
+      await deleteNotifications(ids, false);
+    }
+  }
+  window.flushPendingDeleteNotifs = flushPendingDeleteNotifs;
+
+  /* فقط برای آزمون‌های خودکار: صف حذف‌های عقب‌افتاده (بدون امکان تغییر از بیرون) */
+  window.eplakPendingDeletes = function () { return pendingDeleteNotifs.slice(); };
+
+  /* بلافاصله پس از هر ثبت درخواست، اعلان‌ها تازه می‌شوند تا پیام
+     «درخواست شما ثبت شد» همان لحظه در فهرست و روی گوشی دیده شود. */
+  async function refreshNotificationsNow() {
+    try {
+      await flushPendingDeleteNotifs();
+    } catch (e) {}
+    return syncNotifications();
+  }
+  window.refreshNotificationsNow = refreshNotificationsNow;
+
   async function markNotificationsRead(ids, all) {
     var payload = {
       action: 'read',
@@ -814,25 +962,24 @@
           enabled = !!window.AndroidApp.notificationsEnabled();
         }
       } catch (e) {}
-      if (enabled && cap.fcm) {
-        text = '🔔 اعلان‌های این گوشی کامل فعال است (فایربیس): حتی وقتی برنامه بسته باشد، اعلان به دست شما می‌رسد.';
-      } else if (enabled) {
-        text = '🔔 اعلان‌های این اپ روی گوشی شما فعال است. اعلان‌های تازه در نوار اعلان‌های گوشی هم نمایش داده می‌شوند. '
-             + 'برای رسیدن اعلان در حالت «بسته بودن کامل برنامه»، مدیر سامانه باید فایربیس (FCM) را فعال کند.';
+      if (enabled) {
+        /* جمله‌ی «اعلان گوشی کاملاً فعال است» عمداً نوشته نمی‌شود؛ تا وقتی
+           رسیدن اعلان در حالت بسته بودن کامل اپ روی گوشی کاربر تأیید نشده،
+           چنین ادعایی درست نیست. */
+        text = '🔔 اعلان‌های داخل برنامه فعال است و اعلان‌های تازه در همین فهرست نمایش داده می‌شوند. '
+             + 'اگر اعلان را در نوار اعلان‌های گوشی نمی‌بینید: در تنظیمات گوشی → برنامه‌ها → ای‌پلاک → اعلان‌ها، اجازه‌ی اعلان را روشن کنید و آخرین نسخه‌ی اپ را نصب کنید.';
       } else {
         text = '🔕 برای دریافت اعلان روی گوشی، اجازه‌ی اعلان را به این برنامه بدهید. '
              + '<button type="button" onclick="requestPushPermission()" style="border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">فعال‌سازی اعلان</button>';
       }
     } else if (cap.kind === 'unsupported') {
-      text = '📵 این دستگاه امکان اعلان پس‌زمینه ندارد. برای دریافت اعلان روی صفحه‌ی قفل، '
-           + 'سایت را یک‌بار در مرورگر کروم گوشی باز کنید و از منوی مرورگر «افزودن به صفحه اصلی» را بزنید؛ '
-           + 'سپس اجازه‌ی اعلان را تأیید کنید. اعلان‌های داخل برنامه در هر حالت کار می‌کنند.';
+      text = '📵 این دستگاه امکان اعلان پس‌زمینه ندارد؛ اعلان‌های تازه در فهرست اعلان‌های همین برنامه نمایش داده می‌شوند.';
     } else if (cap.permission === 'granted') {
-      text = '🔔 اعلان‌های این دستگاه فعال است؛ اعلان‌های تازه روی صفحه‌ی قفل هم نمایش داده می‌شوند.';
+      text = '🔔 اعلان‌های تازه در فهرست اعلان‌های همین برنامه نمایش داده می‌شوند.';
     } else if (cap.permission === 'denied') {
       text = '🔕 اعلان این دستگاه توسط شما رد شده است. برای فعال‌سازی، در تنظیمات مرورگر اجازه‌ی اعلان این سایت را بدهید.';
     } else {
-      text = '🔔 با فعال کردن اعلان، پیام‌های شهرداری را حتی وقتی برنامه بسته است دریافت می‌کنید. '
+      text = '🔔 برای دریافت اعلان روی همین دستگاه، اجازه‌ی اعلان را بدهید. '
            + '<button type="button" onclick="requestPushPermission()" style="border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">فعال‌سازی اعلان</button>';
     }
 

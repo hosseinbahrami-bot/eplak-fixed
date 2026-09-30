@@ -161,7 +161,7 @@ A green message like this means the server successfully talked to Google:
 
 1. **Install the new APK** (built after adding `google-services.json`), open the app once and
    allow notifications (Android 13+ asks; tap **Allow**). The phone registers itself automatically —
-   in the app’s notifications screen you should see *«اعلان‌های این گوشی کامل فعال است (فایربیس)»*.
+   the app deliberately does **not** claim “phone notifications are fully active”; the only real test is to fully close the app, send a test notification from the admin panel and check that it arrives.
 2. In the panel → **تنظیمات** → fill **«ارسال آزمایشی به اپ اندروید»** with the phone number
    used in the app → click **«ارسال آزمایشی فایربیس»**. You should get
    *«✅ اعلان آزمایشی فایربیس برای … دستگاه ارسال شد.»*

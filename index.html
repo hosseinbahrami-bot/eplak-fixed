@@ -39,6 +39,34 @@
 <link rel="stylesheet" href="assets/css/style.css?v=85">
 <script src="assets/js/icons.js?v=12"></script>
 
+<!-- اگر همین حالا اینترنت قطع است، پرده‌ی «بدون اینترنت» از همان لحظه‌ی اول
+     کشیده می‌شود تا حتی یک صفحه هم بدون اتصال لود نشود. -->
+<script>
+try { if (navigator.onLine === false) { document.documentElement.classList.add('eplak-offline'); } } catch (e) {}
+</script>
+<style>
+  /* ── پرده‌ی «بدون اینترنت اتصال ممکن نیست» ───────────────────────────── */
+  #eplakOfflineGate { display: none; }
+  html.eplak-offline #eplakOfflineGate {
+    display: flex; position: fixed; inset: 0; z-index: 999999;
+    align-items: center; justify-content: center; padding: 24px;
+    background: linear-gradient(180deg, #0d1527 0%, #16233c 100%);
+    color: #fff; text-align: center; direction: rtl;
+    font-family: Vazirmatn, Tahoma, sans-serif;
+  }
+  html.eplak-offline body { overflow: hidden !important; }
+  #eplakOfflineGate .eplak-offline-card { max-width: 330px; width: 100%; }
+  #eplakOfflineGate .eplak-offline-icon { font-size: 46px; line-height: 1; margin-bottom: 14px; }
+  #eplakOfflineGate h2 { font-size: 17px; font-weight: 800; margin: 0 0 10px; }
+  #eplakOfflineGate p { font-size: 13px; line-height: 2; color: #cbd5e1; margin: 0 0 8px; }
+  #eplakOfflineState { font-size: 11.5px; color: #94a3b8; min-height: 18px; display: block; margin-bottom: 14px; }
+  #eplakOfflineRetry {
+    border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer;
+    background: #00C9A7; color: #06231d; font-weight: 800; font-size: 13px;
+    font-family: inherit;
+  }
+</style>
+
 <script>
 /* Service Worker دیگر حذف نمی‌شود؛ برای رسیدن «اعلان پس‌زمینه» (نوتیفیکیشن گوشی
    در حالت قفل/بسته بودن برنامه) باید ثبت شود. ثبت و مدیریت اشتراک در
@@ -2712,7 +2740,10 @@
         <span data-i18n="back">بازگشت</span>
       </button>
       <div style="font-size:16px; font-weight:800;" data-i18n="notif_title">اعلان‌ها</div>
-      <button class="edit-btn" style="font-size:11px; width:auto; padding:8px 10px;" onclick="markAllNotifsRead()">خواندن همه</button>
+      <div style="display:flex; gap:6px;">
+        <button class="edit-btn" style="font-size:11px; width:auto; padding:8px 10px;" onclick="markAllNotifsRead()" data-i18n="notif_read_all">خواندن همه</button>
+        <button class="edit-btn" style="font-size:11px; width:auto; padding:8px 10px; background:rgba(255,60,60,0.12); color:#FF6666; border-color:rgba(255,60,60,0.25);" onclick="deleteAllNotifs()" data-i18n="notif_delete_all">حذف همه</button>
+      </div>
     </div>
 
     <div class="screen-content" style="position:relative;z-index:10; gap:10px; padding:0 16px 20px;">
@@ -2992,27 +3023,39 @@ title="شماره موبایل هویت حساب شماست و قابل تغیی
 
 
 
+<!-- ============ پرده‌ی «بدون اینترنت» (بیرون از قالب گوشی؛ تمام‌صفحه) ============ -->
+<div id="eplakOfflineGate" role="alert" aria-live="assertive">
+  <div class="eplak-offline-card">
+    <div class="eplak-offline-icon">📵</div>
+    <h2 id="eplakOfflineTitle">بدون اینترنت اتصال ممکن نیست</h2>
+    <p id="eplakOfflineDesc">این برنامه فقط در حالت آنلاین کار می‌کند. اتصال اینترنت گوشی را بررسی کنید و دوباره تلاش کنید.</p>
+    <span id="eplakOfflineState">در حال بررسی اتصال…</span>
+    <button type="button" id="eplakOfflineRetry">تلاش مجدد</button>
+  </div>
+</div>
+
 <!-- ===== Core ===== -->
 <script src="core/sound.js?v=10"></script>
-<script src="core/i18n.js?v=12"></script>
+<script src="core/i18n.js?v=13"></script>
 <script src="core/state.js?v=10"></script>
-<script src="core/storage.js?v=12"></script>
-<script src="core/router.js?v=10"></script>
+<script src="core/storage.js?v=13"></script>
+<script src="modules/online-guard.js?v=1"></script>
+<script src="core/router.js?v=11"></script>
 
 <!-- ===== Modules ===== -->
-<script src="modules/auth.js?v=10"></script>
+<script src="modules/auth.js?v=11"></script>
 <script src="modules/home.js?v=20"></script>
-<script src="modules/reports.js?v=16"></script>
-<script src="modules/dashboard.js?v=12"></script>
+<script src="modules/reports.js?v=17"></script>
+<script src="modules/dashboard.js?v=13"></script>
 <script src="modules/profile.js?v=11"></script>
-<script src="modules/services.js?v=14"></script>
-<script src="modules/live.js?v=12"></script>
+<script src="modules/services.js?v=15"></script>
+<script src="modules/live.js?v=13"></script>
 <script src="modules/weather-3d.js?v=47"></script>
 <script src="modules/city-live.js?v=57"></script>
 <script src="modules/clock-lux.js?v=4"></script>
 
 <!-- ===== App entry point (runs init after everything is loaded) ===== -->
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 
 <!-- ===== PWA Service Worker & iOS Native Bridge Helper ===== -->
 <script>

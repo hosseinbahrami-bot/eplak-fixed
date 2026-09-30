@@ -266,6 +266,11 @@
     if (now - lastBackPressTime < 2000) {
       // اجرای خروج از اپلیکیشن
       if (window.AndroidApp && typeof window.AndroidApp.exitApp === 'function') {
+        /* پیش از بسته شدن کامل، اطلاعات ورود از دستگاه پاک می‌شود تا دفعه‌ی
+           بعد که برنامه باز شد، کاربر دوباره کد تایید بگیرد. */
+        try {
+          if (typeof window.prepareAppExit === 'function') window.prepareAppExit();
+        } catch (e) {}
         window.AndroidApp.exitApp();
         return true;
       }

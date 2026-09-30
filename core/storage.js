@@ -438,8 +438,60 @@
     if (typeof window.clearTicketsInMemory === 'function') window.clearTicketsInMemory();
   }
 
+  /* ─── «حساب داخل اپ ذخیره نشود» ───────────────────────────────────
+     درخواست کارفرما: اپ اندروید بعد از بسته شدن (خروج با دوبار زدن دکمه‌ی
+     بازگشت) باید دوباره کد تایید بخواهد. بنابراین هر بار که اپ از صفر بالا
+     می‌آید، اطلاعات ورود از دستگاه پاک می‌شود؛ مگر کاربر همان لحظه کد تایید
+     را وارد کرده باشد (markLoginDone در اندروید ثبت می‌شود). */
+  function clearStoredSession() {
+    try {
+      setCurrentPhone('');
+      if (typeof userProfile === 'object' && userProfile) {
+        userProfile.rawPhone = '';
+        userProfile.phone = '';
+        userProfile.name = DEFAULT_NAME;
+      }
+      if (typeof reports !== 'undefined') reports.length = 0;
+      if (typeof payments !== 'undefined') payments.length = 0;
+      if (typeof notifications !== 'undefined') notifications.length = 0;
+      if (typeof favoriteIds !== 'undefined') favoriteIds.length = 0;
+    } catch (e) {}
+  }
+  window.clearStoredSession = clearStoredSession;
+
+  /* آیا اپ اندروید می‌گوید «این بالا آمدن تازه است و باید کد تایید گرفته شود»؟ */
+  function nativeRequiresLogin() {
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.shouldRequireLogin === 'function') {
+        return window.AndroidApp.shouldRequireLogin() === true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  /* پاک‌سازی اطلاعات ورود پیش از خروج کامل از اپ (دوبار زدن دکمه‌ی بازگشت) */
+  function prepareAppExit() {
+    clearStoredSession();
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.prepareExit === 'function') {
+        window.AndroidApp.prepareExit();
+      }
+    } catch (e) {}
+  }
+  window.prepareAppExit = prepareAppExit;
+
   /* ─── بازیابی session پس از رفرش ──────────────────────────────── */
   function restoreSession() {
+    /* در اپ اندروید: اگر این بالا آمدن تازه است، حساب بازیابی نمی‌شود */
+    if (nativeRequiresLogin()) {
+      clearStoredSession();
+      try {
+        if (typeof window.updateProfileUI === 'function') window.updateProfileUI();
+        if (typeof window.showScreen === 'function') window.showScreen('screen-login', { skipHistory: true });
+      } catch (e) {}
+      return false;
+    }
+
     const phone = getCurrentPhone();
     if (!phone) return false;
 

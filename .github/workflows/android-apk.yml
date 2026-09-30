@@ -124,7 +124,7 @@ jobs:
           BUILDCODE=$(grep -m1 -oP "versionCode\s+\K[0-9]+" android-app/app/build.gradle || echo "?")
           DATE_UTC=$(date -u '+%Y-%m-%d %H:%M UTC')
           if [ -f android-app/app/google-services.json ]; then
-            FCM_STATE="✅ فعال (فایل google-services.json پیدا شد)"
+            FCM_STATE="✅ کد و تنظیمات فایربیس داخل بیلد گنجانده شد (google-services.json موجود است) — رسیدن اعلان در حالت بسته بودن اپ باید روی گوشی تأیید شود"
           else
             FCM_STATE="⏳ غیرفعال — فایل android-app/app/google-services.json افزوده نشده است"
           fi
@@ -178,7 +178,7 @@ jobs:
             echo "| زمان ساخت | $DATE_UTC |"
             echo "| حجم فایل | \`$SIZE\` بایت |"
             echo "| اثرانگشت SHA-256 | \`$SHA\` |"
-            echo "| وضعیت فایربیس (اعلان اپ بسته) | $FCM_STATE |"
+            echo "| وضعیت فایربیس در بیلد | $FCM_STATE |"
             echo "| کد اعلان‌ها داخل اپ | $FCM_CODE |"
             echo "| اتصال به پروژه‌ی فایربیس | $FCM_WIRED |"
             echo "| کد پیوست عکس/فیلم | $MEDIA_CODE |"
@@ -266,7 +266,7 @@ jobs:
             echo "| حجم فایل | \`$APK_SIZE\` بایت |"
             echo "| اثرانگشت SHA-256 | \`$APK_SHA\` |"
             echo "| تأیید محتوا | $APK_VERIFY |"
-            echo "| اعلان فایربیس (اپ بسته) | $APK_FCM_STATE |"
+            echo "| فایربیس در بیلد | $APK_FCM_STATE |"
             echo "| اتصال به پروژه‌ی فایربیس | $APK_FCM_WIRED |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."

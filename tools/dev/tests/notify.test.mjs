@@ -103,6 +103,56 @@ echo json_encode(['len' => strlen($html), 'fatal' => strpos($html, 'Fatal error'
 ok('صفحه‌ی ارسال اعلان رندر می‌شود', (sends?.len || 0) > 3000, String(sends?.len));
 ok('ستون اعلان فایربیس در جدول هست', sends?.fcm_col === true);
 
+/* ---------- حذف اعلان برای هر کاربر (خواسته‌ی تازه) ---------- */
+console.log('\n=== حذف اعلان از فهرست یک کاربر ===');
+const delTarget = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+$pdo->exec("INSERT INTO notifications (user_phone, title, body) VALUES ('09120000004', 'اعلان حذفی', 'متن حذفی')");
+$pdo->exec("INSERT INTO notifications (user_phone, title, body) VALUES ('all', 'اعلان عمومی حذف‌نشدنی', 'متن')");
+echo json_encode(['mine' => (int) $pdo->query("SELECT id FROM notifications WHERE title = 'اعلان حذفی'")->fetchColumn(),
+                  'shared' => (int) $pdo->query("SELECT id FROM notifications WHERE title = 'اعلان عمومی حذف‌نشدنی'")->fetchColumn()]);`));
+ok('اعلان اختصاصی برای آزمون ساخته شد', delTarget?.mine > 0, JSON.stringify(delTarget));
+
+const delRes = pickJson(await run(`$_POST = ['action' => 'delete', 'phone' => '09120000004', 'id' => '${delTarget.mine}']; $_SERVER['REQUEST_METHOD'] = 'POST'; require '${APP}/api/notifications.php';`));
+ok('کنش حذف موفق گزارش می‌شود', delRes?.success === true && delRes?.hidden >= 1, JSON.stringify(delRes));
+
+const afterDel = pickJson(await run(`$_GET = ['phone' => '09120000004']; $_SERVER['REQUEST_METHOD'] = 'GET'; require '${APP}/api/notifications.php';`));
+ok('اعلان حذف‌شده در فهرست همان کاربر نیست', !(afterDel?.notifications || []).some((n) => n.id === delTarget.mine), JSON.stringify(afterDel?.notifications?.map((n) => n.id)));
+ok('اعلان‌های دیگر کاربر دست‌نخورده‌اند', (afterDel?.notifications || []).length >= 1, String((afterDel?.notifications || []).length));
+
+const otherUser = pickJson(await run(`$_GET = ['phone' => '09120000005']; $_SERVER['REQUEST_METHOD'] = 'GET'; require '${APP}/api/notifications.php';`));
+ok('حذف کاربر، اعلان اختصاصی بقیه را پاک نمی‌کند', !(otherUser?.notifications || []).some((n) => n.id === delTarget.mine));
+ok('اعلان مشترک «all» برای همه می‌ماند (حذف واقعی ردیف انجام نشده)', (otherUser?.notifications || []).some((n) => n.id === delTarget.shared), JSON.stringify(otherUser?.notifications?.map((n) => n.id)));
+
+const rowStillThere = pickJson(await run(`require '${APP}/admin/includes/db.php'; echo json_encode(['exists' => (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE id = ${delTarget.mine}")->fetchColumn()]);`));
+ok('ردیف اعلان در دیتابیس پاک نشده (فقط برای آن کاربر مخفی شده)', rowStillThere?.exists === 1, JSON.stringify(rowStillThere));
+
+/* ---------- اعلان فوری پس از ثبت درخواست ---------- */
+console.log('\n=== اعلان فوری «درخواست ثبت شد» ===');
+const created = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+require_once '${APP}/shared/notify_events.php';
+$out = eplakNotifyRequestCreated($pdo, '09120000009', 'درخواست', 'EP-1403-0042');
+$row = $pdo->query("SELECT title, body, user_phone FROM notifications ORDER BY id DESC LIMIT 1")->fetch();
+echo json_encode(['ok' => $out['ok'], 'id' => $out['id'], 'title' => $row['title'], 'body' => $row['body'], 'phone' => $row['user_phone'], 'fa_now' => eplakFaDateTime()]);`));
+ok('اعلان رویدادی ساخته شد', created?.ok === true && created?.id > 0, JSON.stringify(created));
+ok('عنوان «ثبت درخواست» است', String(created?.title || '').includes('ثبت'), String(created?.title));
+ok('متن، کد پیگیری را دارد', String(created?.body || '').includes('EP-1403-0042'), String(created?.body));
+ok('متن، تاریخ و ساعت دارد (کلمه‌ی «ساعت»)', String(created?.body || '').includes('ساعت'), String(created?.body));
+ok('تاریخ شمسی با رقم‌های فارسی نوشته می‌شود', /[۰-۹]{4}\/[۰-۹]{2}\/[۰-۹]{2}/.test(String(created?.body || '')), String(created?.body));
+ok('اعلان به شماره‌ی همان کاربر ثبت شده (نه گروهی)', created?.phone === '09120000009', String(created?.phone));
+
+const seenByUser = pickJson(await run(`$_GET = ['phone' => '09120000009']; $_SERVER['REQUEST_METHOD'] = 'GET'; require '${APP}/api/notifications.php';`));
+ok('کاربر اعلان تازه را در فهرست خود می‌بیند', (seenByUser?.notifications || []).some((n) => String(n.body).includes('EP-1403-0042')), JSON.stringify((seenByUser?.notifications || []).map((n) => n.body).slice(0, 3)));
+const notSeenByOther = pickJson(await run(`$_GET = ['phone' => '09120000011']; $_SERVER['REQUEST_METHOD'] = 'GET'; require '${APP}/api/notifications.php';`));
+ok('کاربر دیگر این اعلان را نمی‌بیند (حریم خصوصی)', !(notSeenByOther?.notifications || []).some((n) => String(n.body).includes('EP-1403-0042')));
+
+/* ---------- نقطه‌ی بررسی اینترنت ---------- */
+console.log('\n=== api/ping.php (پایه‌ی پرده‌ی «بدون اینترنت») ===');
+const pong = pickJson(await run(`$_SERVER['REQUEST_METHOD'] = 'GET'; ob_start(); require '${APP}/api/ping.php'; $o = ob_get_clean(); echo $o;`));
+ok('پاسخ موفق است', pong?.success === true && pong?.online === true, JSON.stringify(pong));
+ok('زمان سرور برگردانده می‌شود', String(pong?.server_time || '').length > 10, String(pong?.server_time));
+
 console.log('\n' + '='.repeat(52));
 console.log(`NOTIFY: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));

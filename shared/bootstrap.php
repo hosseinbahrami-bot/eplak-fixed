@@ -510,6 +510,19 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         UNIQUE (notification_id, user_phone)
     )");
 
+    /* «حذف اعلان» به‌ازای هر کاربر.
+       اعلان‌های گروهی یک ردیف مشترک دارند؛ پس کاربر نمی‌تواند ردیف را واقعاً پاک
+       کند (برای دیگران هم پاک می‌شود). این جدول برای هر (اعلان، خواننده) یک سطر
+       نگه می‌دارد و اعلان‌های حذف‌شده فقط برای همان کاربر نمایش داده نمی‌شوند.
+       کلید خواننده مثل notification_reads است (شماره یا guest:<دستگاه>). */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_deletes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notification_id INT NOT NULL,
+        user_phone VARCHAR(60) NOT NULL,
+        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (notification_id, user_phone)
+    )");
+
     /* توکن دستگاه‌های اندروید (فایربیس/FCM).
        در WebView اندروید، «Push API» وجود ندارد؛ پس اعلان سیستمی در حالت بسته
        بودن اپ از مسیر FCM می‌رود و این جدول توکن هر دستگاه را نگه می‌دارد. */
@@ -541,6 +554,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_media_report ON report_media(report_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_subs_phone ON push_subscriptions(user_phone)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_notif_reads_notification ON notification_reads(notification_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_notif_deletes_notification ON notification_deletes(notification_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_device_tokens_phone ON device_tokens(user_phone)');
 
     /* تنظیمات کلید/مقدار برنامه (کلیدهای VAPID و …) */
@@ -631,7 +645,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-09-26.4');
+    define('EPLAK_SCHEMA_VERSION', '2026-09-30.1');
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -1004,6 +1018,16 @@ function eplakGetPdo(): PDO {
         read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_notification_reader (notification_id, user_phone),
         KEY idx_notification_reads_notification (notification_id)
+    )");
+
+    /* «حذف اعلان» به‌ازای هر کاربر — توضیح کامل در بخش SQLite همین فایل */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS notification_deletes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        notification_id INT NOT NULL,
+        user_phone VARCHAR(60) NOT NULL,
+        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_notification_deleter (notification_id, user_phone),
+        KEY idx_notification_deletes_notification (notification_id)
     )");
 
     /* توکن دستگاه‌های اندروید (فایربیس/FCM) — توضیح کامل در بخش SQLite همین فایل */

@@ -15,6 +15,15 @@ import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /* حافظه‌ی «باید دوباره کد تایید گرفته شود».
+           خواسته‌ی کارفرما: پس از خروج از اپ (دوبار زدن دکمه‌ی بازگشت) و باز
+           شدن دوباره، حساب کاربری به‌خاطر سپرده نشود و کاربر باید دوباره کد
+           تایید بگیرد. */
+        const val SESSION_PREFS = "eplak_session"
+        const val KEY_REQUIRE_LOGIN = "require_login"
+    }
+
     private lateinit var webView: WebView
 
     /* درخواست اجازه‌ی اعلان (اندروید ۱۳ و بالاتر) — نتیجه‌اش به لایه‌ی وب خبر داده می‌شود */
@@ -29,6 +38,16 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        /* اگر این، یک «بالا آمدن تازه»ی اپ است (نه چرخش صفحه یا برگشت از
+           پس‌زمینه)، ورود قبلی معتبر نیست و لایه‌ی وب باید صفحه‌ی کد تایید را
+           نشان بدهد. */
+        if (savedInstanceState == null) {
+            getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_REQUIRE_LOGIN, true)
+                .apply()
+        }
 
         webView = findViewById<WebView>(R.id.myWebView)
         val webSettings = webView.settings
@@ -105,9 +124,42 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun exitApp() {
+            /* پیش از بسته شدن، علامت می‌زنیم که دفعه‌ی بعد کد تایید لازم است */
+            activity.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_REQUIRE_LOGIN, true)
+                .apply()
             activity.runOnUiThread {
                 activity.finish()
             }
+        }
+
+        /* ── نگه‌داشتن حساب در اپ؟ ─────────────────────────────────────────
+           اگر اپ تازه بالا آمده باشد یا کاربر با دوبار دکمه‌ی بازگشت خارج شده
+           باشد، این متد true برمی‌گرداند؛ لایه‌ی وب در این حالت اطلاعات ورود
+           را پاک می‌کند و صفحه‌ی «ورود + کد تایید» را نشان می‌دهد. */
+        @JavascriptInterface
+        fun shouldRequireLogin(): Boolean {
+            return activity.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_REQUIRE_LOGIN, false)
+        }
+
+        /** کاربر همین حالا کد تایید را درست وارد کرده است */
+        @JavascriptInterface
+        fun markLoginDone() {
+            activity.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_REQUIRE_LOGIN, false)
+                .apply()
+        }
+
+        /** قبل از خروج کامل از اپ صدا زده می‌شود (دوبار دکمه‌ی بازگشت) */
+        @JavascriptInterface
+        fun prepareExit() {
+            activity.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_REQUIRE_LOGIN, true)
+                .apply()
         }
 
         /* ── اعلان سیستمی روی گوشی ────────────────────────────────────────

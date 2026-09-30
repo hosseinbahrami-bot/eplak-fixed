@@ -28,6 +28,12 @@ import androidx.core.content.ContextCompat
  */
 object NotificationBridge {
 
+    /* شناسه‌ی اعلان‌هایی که همین چند لحظه پیش نمایش داده شده‌اند.
+       چرا؟ یک اعلان ممکن است هم از فایربیس برسد و هم از همگام‌سازی داخل اپ
+       (هر ۳.۵ ثانیه). بدون این حافظه، کاربر دو اعلان تکراری می‌بیند. */
+    private val recentlyShown = HashMap<String, Long>()
+    private const val DEDUPE_WINDOW_MS = 30_000L
+
     const val CHANNEL_ID = "eplak_alerts"
     private const val CHANNEL_NAME = "اعلان‌های ای‌پلاک"
     private const val CHANNEL_DESCRIPTION = "اطلاعیه‌های شهرداری ورامین"
@@ -64,6 +70,23 @@ object NotificationBridge {
     fun show(context: Context, title: String, body: String, id: String) {
         if (!isEnabled(context)) return
         ensureChannel(context)
+
+        /* حذف اعلان تکراری: اگر همین اعلان ۳۰ ثانیه‌ی پیش نمایش داده شده باشد،
+           دوباره نمایش داده نمی‌شود (کلید: شناسه یا متن اعلان). */
+        val key = if (id.isNotBlank()) id else (title + "|" + body).hashCode().toString()
+        val now = System.currentTimeMillis()
+        synchronized(recentlyShown) {
+            val last = recentlyShown[key]
+            if (last != null && now - last < DEDUPE_WINDOW_MS) {
+                return
+            }
+            recentlyShown[key] = now
+            val iterator = recentlyShown.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (now - entry.value > DEDUPE_WINDOW_MS) iterator.remove()
+            }
+        }
 
         // با لمس اعلان، همان اپ باز می‌شود
         val intent = Intent(context, MainActivity::class.java).apply {

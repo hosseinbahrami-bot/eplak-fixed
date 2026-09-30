@@ -35,10 +35,12 @@ has() { printf '%s\n' "$LIST" | grep -Fxq "$1"; }
 
 for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared/bootstrap.php \
          shared/webpush.php shared/media.php shared/notification_reads.php shared/fcm.php \
-         api/push.php api/media.php api/reports.php api/notifications.php \
+         shared/notify_events.php shared/fa_datetime.php \
+         api/ping.php api/push.php api/media.php api/reports.php api/notifications.php \
          admin/settings.php admin/login.php admin/report_detail.php admin/notification_view.php \
          admin/version.php \
-         core/storage.js modules/reports.js modules/live.js modules/dashboard.js \
+         core/storage.js core/router.js core/i18n.js \
+         modules/reports.js modules/live.js modules/dashboard.js modules/online-guard.js \
          docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md \
          docs/FIREBASE_SETUP_FA.md docs/FIREBASE_SETUP_EN.md; do
   if has "$f"; then echo "   ✅ $f"; else echo "   ❌ $f گم شده!"; exit 1; fi

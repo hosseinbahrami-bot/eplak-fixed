@@ -138,6 +138,31 @@ ok('هدر Authorization با توکن دسترسی ارسال شد', first?.aut
 ok('عنوان و متن درست است', first?.message?.notification?.title === 'قطعی آب' && first?.message?.notification?.body === 'فردا از ۸ تا ۱۲');
 ok('اولویت بالا تنظیم شده', first?.message?.android?.priority === 'high');
 ok('کانال اعلان اپ تنظیم شده', first?.message?.android?.notification?.channel_id === 'eplak_alerts');
+
+/* ── علت اصلی «نرسیدن اعلان وقتی اپ کاملاً بسته است» ──────────────────────
+   اگر پیام click_action داشته باشد و اپ فیلتر intent متناظر را نداشته باشد،
+   اندروید اعلان را اصلاً نمایش نمی‌دهد. حالا هم اکشن فرستاده نمی‌شود و هم
+   فیلتر intent در مانیفست هست؛ آزمون هر دو سو را می‌سنجد. */
+ok('click_action حذف شده (علت نرسیدن اعلان در حالت بسته بودن اپ)',
+  first?.message?.android?.notification?.click_action === undefined,
+  JSON.stringify(first?.message?.android?.notification));
+const manifest = fs.readFileSync(`${ROOT}/android-app/app/src/main/AndroidManifest.xml`, 'utf8');
+ok('فیلتر intent برای OPEN_MAIN_ACTIVITY در مانیفست هست', manifest.includes('OPEN_MAIN_ACTIVITY'));
+ok('اولویت نمایش اعلان PRIORITY_HIGH است (بیدار شدن اپ خواب‌رفته)',
+  first?.message?.android?.notification?.notification_priority === 'PRIORITY_HIGH');
+ok('صدای اعلان پیش‌فرض تعیین شده', first?.message?.android?.notification?.sound === 'default');
+ok('نوع پیام notification است (خود اندروید حتی با اپ بسته نمایش می‌دهد)',
+  !!first?.message?.notification && !!first?.message?.token);
+ok('داده‌های همراه شامل شناسه‌ی اعلان است (برای جلوگیری از تکرار)',
+  String(first?.message?.data?.id || '').length > 0, JSON.stringify(first?.message?.data));
+
+const bridge = fs.readFileSync(`${ROOT}/android-app/app/src/main/java/com/example/eplakfixed/NotificationBridge.kt`, 'utf8');
+ok('پل اعلان اندروید، اعلان تکراری را نمایش نمی‌دهد', bridge.includes('recentlyShown') && bridge.includes('DEDUPE_WINDOW_MS'));
+ok('گیرنده‌ی فایربیس (سرویس) در کد اپ هست',
+  fs.existsSync(`${ROOT}/android-app/app/src/main/java/com/example/eplakfixed/EplakMessagingService.kt`));
+const activitySrc = fs.readFileSync(`${ROOT}/android-app/app/src/main/java/com/example/eplakfixed/MainActivity.kt`, 'utf8');
+ok('اپ پس از خروج، ورود را پاک می‌کند (PER-خواسته‌ی کارفرما)',
+  activitySrc.includes('shouldRequireLogin') && activitySrc.includes('markLoginDone') && activitySrc.includes('prepareExit'));
 ok('داده‌های همراه پیام رشته‌اند (الزام فایربیس)', typeof first?.message?.data?.url === 'string' && typeof first?.message?.data?.id === 'string');
 
 console.log('\n=== توکن باطل (اپ حذف شده) ===');

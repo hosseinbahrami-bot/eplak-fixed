@@ -26,6 +26,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- بدون این فیلتر، اندروید برای اعلان‌های فایربیس که
+                 click_action دارند مقصدی پیدا نمی‌کند و اعلان در حالت
+                 «بسته بودن کامل اپ» اصلاً نمایش داده نمی‌شود. -->
+            <intent-filter>
+                <action android:name="OPEN_MAIN_ACTIVITY" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <!-- دریافت اعلان‌های فایربیس (وقتی اپ در پس‌زمینه یا بسته است) -->

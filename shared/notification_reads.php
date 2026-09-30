@@ -101,6 +101,83 @@ function eplakNotificationMarkRead(PDO $pdo, array $ids, string $readerKey, stri
     return $done;
 }
 
+/**
+ * حذف اعلان‌ها «برای همین کاربر».
+ *
+ * اعلان‌ها در یک جدول مشترک‌اند؛ پس حذف واقعی ردیف باعث می‌شود اعلان برای دیگر
+ * کاربران هم ناپدید شود. به‌جای پاک کردن ردیف، اینجا با یک رسید «حذف» ثبت
+ * می‌کنیم و فهرست کاربر آن را نشان نمی‌دهد.
+ *
+ * @param array<int,int> $ids
+ * @return int تعداد اعلان‌هایی که برای این کاربر حذف ثبت شد
+ */
+function eplakNotificationHide(PDO $pdo, array $ids, string $readerKey): int
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn($i) => $i > 0)));
+    if (!$ids || $readerKey === '') {
+        return 0;
+    }
+    $done = 0;
+    try {
+        $sqlite = eplakIsSqlite($pdo);
+        $sql = $sqlite
+            ? 'INSERT OR IGNORE INTO notification_deletes (notification_id, user_phone) VALUES (:id, :reader)'
+            : 'INSERT IGNORE INTO notification_deletes (notification_id, user_phone) VALUES (:id, :reader)';
+        $stmt = $pdo->prepare($sql);
+        foreach ($ids as $id) {
+            $stmt->execute([':id' => $id, ':reader' => $readerKey]);
+            $done++;
+        }
+    } catch (\Throwable $e) {
+        error_log('[eplak-notify] ثبت حذف اعلان ناموفق: ' . $e->getMessage());
+    }
+    /* اعلانی که حذف می‌شود، عملاً خوانده‌شده هم هست (وگرنه شمارنده‌ی اپ اشتباه می‌شود) */
+    try {
+        eplakNotificationMarkRead($pdo, $ids, $readerKey);
+    } catch (\Throwable $e) {
+        /* بی‌اهمیت */
+    }
+    return $done;
+}
+
+/** اعلان‌های حذف‌شده‌ی یک خواننده: [notification_id => true] */
+function eplakNotificationHiddenSet(PDO $pdo, array $ids, string $readerKey): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn($i) => $i > 0)));
+    if (!$ids || $readerKey === '') {
+        return [];
+    }
+    try {
+        $in   = implode(',', array_fill(0, count($ids), '?'));
+        $par  = $ids;
+        $par[] = $readerKey;
+        $stmt = $pdo->prepare("SELECT notification_id FROM notification_deletes WHERE notification_id IN ($in) AND user_phone = ?");
+        $stmt->execute($par);
+        $set = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $nid) {
+            $set[(int) $nid] = true;
+        }
+        return $set;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/** همه‌ی شناسه‌های حذف‌شده‌ی یک خواننده (بدون محدودیت فهرست) */
+function eplakNotificationHiddenIds(PDO $pdo, string $readerKey): array
+{
+    if ($readerKey === '') {
+        return [];
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT notification_id FROM notification_deletes WHERE user_phone = :reader');
+        $stmt->execute([':reader' => $readerKey]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
 /** اعلان‌های خوانده‌شده‌ی یک خواننده: [notification_id => true] */
 function eplakNotificationReadSet(PDO $pdo, array $ids, string $readerKey): array
 {

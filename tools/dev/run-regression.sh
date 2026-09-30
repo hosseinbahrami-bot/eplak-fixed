@@ -14,6 +14,8 @@
 #    fcm        → موتور فایربیس (JWT، ارسال پیام، توکن باطل)
 #    backend    → دیتابیس، بذرها، آپلود عکس، صفحات پنل
 #    rescue     → ابزار بازیابی اتصال دیتابیس (rescue-db.php)
+#    online     → اپ فقط آنلاین (پرده‌ی «بدون اینترنت»)، حذف اعلان، اعلان فوری
+#                 پس از ثبت درخواست، و ورود دوباره با کد تایید پس از خروج از اپ
 # ============================================================================
 set -uo pipefail
 
@@ -59,7 +61,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue; do
+for t in notify app pushcrypto fcm backend rescue online; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

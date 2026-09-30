@@ -306,7 +306,11 @@ PYEOF
 )
 VER=$(printf '%s' "$BODY_TXT" | grep -oE 'نسخه‌ی اپ \| `[^`]+`' | head -1 | grep -oE '`[^`]+`' | tr -d '`')
 COMMIT=$(printf '%s' "$BODY_TXT" | grep -oE 'کامیت \| `[^`]+`' | head -1 | grep -oE '`[^`]+`' | tr -d '`')
-FCM_LINE=$(printf '%s' "$BODY_TXT" | grep -oE 'اعلان فایربیس \(اپ بسته\) \| [^|]+' | head -1 | sed 's/.*| //' | sed 's/ *$//')
+FCM_LINE=$(printf '%s' "$BODY_TXT" | grep -oE 'فایربیس در بیلد \| [^|]+' | head -1 | sed 's/.*| //' | sed 's/ *$//')
+if [ -z "$FCM_LINE" ]; then
+  # سازگاری با توضیحات قدیمی Releases (قبل از اصلاح متن‌ها)
+  FCM_LINE=$(printf '%s' "$BODY_TXT" | grep -oE 'اعلان فایربیس \(اپ بسته\) \| [^|]+' | head -1 | sed 's/.*| //' | sed 's/ *$//')
+fi
 LINK_LINE=$(printf '%s' "$BODY_TXT" | grep -oE 'متصل به پروژه‌ی [0-9]+' | head -1)
 
 say "| مورد | مقدار |"
@@ -314,19 +318,68 @@ say "|---|---|"
 say "| نسخه‌ی اپ | \`${VER:-؟}\` |"
 say "| کامیت ساخته‌شده | \`${COMMIT:-؟}\` |"
 say "| حجم فایل | ${APK_SIZE:-0} بایت |"
-say "| وضعیت فایربیس داخل اپ | ${FCM_LINE:-؟} |"
+say "| فایربیس داخل اپ | ${FCM_LINE:-؟} |"
 say "| اتصال پروژه | ${LINK_LINE:-—} |"
-if printf '%s' "$FCM_LINE" | grep -q "فعال"; then
-  say "| نتیجه | ✅ اپ با اعلان فایربیس ساخته شده است |"
-  APK_FCM="yes"
+if printf '%s' "$FCM_LINE" | grep -qE "گنجانده|متصل"; then
+  say "| نتیجه | ✅ کد و تنظیمات فایربیس داخل بیلد اپ هست (رسیدن اعلان در حالت بسته بودن اپ باید روی گوشی تأیید شود) |"
+  APK_FCM="wired"
+elif printf '%s' "$FCM_LINE" | grep -q "فعال"; then
+  say "| نتیجه | ⚠️ متن قدیمی Releases — «فعال» ادعای تأییدنشده است؛ به‌جای آن «گنجانده شد» نوشته می‌شود |"
+  APK_FCM="wired"
 else
   say "| نتیجه | ⏳ اپ فعلی بدون فایربیس ساخته شده |"
   APK_FCM="no"
 fi
 
+# ── ۸) امکانات نسخه‌ی جدید (آنلاین‌اجباری، حذف اعلان، ورود دوباره) ─────────
+hdr "۸) امکانات نسخه‌ی جدید"
+say "> این بخش نشانه‌های چهار خواسته‌ی تازه را روی سایت بررسی می‌کند:"
+say "> ۱) اپ فقط آنلاین کار کند • ۲) حذف اعلان • ۳) اعلان فوری پس از ثبت درخواست •"
+say "> ۴) درخواست دوباره‌ی کد تایید پس از خروج از اپ."
+say ""
+say "| مورد | کد پاسخ | وضعیت |"
+say "|---|---|---|"
+
+# ۱) نقطه‌ی اتصال اینترنت
+CODE_PING=$(grab "$BASE/api/ping.php" "$TMP/ping.out")
+if [ "$CODE_PING" = "200" ] && has "$TMP/ping.out" '"online":true'; then
+  say "| \`api/ping.php\` (بررسی اتصال) | $CODE_PING | ✅ هست و پاسخ می‌دهد |"
+  NEW_ONLINE="yes"
+else
+  say "| \`api/ping.php\` (بررسی اتصال) | $CODE_PING | ⚠️ نیست — پرده‌ی «بدون اینترنت» کار نمی‌کند |"
+  NEW_ONLINE="no"
+  ISSUES+=("api/ping.php روی هاست نیست؛ بسته‌ی تازه را روی هاست Extract کنید")
+fi
+
+# ۲) سپر آفلاین و دکمه‌های حذف، از روی فایل‌های واقعی روی سرور
+CODE_GUARD=$(grab "$BASE/modules/online-guard.js" "$TMP/guard.out")
+if [ "$CODE_GUARD" = "200" ] && has "$TMP/guard.out" "eplakOfflineGate"; then
+  say "| \`modules/online-guard.js\` (سپر آفلاین) | $CODE_GUARD | ✅ نصب است |"
+else
+  say "| \`modules/online-guard.js\` (سپر آفلاین) | $CODE_GUARD | ⚠️ نیست |"
+fi
+CODE_LIVEJS=$(grab "$BASE/modules/live.js" "$TMP/live2.out")
+if [ "$CODE_LIVEJS" = "200" ] && has "$TMP/live2.out" "deleteNotifications"; then
+  say "| حذف اعلان در \`modules/live.js\` | $CODE_LIVEJS | ✅ هست |"
+else
+  say "| حذف اعلان در \`modules/live.js\` | $CODE_LIVEJS | ⏳ کد قدیمی است |"
+fi
+if [ "$CODE_LIVEJS" = "200" ] && has "$TMP/live2.out" "refreshNotificationsNow"; then
+  say "| اعلان فوری پس از ثبت درخواست | $CODE_LIVEJS | ✅ هست |"
+else
+  say "| اعلان فوری پس از ثبت درخواست | $CODE_LIVEJS | ⏳ کد قدیمی است |"
+fi
+CODE_STORAGE=$(grab "$BASE/core/storage.js" "$TMP/storage.out")
+if [ "$CODE_STORAGE" = "200" ] && has "$TMP/storage.out" "prepareAppExit"; then
+  say "| پاک شدن حساب پس از خروج از اپ | $CODE_STORAGE | ✅ هست |"
+else
+  say "| پاک شدن حساب پس از خروج از اپ | $CODE_STORAGE | ⏳ کد قدیمی است |"
+fi
+say ""
+
 # ── نتیجه‌ی نهایی ─────────────────────────────────────────────────────────
 hdr "نتیجه"
-NEW_WEB="no"; NEW_API="no"
+NEW_WEB="no"; NEW_API="no"; NEW_ONLINE="no"
 if has "$LIVE" "registerAppDevice"; then NEW_WEB="yes"; fi
 if has "$PUSH" "fcm_ready"; then NEW_API="yes"; fi
 
@@ -369,10 +422,17 @@ if [ "$NEW_VER_PAGE" = "yes" ]; then
 else
   say "- ⏳ بسته‌ی تازه‌ی سایت روی هاست باز نشده — فایل eplak-fixed-update.zip را Extract کنید"
 fi
-if [ "$APK_FCM" = "yes" ]; then
+if [ "$APK_FCM" = "wired" ]; then
+  say "- ✅ فایل APK منتشرشده کد و تنظیمات فایربیس را دارد (نصبش کنید و رسیدن اعلان را روی گوشی امتحان کنید)"
+elif [ "$APK_FCM" = "yes" ]; then
   say "- ✅ فایل APK منتشرشده با اعلان فایربیس ساخته شده (نصبش کنید)"
 else
   say "- ⏳ فایل APK فعلی فایربیس ندارد"
+fi
+if [ "$NEW_ONLINE" = "yes" ]; then
+  say "- ✅ نقطه‌ی بررسی اتصال (\`api/ping.php\`) و پرده‌ی «بدون اینترنت اتصال ممکن نیست» نصب شده‌اند"
+else
+  say "- ⏳ پرده‌ی «بدون اینترنت» هنوز روی سایت نصب نشده — بسته‌ی تازه را Extract کنید"
 fi
 say "- 📱 برای دیدن تعداد گوشی‌های ثبت‌شده: پنل ادمین → «بررسی نسخه» (باید بزرگ‌تر از صفر باشد)"
 if [ "$RESCUE_PRESENT" = "yes" ]; then
