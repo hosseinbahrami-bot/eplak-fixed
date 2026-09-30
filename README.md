@@ -6,7 +6,7 @@
 
 | فایل | توضیح | لینک دانلود |
 |---|---|---|
-| 📱 **اپ اندروید** | فایل نصب گوشی (`eplak-app.apk`) | **[دانلود APK](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk)** |
+| 📱 **اپ اندروید** | فایل نصب گوشی (`eplak-app.apk`) — نسخه‌ی آخر: **2.0.9** (با اعلان فایربیس) | **[دانلود APK](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk)** |
 | 🌐 **بسته‌ی سایت و پنل** | برای آپلود روی `eplak.ir/eplak-fixed` | **[دانلود `eplak-fixed-update.zip`](https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/eplak-fixed-update.zip)** |
 | 🗂️ **همه‌ی نسخه‌ها** | صفحه‌ی Releases گیت‌هاب | [صفحه‌ی Releases](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/tag/v2.0-eplak-update) |
 
@@ -19,7 +19,7 @@
 |---|---|
 | اپ باز است | ✅ اعلان در اپ + بنر + صدا + نوتیفیکیشن نوار اعلان |
 | اپ در پس‌زمینه / گوشی قفل | ✅ نوتیفیکیشن نوار اعلان گوشی |
-| **اپ کاملاً بسته** | ✅ با فایربیس (FCM) — راه‌اندازی یک‌باره در `docs/DEPLOY_UPDATE_FA.md` بخش ۶-۳ |
+| **اپ کاملاً بسته** | ✅ اپ به فایربیس وصل است (از نسخه‌ی `2.0.9`). فقط باید کلید سرویس را در پنل ادمین → تنظیمات → «اعلان فایربیس» بچسبانید |
 | سایت در مرورگر گوشی | ✅ اعلان روی صفحه‌ی قفل هم می‌رسد |
 
 ## 📚 راهنماها

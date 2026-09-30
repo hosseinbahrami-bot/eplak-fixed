@@ -270,7 +270,11 @@ jobs:
             echo "| اتصال به پروژه‌ی فایربیس | $APK_FCM_WIRED |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
-            echo "> پس از افزودن \`android-app/app/google-services.json\`، همین فایل با اعلان فایربیس ساخته می‌شود."
+            if [ -f android-app/app/google-services.json ]; then
+              echo "> اپ به فایربیس وصل است. برای فعال شدن ارسال از سرور، کلید سرویس را در پنل ادمین → تنظیمات → «اعلان فایربیس» بچسبانید."
+            else
+              echo "> برای فعال شدن اعلان در حالت «اپ بسته»، فایل \`android-app/app/google-services.json\` را اضافه کنید."
+            fi
             echo ""
             echo "<!-- APK-INFO:END -->"
           } > /tmp/release-notes.md
