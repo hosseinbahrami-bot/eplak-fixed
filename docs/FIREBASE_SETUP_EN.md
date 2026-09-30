@@ -58,6 +58,27 @@ These two are often confused — read this table first:
 5. Click **Next** through step 3 (*Add Firebase SDK* — change nothing; it is already configured
    in this project) and step 4 → **Continue to console**.
 
+### 🟦 If the console asks “Kotlin DSL or Groovy?” — which one?
+
+On the **“Add Firebase SDK”** step the console shows two code tabs:
+`Kotlin DSL (build.gradle.kts)` and `Groovy (build.gradle)`.
+
+> ✅ **Neither. Copy nothing — just click `Next`.**
+
+**Why:** both required pieces are already in this project:
+
+| Requirement | Status in the Eplak app | File |
+|---|---|---|
+| Google Services Gradle plugin | ✅ already added (`classpath 'com.google.gms:google-services:4.4.2'`) | `android-app/build.gradle` |
+| Plugin applied to the app | ✅ automatic as soon as `google-services.json` exists | `android-app/app/build.gradle` |
+| Firebase Messaging SDK | ✅ already added (`firebase-messaging`, `firebase-bom:33.7.0`) | `android-app/app/build.gradle` |
+
+This project uses **Groovy** (there is no `build.gradle.kts` anywhere), so if you ever do
+need to add code, the **Groovy** tab is the right one — but not today.
+
+> ⚠️ Pasting those snippets into the project would break the APK build with
+> `Duplicate class` / `plugin already applied` errors. Just press `Next`.
+
 **Lost the file?** Download it again any time:
 **⚙️ Project settings → General tab → Your apps → the Android app → `google-services.json`**.
 
