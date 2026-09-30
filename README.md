@@ -34,7 +34,7 @@
 ## 🧪 آزمون‌های خودکار
 
 ```bash
-bash tools/dev/run-regression.sh          # همه‌ی آزمون‌ها (۸۱ بررسی)
+bash tools/dev/run-regression.sh          # همه‌ی آزمون‌ها (۸۶ بررسی)
 bash tools/dev/run-regression.sh fcm      # فقط موتور فایربیس
 bash tools/dev/run-regression.sh syntax   # فقط بررسی نحوی PHP و JS
 ```
