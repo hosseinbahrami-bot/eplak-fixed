@@ -275,6 +275,30 @@ for (const file of walk(ROOT)) {
 ok('هیچ تابعی بدون () داخل رشته‌های قالبی جاگذاری نشده است',
   suspicious.length === 0, suspicious.slice(0, 4).join(' | '));
 
+console.log('\n=== ارسال خودکار پیوست‌های جامانده (صف گوشی) ===');
+const storageSrc = fs.readFileSync(path.join(ROOT, 'core/storage.js'), 'utf8');
+ok('صف پیوست‌های ناموفق روی گوشی ساخته می‌شود (IndexedDB)',
+  /PENDING_DB = 'eplak_pending_media'/.test(storageSrc) && /function queuePendingMedia/.test(storageSrc)
+  && /eplak_pending_media/.test(storageSrc));
+ok('صف، فایل‌های ناموفق را با شناسه‌ی گزارش نگه می‌دارد',
+  /key: String\(reportId\)/.test(storageSrc) && /blob: file/.test(storageSrc));
+ok('ارسال دوباره‌ی صف با گروه‌بندی بر اساس گزارش انجام می‌شود',
+  /async function flushPendingMedia/.test(storageSrc) && /uploadReportMediaChunked\(group\.reportId/.test(storageSrc));
+ok('فایل‌های موفق از صف حذف می‌شوند و ناموفق‌ها می‌مانند',
+  /store\.clear\(\);/.test(storageSrc) && /leftovers\.forEach/.test(storageSrc));
+ok('اگر مرورگر IndexedDB نداشت، رفتار قبلی حفظ می‌شود (بدون خطا)',
+  /if \(!window\.indexedDB\) return resolve\(null\)/.test(storageSrc));
+ok('صف در دسترس لایه‌ی اپ قرار می‌گیرد',
+  /window\.eplakQueuePendingMedia/.test(storageSrc) && /window\.eplakFlushPendingMedia/.test(storageSrc)
+  && /window\.eplakCountPendingMedia/.test(storageSrc));
+ok('فایل‌های ناموفق هنگام ثبت گزارش در صف گذاشته می‌شوند',
+  /eplakQueuePendingMedia\(newReport\.backendId, phone, files\)/.test(reportsJs));
+ok('صف هنگام باز شدن اپ و برگشتن اینترنت خودکار فرستاده می‌شود',
+  /window\.addEventListener\('online', function \(\) \{ flushPendingUploads\(\); \}\)/.test(reportsJs)
+  && /setTimeout\(flushPendingUploads, 2500\)/.test(reportsJs));
+ok('پس از ارسال خودکار، وضعیت گزارش‌ها هم تازه می‌شود',
+  /پیوست جامانده خودکار ارسال شد/.test(reportsJs));
+
 console.log('\n' + '='.repeat(52));
 console.log(`APP: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));

@@ -226,6 +226,10 @@ Note: photos are compressed inside the app, so an 8 MB phone photo becomes rough
   send that text to support so the exact cause can be identified.
 - Final verification: the app asks the server how many attachments were stored, so the
   "Uploading…" message never stays on screen.
+- **Automatic retry:** if an attachment fails, the file is kept in the phone's own storage
+  (IndexedDB) and is re-sent automatically at the first opportunity — reopening the app,
+  regaining connectivity, or the periodic refresh — with no action needed from the user,
+  so photos and videos are never lost.
 
 ### Deploy steps
 1. Download the fresh `eplak-fixed-update.zip` from the Releases page.

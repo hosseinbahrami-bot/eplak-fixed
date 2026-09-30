@@ -357,6 +357,140 @@
     };
   }
 
+  /* ── صف پیوست‌های ناموفق (نگه‌داشتن فایل در گوشی تا ارسال موفق) ──────────
+     اگر هنگام ثبت گزارش، اینترنت ضعیف باشد یا سرور فایل را نپذیرد، فایل در
+     حافظه‌ی مرورگر/اپ (IndexedDB) ذخیره می‌شود و در نخستین فرصت — باز شدن
+     دوباره‌ی اپ یا برگشتن اینترنت — خودکار دوباره فرستاده می‌شود. پس کاربر
+     هیچ‌وقت عکس/فیلمش را از دست نمی‌دهد و لازم نیست کاری انجام دهد.
+     اگر مرورگر از IndexedDB پشتیبانی نکند، این بخش بی‌صدا کنار گذاشته
+     می‌شود و رفتار قبلی (دکمه‌ی تلاش دوباره) برجا می‌ماند. */
+  const PENDING_DB = 'eplak_pending_media';
+  const PENDING_STORE = 'items';
+
+  function openPendingDb() {
+    return new Promise(resolve => {
+      try {
+        if (!window.indexedDB) return resolve(null);
+        const req = window.indexedDB.open(PENDING_DB, 1);
+        req.onupgradeneeded = function () {
+          const db = req.result;
+          if (db && !db.objectStoreNames.contains(PENDING_STORE)) {
+            db.createObjectStore(PENDING_STORE, { keyPath: 'key' });
+          }
+        };
+        req.onsuccess = function () { resolve(req.result || null); };
+        req.onerror = function () { resolve(null); };
+        req.onblocked = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+
+  function pendingTx(db, mode) {
+    return db.transaction(PENDING_STORE, mode).objectStore(PENDING_STORE);
+  }
+
+  /* افزودن فایل‌های ناموفق به صف (برای ارسال خودکار در فرصت بعدی) */
+  async function queuePendingMedia(reportId, phone, files) {
+    const list = Array.from(files || []).filter(f => f && typeof f === 'object' && (f.size || 0) > 0);
+    if (!reportId || !phone || !list.length) return false;
+    const db = await openPendingDb();
+    if (!db) return false;
+    const stamp = Date.now();
+    return new Promise(resolve => {
+      try {
+        const store = pendingTx(db, 'readwrite');
+        list.forEach((file, i) => {
+          store.put({
+            key: String(reportId) + '-' + stamp + '-' + i,
+            reportId: Number(reportId),
+            phone: String(phone),
+            name: file.name || ('attachment-' + (i + 1)),
+            type: file.type || '',
+            size: Number(file.size) || 0,
+            blob: file,
+            addedAt: new Date().toISOString()
+          });
+        });
+        store.transaction.oncomplete = function () { resolve(true); };
+        store.transaction.onerror = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+
+  /* تعداد فایل‌های در انتظار ارسال */
+  async function countPendingMedia() {
+    const db = await openPendingDb();
+    if (!db) return 0;
+    return new Promise(resolve => {
+      try {
+        const req = pendingTx(db, 'readonly').count();
+        req.onsuccess = function () { resolve(Number(req.result) || 0); };
+        req.onerror = function () { return resolve(0); };
+      } catch (e) { resolve(0); }
+    });
+  }
+
+  /* تلاش دوباره برای همه‌ی فایل‌های صف (هنگام باز شدن اپ یا برگشتن اینترنت) */
+  async function flushPendingMedia(onReportDone) {
+    const db = await openPendingDb();
+    if (!db) return { sent: 0, left: 0 };
+    const rows = await new Promise(resolve => {
+      try {
+        const req = pendingTx(db, 'readonly').getAll();
+        req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
+        req.onerror = function () { return resolve([]); };
+      } catch (e) { resolve([]); }
+    });
+    if (!rows.length) return { sent: 0, left: 0 };
+
+    /* گروه‌بندی بر اساس گزارش؛ ترتیب تکه‌ها بر اساس زمان افزوده‌شدن است */
+    rows.sort((a, b) => String(a.addedAt).localeCompare(String(b.addedAt)));
+    const groups = new Map();
+    rows.forEach(row => {
+      const key = String(row.reportId) + '|' + String(row.phone);
+      if (!groups.has(key)) groups.set(key, { reportId: row.reportId, phone: row.phone, items: [] });
+      groups.get(key).items.push(row);
+    });
+
+    let sent = 0;
+    const leftovers = [];
+    const failedGroups = new Set();
+    for (const [key, group] of groups.entries()) {
+      const res = await uploadReportMediaChunked(group.reportId, group.phone, group.items.map(i => i.blob), null);
+      const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
+      if (res && res.ok && okCount > 0) {
+        sent += group.items.length;
+        if (typeof onReportDone === 'function') {
+          try { onReportDone(group.reportId, group.items.length); } catch (e) {}
+        }
+      } else {
+        failedGroups.add(key);
+      }
+    }
+    groups.forEach((group, key) => {
+      if (failedGroups.has(key)) group.items.forEach(item => leftovers.push(item));
+    });
+
+    /* صف بازنویسی می‌شود: فقط فایل‌های ناموفق باقی می‌مانند */
+    if (sent > 0) {
+      await new Promise(resolve => {
+        try {
+          const store = pendingTx(db, 'readwrite');
+          store.clear();
+          leftovers.forEach(item => store.put(item));
+          store.transaction.oncomplete = function () { resolve(true); };
+          store.transaction.onerror = function () { resolve(false); };
+        } catch (e) { resolve(false); }
+      });
+    }
+
+    return { sent: sent, left: await countPendingMedia() };
+  }
+
+  window.eplakQueuePendingMedia = queuePendingMedia;
+  window.eplakFlushPendingMedia = flushPendingMedia;
+  window.eplakCountPendingMedia = countPendingMedia;
+
   /* وضعیت پیوست‌های یک گزارش روی سرور (برای تأیید نهایی که فایل‌ها ذخیره شدند) */
   async function reportMediaStatus(reportId, phone) {
     if (!reportId || !phone) return null;
@@ -940,6 +1074,9 @@
   window.uploadReportMediaChunked         = uploadReportMediaChunked;
   window.eplakReadFileAsDataUrl           = readFileAsDataUrl;
   window.eplakMediaStatus                 = reportMediaStatus;
+  window.eplakQueuePendingMedia           = queuePendingMedia;
+  window.eplakFlushPendingMedia           = flushPendingMedia;
+  window.eplakCountPendingMedia           = countPendingMedia;
   window.eplakTransportMessage            = transportMessage;
   window.eplakIsTransportFailure          = isTransportFailure;
   window.eplakJsonContentType             = function () { return JSON_CONTENT_TYPE; };

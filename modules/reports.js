@@ -1262,6 +1262,12 @@
         showToast('پیوست‌ها نرسیدند؛ دکمه‌ی تلاش دوباره را بزنید');
         offerMediaRetry(files, phone);
         offerUploadDetailsButton();
+
+        /* فایل‌ها در حافظه‌ی گوشی نگه داشته می‌شوند تا در نخستین فرصت
+           (باز شدن دوباره‌ی اپ یا برگشتن اینترنت) خودکار ارسال شوند. */
+        if (typeof window.eplakQueuePendingMedia === 'function') {
+          window.eplakQueuePendingMedia(newReport.backendId, phone, files).catch(function () {});
+        }
       };
 
       /* ── گزارش فنی ارسال پیوست‌ها ────────────────────────────────────────
@@ -1547,6 +1553,42 @@
   } else {
     startReportsAutoRefresh();
   }
+
+  /* ── ارسال خودکار پیوست‌های جامانده ──────────────────────────────────
+     فایل‌هایی که قبلاً نرسیده‌اند، از حافظه‌ی گوشی خوانده و در اولین فرصت
+     (باز شدن اپ، برگشتن اینترنت یا تازه‌سازی دوره‌ای) دوباره فرستاده می‌شوند. */
+  let pendingFlushBusy = false;
+  async function flushPendingUploads() {
+    if (pendingFlushBusy) return;
+    if (typeof window.eplakFlushPendingMedia !== 'function') return;
+    const phone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
+    if (!phone) return;
+    if (document.visibilityState === 'hidden') return;
+    pendingFlushBusy = true;
+    try {
+      const result = await window.eplakFlushPendingMedia(function (reportId, count) {
+        saveUploadLog({
+          time: (new Date()).toLocaleString('fa-IR'),
+          text: 'ارسال خودکار پیوست‌های جامانده — ' + toPersianDigits(count)
+            + ' فایل برای گزارش شماره ' + toPersianDigits(reportId)
+        });
+      });
+      if (result && result.sent > 0) {
+        showToast('✅ ' + toPersianDigits(result.sent) + ' پیوست جامانده خودکار ارسال شد');
+        if (typeof loadReportsFromBackend === 'function') {
+          loadReportsFromBackend(phone, { silent: true }).catch(function () {});
+        }
+      }
+    } catch (e) {
+      console.warn('[reports] pending media flush note:', e);
+    } finally {
+      pendingFlushBusy = false;
+    }
+  }
+  window.flushPendingUploads = flushPendingUploads;
+
+  window.addEventListener('online', function () { flushPendingUploads(); });
+  setTimeout(flushPendingUploads, 2500);
 
   /* با باز شدن صفحه‌ی «موقعیت»، نقشه ساخته می‌شود و با بازگشت به آن،
      کاشی‌ها یک‌بار دیگر هم‌اندازه‌گیری می‌شوند تا کامل دیده شوند. */
