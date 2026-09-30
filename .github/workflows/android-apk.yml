@@ -281,6 +281,10 @@ jobs:
             echo "| تأیید محتوا | $APK_VERIFY |"
             echo "| فایربیس در بیلد | $APK_FCM_STATE |"
             echo "| اتصال به پروژه‌ی فایربیس | $APK_FCM_WIRED |"
+            echo "| سپر «بدون اینترنت اتصال ممکن نیست» | $APK_ONLINE_CODE |"
+            echo "| پرده‌ی «بدون اینترنت» در صفحه‌ی اپ | $APK_OFFLINE_UI |"
+            echo "| حذف اعلان در اپ | $APK_DELETE_CODE |"
+            echo "| ورود دوباره با کد تایید پس از خروج | $APK_SESSION_CODE |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
             if [ -f android-app/app/google-services.json ]; then
