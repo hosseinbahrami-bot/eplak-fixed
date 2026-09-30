@@ -581,7 +581,7 @@ PYEOF
   # سپس بررسی می‌کنیم که فایل ذخیره شده باشد و مختصات هم برگردد.
   PNG="$TMP/smoke-photo.png"
   printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > "$PNG" 2>/dev/null || true
-  MRI=""; MSG_CODE=""; MEDIA_COUNT=""; MEDIA_URL=""; GEO_LAT=""
+  MRI=""; MSG_CODE=""; MEDIA_COUNT=""; MEDIA_URL=""; GEO_LAT=""; GEO_KEY="no"
   if [ -s "$PNG" ]; then
     MSG_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J" -w '%{http_code}' \
       -F "phone=$TEST_PHONE" \
@@ -631,6 +631,16 @@ except Exception:
     print("")
 PYEOF
 )
+    # آیا سرور اصلاً کلید lat را در پاسخ می‌دهد؟ (نسخه‌ی تازه) یا نسخه‌ی هاست قدیمی است؟
+    GEO_KEY=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo "no"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print("yes" if "lat" in d else "no")
+except Exception:
+    print("no")
+PYEOF
+)
   fi
 
   if [ "$MEDIA_COUNT" = "1" ] && [ -n "$MEDIA_URL" ]; then
@@ -661,10 +671,13 @@ PYEOF
   #     (اگر ستون‌های lat/lng ساخته نشده باشند، پاسخ سرور null می‌دهد)
   if [ -n "$GEO_LAT" ]; then
     say "| ۹-۷ | ✅ موقعیت GPS روی سرور ذخیره شد (عرض جغرافیایی: $GEO_LAT) |"
-  else
+  elif [ "$GEO_KEY" = "yes" ]; then
     say "| ۹-۷ | ❌ مختصات GPS ذخیره نشد — ستون‌های موقعیت در دیتابیس ساخته نشده‌اند |"
     SMOKE_OK="no"
-    ISSUES+=("ستون‌های lat/lng در دیتابیس ساخته نشد؛ یک‌بار پنل ادمین ← تنظیمات ← «ترمیم اسکیمای دیتابیس» را بزنید")
+    ISSUES+=("ستون‌های lat/lng در دیتابیس ساخته نشد؛ پنل ادمین ← تنظیمات ← «ترمیم اسکیمای دیتابیس» را بزنید")
+  else
+    say "| ۹-۷ | ⏳ نسخه‌ی کد روی هاست قدیمی است (پاسخ سرور کلید موقعیت ندارد) — بسته‌ی تازه را Extract کنید |"
+    GEO_OLD="yes"
   fi
 
   # ۹-۸) پاک‌سازی گزارش و فایل آزمایشی
