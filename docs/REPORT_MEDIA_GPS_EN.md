@@ -63,6 +63,30 @@ This document covers the two new requirements:
 - `admin/reports.php`
   - Under the location column: a “📍 precise location on map” link for geolocated reports.
 
+### D) Key finding from the live test on eplak.ir: the host firewall blocks file uploads
+
+The automated live test (section 9 of the live-check report) showed:
+
+| Test | Result |
+|---|---|
+| `multipart/form-data` **without a file** (text only) | ✅ HTTP 200 |
+| The same request **with a file** (even a 70-byte PNG) | ❌ HTTP **403** (host Forbidden page) |
+
+So the host firewall (ModSecurity/Imunify360) has a rule against “file upload to a PHP script” and
+rejects the request. This was likely one of the main causes of the user’s “upload does not work” experience.
+
+**Implemented solution (no host settings change required):**
+
+- The app sends files **inside the JSON body as base64** (this route is open on the host).
+- Compressed photos and small files (up to 6 MB each, 12 MB total) travel with the report itself:
+  one request, no multipart upload at all.
+- Large videos are sent **in 1 MB chunks** to `api/media.php?action=chunk` after the report is created,
+  and are reassembled on the server (chunk order is enforced; type/size validation happens on the last chunk).
+- If the phone number does not own the report, or the 6-file cap is reached, the file is rejected.
+
+> Important: **photos work with the new APK and no host change at all.**
+> Only large videos (over 6 MB) require extracting the new package on the host.
+
 ---
 
 ## 3) Step by step: apply to the live site (host panel)
@@ -117,6 +141,8 @@ This document covers the two new requirements:
 | Image | 12 MB | `shared/media.php` (`EPLAK_MEDIA_MAX_IMAGE_MB`) |
 | Video | 80 MB | `shared/media.php` (`EPLAK_MEDIA_MAX_VIDEO_MB`) |
 | Files per report | 6 on server, 3 in the app | `shared/media.php` · `modules/reports.js` |
+| Inline (JSON) upload threshold | 6 MB per file / 12 MB total | `modules/reports.js` (`INLINE_MAX_FILE` / `INLINE_MAX_TOTAL`) |
+| Video chunk size | 1 MB | `core/storage.js` |
 | PHP upload cap | 64 MB | `.htaccess` (`upload_max_filesize`) |
 
 Note: photos are compressed inside the app, so an 8 MB phone photo becomes roughly 200–500 KB and the upload almost always succeeds.

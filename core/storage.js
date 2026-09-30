@@ -132,6 +132,122 @@
     });
   }
 
+  /* ارسال JSON با نمایش درصد پیشرفت (برای عکس/فیلمی که داخل بدنه‌ی JSON
+     به‌صورت base64 می‌رود — همان مسیری که فایروال هاست اجازه می‌دهد). */
+  function syncJsonToBackendWithProgress(endpoint, payload, onProgress) {
+    return new Promise(resolve => {
+      try {
+        const body = JSON.stringify(payload || {});
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', BACKEND_BASE_URL + '/' + endpoint + '.php', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.timeout = 300000;
+        if (typeof onProgress === 'function' && xhr.upload) {
+          xhr.upload.onprogress = function (ev) {
+            if (ev && ev.lengthComputable && ev.total > 0) {
+              onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
+            }
+          };
+        }
+        xhr.onload = function () {
+          let data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (typeof onProgress === 'function') onProgress(100);
+          resolve(data);
+        };
+        xhr.onerror = function () { console.warn('[backend] json upload failed', endpoint); resolve(null); };
+        xhr.ontimeout = function () { console.warn('[backend] json upload timeout', endpoint); resolve(null); };
+        xhr.send(body);
+      } catch (error) {
+        console.warn('[backend] json upload unavailable', error && error.message);
+        resolve(null);
+      }
+    });
+  }
+
+  /* ── آپلود تکه‌تکه‌ی عکس/فیلم (مسیر JSON) ─────────────────────────────
+     هاست فعلی، ارسال multipart/form-data همراه فایل را با کد 403 می‌بندد؛
+     پس فایل‌های حجیم (مثل فیلم) در تکه‌های ۱ مگابایتی base64 فرستاده و روی
+     سرور به هم چسبانده می‌شوند. خروجی:
+       { ok, media: [...], error, unsupported }
+     unsupported=true یعنی نسخه‌ی هاست قدیمی است (اندپوینت تازه را ندارد). */
+  function readFileAsDataUrl(blob) {
+    return new Promise(resolve => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      } catch (e) {
+        resolve('');
+      }
+    });
+  }
+
+  function postJson(url, payload) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then(res => res.json().catch(() => null)).catch(() => null);
+  }
+
+  async function uploadReportMediaChunked(reportId, phone, files, onProgress) {
+    const CHUNK_SIZE = 1024 * 1024;   /* ۱ مگابایت خام؛ base64 آن ≈ ۱٫۴ مگابایت */
+    const url = BACKEND_BASE_URL + '/media.php?action=chunk';
+    const media = [];
+    const list = Array.from(files || []);
+    if (!reportId || !list.length) {
+      return { ok: true, media: media, error: '', unsupported: false };
+    }
+
+    for (let fileIndex = 0; fileIndex < list.length; fileIndex++) {
+      const file = list[fileIndex];
+      const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+      const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
+
+      for (let index = 0; index < total; index++) {
+        const start = index * CHUNK_SIZE;
+        const chunk = file.slice(start, Math.min(file.size, start + CHUNK_SIZE));
+        const data = await readFileAsDataUrl(chunk);
+        if (!data) {
+          return { ok: false, media: media, error: 'خواندن فایل روی گوشی ممکن نشد.', unsupported: false };
+        }
+        const res = await postJson(url, {
+          phone: phone,
+          reportId: reportId,
+          uploadId: uploadId,
+          index: index,
+          total: total,
+          name: file.name || 'attachment',
+          mime: file.type || '',
+          data: data
+        });
+
+        if (!res) {
+          return { ok: false, media: media, error: 'ارتباط با سرور برقرار نشد.', unsupported: true };
+        }
+        if (res.success !== true) {
+          return {
+            ok: false,
+            media: media,
+            error: String(res.error || 'ارسال فایل ناموفق بود.'),
+            unsupported: String(res.error || '').indexOf('گزارش یافت نشد') > -1 ? true : false
+          };
+        }
+        if (index === total - 1 && res.media) {
+          media.push(res.media);
+        }
+        if (typeof onProgress === 'function') {
+          const overall = ((fileIndex + (index + 1) / total) / list.length) * 100;
+          onProgress(Math.min(99, Math.round(overall)));
+        }
+      }
+    }
+
+    return { ok: true, media: media, error: '', unsupported: false };
+  }
+
   async function syncFormDataToBackend(endpoint, formData) {
     if (!formData || typeof FormData === 'undefined' || !(formData instanceof FormData)) return null;
     try {
@@ -699,6 +815,9 @@
   window.saveFavorites       = saveFavorites;
   window.syncDataToBackend   = syncDataToBackend;
   window.syncFormDataToBackendWithProgress = syncFormDataToBackendWithProgress;
+  window.syncJsonToBackendWithProgress    = syncJsonToBackendWithProgress;
+  window.uploadReportMediaChunked         = uploadReportMediaChunked;
+  window.eplakReadFileAsDataUrl           = readFileAsDataUrl;
   window.syncUserProfileToBackend = syncUserProfileToBackend;
 
 })();

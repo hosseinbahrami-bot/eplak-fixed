@@ -576,94 +576,109 @@ PYEOF
     fi
   fi
 
-  # ۹-۵) آزمون واقعی «ارسال عکس + موقعیت GPS» (همان مسیر اپ)
-  # یک تصویر واقعی ۱×۱ پیکسلی ساخته می‌شود و با FormData به سرور می‌رود؛
-  # سپس بررسی می‌کنیم که فایل ذخیره شده باشد و مختصات هم برگردد.
+  # ۹-۵) آزمون واقعی «ارسال عکس همراه گزارش از مسیر JSON» — همان مسیری که اپ
+  #      استفاده می‌کند (multipart روی این هاست با کد 403 بسته است).
   PNG="$TMP/smoke-photo.png"
   printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > "$PNG" 2>/dev/null || true
   MRI=""; MSG_CODE=""; MEDIA_COUNT=""; MEDIA_URL=""; GEO_LAT=""; GEO_KEY="no"
+  BODY="$TMP/smoke-media.json"
   if [ -s "$PNG" ]; then
-    MSG_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J" -w '%{http_code}' \
-      -F "phone=$TEST_PHONE" \
-      -F "name=آزمون خودکار سامانه" \
-      -F "title=آزمون خودکار پیوست — قابل حذف" \
-      -F "description=بررسی خودکار آپلود عکس و موقعیت GPS" \
-      -F "category=سایر" \
-      -F "location=آزمون موقعیت ۳۵٫۳۲۴۲ / ۵۱٫۶۴۵۵" \
-      -F "lat=35.3242100" \
-      -F "lng=51.6455300" \
-      -F "media[]=@$PNG;type=image/png;filename=smoke.png" \
-      "$BASE/api/reports.php" 2>/dev/null) || MSG_CODE="000"
-    MRI=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+    python3 - "$PNG" "$BODY" "$TEST_PHONE" <<'PYEOF' 2>/dev/null || true
+import base64, json, sys
+png, out, phone = sys.argv[1], sys.argv[2], sys.argv[3]
+b64 = base64.b64encode(open(png, 'rb').read()).decode('ascii')
+body = {
+    "phone": phone,
+    "name": "آزمون خودکار سامانه",
+    "title": "آزمون خودکار پیوست — قابل حذف",
+    "description": "بررسی خودکار آپلود عکس و ثبت موقعیت GPS",
+    "category": "سایر",
+    "location": "آزمون موقعیت — خیابان نمونه",
+    "lat": 35.3242100,
+    "lng": 51.6455300,
+    "media": [{"name": "smoke.png", "mime": "image/png", "data": "data:image/png;base64," + b64}],
+}
+open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
+PYEOF
+    if [ -s "$BODY" ]; then
+      MSG_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J" -w '%{http_code}' \
+        -H 'Content-Type: application/json' --data-binary "@$BODY" \
+        "$BASE/api/reports.php" 2>/dev/null) || MSG_CODE="000"
+    fi
+    read_smoke_field() { # $1 = نام کلید در پاسخ JSON
+      python3 - "$J" "$1" <<'PYEOF' 2>/dev/null || echo ""
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
-    print(d.get("id", "") if d.get("success") else "")
+    key = sys.argv[2]
+    if key == "media_url":
+        m = d.get("media") or []
+        print(m[0].get("url", "") if m else "")
+    elif key == "lat":
+        print(d.get("lat", "") if d.get("lat") is not None else "")
+    elif key == "media_count":
+        print(d.get("media_count", ""))
+    elif key == "has_lat_key":
+        print("yes" if "lat" in d else "no")
+    else:
+        print(d.get(key, "") if d.get("success") else "")
 except Exception:
     print("")
 PYEOF
-)
-    MEDIA_COUNT=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print(d.get("media_count", ""))
-except Exception:
-    print("")
-PYEOF
-)
-    MEDIA_URL=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    m = (d.get("media") or [])
-    print(m[0].get("url", "") if m else "")
-except Exception:
-    print("")
-PYEOF
-)
-    GEO_LAT=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print(d.get("lat", "") if d.get("lat") is not None else "")
-except Exception:
-    print("")
-PYEOF
-)
-    # آیا سرور اصلاً کلید lat را در پاسخ می‌دهد؟ (نسخه‌ی تازه) یا نسخه‌ی هاست قدیمی است؟
-    GEO_KEY=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo "no"
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print("yes" if "lat" in d else "no")
-except Exception:
-    print("no")
-PYEOF
-)
+    }
+    MRI=$(read_smoke_field id)
+    MEDIA_COUNT=$(read_smoke_field media_count)
+    MEDIA_URL=$(read_smoke_field media_url)
+    GEO_LAT=$(read_smoke_field lat)
+    GEO_KEY=$(read_smoke_field has_lat_key)
   fi
 
   if [ "$MEDIA_COUNT" = "1" ] && [ -n "$MEDIA_URL" ]; then
-    say "| ۹-۵ | ✅ عکس آپلود شد و سرور تأیید کرد (شناسه $MRI، تعداد پیوست: $MEDIA_COUNT) |"
+    say "| ۹-۵ | ✅ گزارش با عکس از مسیر JSON ثبت شد (شناسه $MRI، تعداد پیوست: $MEDIA_COUNT) |"
   else
-    # متن پاسخ سرور (مثلاً پیام فایروال هاست) برای تشخیص دقیق علت
     SNIPPET=""
     if [ -s "$J" ]; then
       SNIPPET=$(head -c 400 "$J" 2>/dev/null | tr '\n\r\t' '   ' | tr -d '|' | cut -c1-260)
     fi
-    say "| ۹-۵ | ❌ آپلود عکس روی سرور ناموفق بود (کد پاسخ $MSG_CODE، تعداد پیوست: ${MEDIA_COUNT:-—}) |"
+    say "| ۹-۵ | ❌ ارسال گزارش با عکس ناموفق بود (کد پاسخ $MSG_CODE، تعداد پیوست: ${MEDIA_COUNT:-—}) |"
     say "| ۹-۵-ب | پاسخ سرور: \`${SNIPPET:-—}\` |"
     SMOKE_OK="no"
+    ISSUES+=("آزمون واقعی: ارسال عکس از مسیر JSON روی هاست کار نکرد (کد $MSG_CODE)")
+  fi
 
-    # آزمون تشخیصی: آیا «ارسال چندبخشی (multipart)» به‌طور کلی بسته است یا فقط آپلود فایل؟
-    PROBE_CODE=$(curl -sS -L --max-time 40 -A "$UA" -o "$J.probe" -w '%{http_code}' \
-      -F "probe=1" "$BASE/api/ping.php" 2>/dev/null) || PROBE_CODE="000"
-    if [ "$PROBE_CODE" = "403" ]; then
-      say "| ۹-۵-ج | 🔒 حتی ارسال multipart بدون فایل هم با کد $PROBE_CODE بسته شده است → فایروال هاست (ModSecurity/Imunify) کل multipart را می‌بندد. راه‌حل: از مسیر «JSON + base64» استفاده می‌شود (در نسخه‌ی تازه‌ی اپ فعال است). |"
-      ISSUES+=("هاست ارسال multipart را با کد 403 می‌بندد (فایروال ModSecurity/Imunify). اپ تازه خودکار از مسیر JSON+base64 استفاده می‌کند؛ برای رفع کامل، این قاعده را در پشتیبانی هاست باز کنید.")
+  # ۹-۵-۲) مسیر «ارسال تکه‌تکه‌ی فایل حجیم» (فیلم‌ها) — روی نسخه‌ی تازه فعال است
+  if [ -n "$MRI" ] && [ -s "$PNG" ]; then
+    CHUNK_BODY="$TMP/smoke-chunk.json"
+    python3 - "$PNG" "$CHUNK_BODY" "$TEST_PHONE" "$MRI" <<'PYEOF' 2>/dev/null || true
+import base64, json, sys
+png, out, phone, rid = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+b64 = base64.b64encode(open(png, 'rb').read()).decode('ascii')
+body = {
+    "phone": phone, "reportId": int(rid), "uploadId": "smokechunk0000abc",
+    "index": 0, "total": 1, "name": "smoke-chunk.png", "mime": "image/png",
+    "data": "data:image/png;base64," + b64,
+}
+open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
+PYEOF
+    CHUNK_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J.chunk" -w '%{http_code}' \
+      -H 'Content-Type: application/json' --data-binary "@$CHUNK_BODY" \
+      "$BASE/api/media.php?action=chunk" 2>/dev/null) || CHUNK_CODE="000"
+    CHUNK_DONE=$(python3 - "$J.chunk" <<'PYEOF' 2>/dev/null || echo "no"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print("yes" if (d.get("success") and d.get("done")) else "no")
+except Exception:
+    print("no")
+PYEOF
+)
+    if [ "$CHUNK_DONE" = "yes" ]; then
+      say "| ۹-۵-۲ | ✅ ارسال تکه‌تکه‌ی فایل حجیم (فیلم) هم کار می‌کند (کد $CHUNK_CODE) |"
+    elif [ "$CHUNK_CODE" = "404" ] || [ "$CHUNK_DONE" = "no" ]; then
+      say "| ۹-۵-۲ | ⏳ ارسال تکه‌تکه روی این هاست فعال نیست (کد $CHUNK_CODE) — برای فیلم‌های حجیم بسته‌ی تازه را Extract کنید |"
+      media_chunk_old="yes"
     else
-      say "| ۹-۵-ج | آزمون تشخیصی multipart (بدون فایل): کد $PROBE_CODE → مشکل فقط در آپلود فایل است (قاعده‌ی فایروال هاست روی آپلود). |"
-      ISSUES+=("آزمون واقعی: آپلود فایل روی هاست کار نکرد (کد $MSG_CODE)")
+      say "| ۹-۵-۲ | ⚠️ پاسخ سرور برای ارسال تکه‌تکه: کد $CHUNK_CODE |"
     fi
   fi
 
@@ -684,7 +699,7 @@ PYEOF
   fi
 
   # ۹-۷) سایت باید مختصات GPS را هم ذخیره کرده باشد
-  #     (اگر ستون‌های lat/lng ساخته نشده باشند، پاسخ سرور null می‌دهد)
+  #     (اگر کد هاست قدیمی باشد، پاسخ سرور اصلاً کلید lat را ندارد)
   if [ -n "$GEO_LAT" ]; then
     say "| ۹-۷ | ✅ موقعیت GPS روی سرور ذخیره شد (عرض جغرافیایی: $GEO_LAT) |"
   elif [ "$GEO_KEY" = "yes" ]; then
@@ -693,7 +708,6 @@ PYEOF
     ISSUES+=("ستون‌های lat/lng در دیتابیس ساخته نشد؛ پنل ادمین ← تنظیمات ← «ترمیم اسکیمای دیتابیس» را بزنید")
   else
     say "| ۹-۷ | ⏳ نسخه‌ی کد روی هاست قدیمی است (پاسخ سرور کلید موقعیت ندارد) — بسته‌ی تازه را Extract کنید |"
-    GEO_OLD="yes"
   fi
 
   # ۹-۸) پاک‌سازی گزارش و فایل آزمایشی
@@ -777,6 +791,9 @@ if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
   else
     say "- ⚠️ آزمون واقعی سرتاسری کامل سبز نشد — بخش ۹ را ببینید"
   fi
+fi
+if [ "${media_chunk_old:-no}" = "yes" ]; then
+  say "- ⏳ ارسال فیلم‌های حجیم (تکه‌تکه) روی هاست فعال نشده — بسته‌ی تازه را Extract کنید (عکس‌ها همین حالا کار می‌کنند)"
 fi
 if [ "$CODE_MAP" = "200" ] && has "$TMP/map.out" "tile.openstreetmap.org"; then
   say "- ✅ نقشه‌ی موقعیت و GPS در فرم ثبت درخواست روی سایت نصب شده (مرحله‌ی «موقعیت» واقعی است)"

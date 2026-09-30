@@ -165,6 +165,33 @@ function eplakMediaInsertRow(PDO $pdo, int $reportId, string $relativePath, stri
     }
 }
 
+/* رمزگشایی محتوای base64 (پشتیبانی از data URL هم: data:image/png;base64,xxx)
+   خروجی: رشته‌ی دودویی، یا null اگر محتوا نامعتبر بود. */
+function eplakMediaDecodeBase64(string $data): ?string {
+    $data = trim($data);
+    if ($data === '') {
+        return null;
+    }
+    if (strpos($data, 'data:') === 0 && strpos($data, 'base64,') !== false) {
+        $data = explode('base64,', $data, 2)[1] ?? '';
+    }
+    $clean = preg_replace('/\s+/', '', $data) ?? '';
+    if ($clean === '') {
+        return null;
+    }
+    $binary = base64_decode($clean, true);
+    return ($binary === false) ? null : $binary;
+}
+
+/* نوع اعلام‌شده‌ی فایل (mime) → دسته‌ی مجاز آن (image/video) */
+function eplakMediaKindFromMime(string $mime): string {
+    $mime = strtolower(trim($mime));
+    if ($mime !== '' && strpos($mime, 'video/') === 0) {
+        return 'video';
+    }
+    return 'image';
+}
+
 /* ذخیره‌ی محتوای خام (مسیر JSON با base64) */
 function eplakMediaStoreBinary(PDO $pdo, int $reportId, string $binary, string $originalName, string $declaredMime = ''): array {
     $tmp = tempnam(sys_get_temp_dir(), 'eplakmedia');

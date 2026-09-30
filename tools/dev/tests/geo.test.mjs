@@ -209,6 +209,16 @@ ok('درصد پیشرفت آپلود به کاربر نشان داده می‌ش
 const storageJs = read('core/storage.js');
 ok('آپلود با XMLHttpRequest و رویداد پیشرفت انجام می‌شود',
   /syncFormDataToBackendWithProgress/.test(storageJs) && /XMLHttpRequest/.test(storageJs) && /upload\.onprogress/.test(storageJs));
+ok('ارسال JSON با base64 (مسیر بازی که فایروال هاست می‌بندد) پیاده شده است',
+  /syncJsonToBackendWithProgress/.test(storageJs) && /application\/json/.test(storageJs));
+ok('ارسال تکه‌تکه‌ی فایل حجیم (فیلم) پیاده شده است',
+  /uploadReportMediaChunked/.test(storageJs) && /media\.php\?action=chunk/.test(storageJs) && /FileReader/.test(storageJs));
+ok('اپ فایل‌ها را در بدنه‌ی JSON می‌فرستد (multipart روی هاست بسته است)',
+  /\.media = items/.test(reportsJs) && !/new FormData\(\)/.test(reportsJs));
+ok('فیلم‌های حجیم پس از ثبت گزارش تکه‌تکه فرستاده می‌شوند',
+  /largeFiles/.test(reportsJs) && /uploadReportMediaChunked\(/.test(reportsJs));
+ok('اگر نسخه‌ی هاست قدیمی باشد، پیام روشن به کاربر داده می‌شود',
+  /بسته‌ی تازه‌ی سایت را روی هاست Extract کنید/.test(reportsJs));
 ok('آپلود به window معرفی شده است', /window\.syncFormDataToBackendWithProgress\s*=/.test(storageJs));
 ok('پیام موفقیت پیوست‌ها به کاربر نشان داده می‌شود', /پیوست با موفقیت ارسال/.test(reportsJs));
 ok('اگر پیوست ذخیره نشد، کاربر دلیل را می‌بیند', /media_errors/.test(reportsJs) && /پیوست‌ها ذخیره نشدند/.test(reportsJs));
@@ -248,6 +258,15 @@ ok('مختصات خارج از محدوده رد می‌شود', /\$axis === 'la
 ok('مختصات در دیتابیس ذخیره می‌شود', /INSERT INTO reports \(/.test(apiReports) && /:lat/.test(apiReports) && /:lng/.test(apiReports));
 ok('API فهرست، مختصات را برمی‌گرداند', /\$row\['lat'\] = /.test(apiReports) && /\$row\['lng'\] = /.test(apiReports));
 ok('اگر دیتابیس ستون مختصات نداشت، ثبت گزارش نمی‌شکند', /eplakTableHasColumn/.test(apiReports));
+
+const apiMedia = read('api/media.php');
+ok('اندپوینت آپلود JSON (بدون multipart) وجود دارد', /action=upload/.test(apiMedia) && /eplakMediaDecodeBase64/.test(apiMedia));
+ok('اندپوینت ارسال تکه‌تکه برای فیلم‌ها وجود دارد', /\$action [!=]== 'chunk'/.test(apiMedia) && /\.part/.test(apiMedia));
+ok('مالکیت گزارش با شماره‌ی موبایل بررسی می‌شود', /user_phone = :phone/.test(apiMedia));
+ok('سقف تعداد فایل هر گزارش رعایت می‌شود', /EPLAK_MEDIA_MAX_PER_REPORT/.test(apiMedia));
+ok('ترتیب تکه‌ها بررسی می‌شود (فایل خراب ساخته نشود)', /ترتیب تکه‌ها به هم خورده/.test(apiMedia));
+ok('تکه‌های نیمه‌کاره‌ی قدیمی پاک می‌شوند', /21600/.test(apiMedia));
+ok('رمزگشایی base64 در هسته‌ی رسانه هست', /function eplakMediaDecodeBase64/.test(read('shared/media.php')));
 
 const bootstrap = read('shared/bootstrap.php');
 const reportsDdl = bootstrap.match(/CREATE TABLE IF NOT EXISTS reports \([\s\S]*?\n    \)"/g) || [];

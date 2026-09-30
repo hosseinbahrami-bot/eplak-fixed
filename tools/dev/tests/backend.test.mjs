@@ -140,6 +140,122 @@ $r = getReportById($pdo, $rid);
 echo json_encode(['lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has' => ($r['lat'] !== null && $r['lng'] !== null)]);`));
 ok('پنل ادمین به مختصات همان گزارش دسترسی دارد', geoPanel?.has === true, JSON.stringify(geoPanel));
 
+console.log('\n=== آپلود پیوست از مسیر JSON (بدون multipart) + ارسال تکه‌تکه ===');
+/* ساخته شدن یک گزارش تازه برای آزمون پیوست */
+const mediaReport = pickJson(await run(`
+$_POST = ['phone' => '09121112233', 'title' => 'گزارش آزمون پیوست', 'description' => 'توضیح', 'category' => 'سایر'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`));
+const MRID = Number(mediaReport?.id || 0);
+ok('گزارش پایه برای آزمون پیوست ساخته شد', MRID > 0, JSON.stringify(mediaReport).slice(0, 120));
+
+/* تصویر واقعی ۱×۱ (PNG) — بافر مستقل تا فایل fixture قبلی که جابه‌جا شده لازم نباشد */
+const pngBuffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const b64 = pngBuffer.toString('base64');
+
+/* ۱) آپلود یک‌مرحله‌ای از مسیر JSON */
+const up = pickJson(await run(`
+$_GET = ['action' => 'upload'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${MRID}', 'name' => 'json.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,${b64}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('آپلود JSON (base64) کار می‌کند', up?.success === true && up?.media_count === 1, JSON.stringify(up).slice(0, 200));
+ok('فایل آپلودشده داخل uploads/reports ذخیره می‌شود', String(up?.media?.path || '').startsWith('uploads/reports/'), String(up?.media?.path));
+ok('فایل روی دیسک موجود است', !!up?.media?.path && fs.existsSync(`${APP}/${up.media.path}`));
+
+/* ۲) امنیت: شماره‌ی غیرمالک نمی‌تواند فایل اضافه کند */
+const foreign = pickJson(await run(`
+$_GET = ['action' => 'upload'];
+$_POST = ['phone' => '09129998877', 'reportId' => '${MRID}', 'name' => 'x.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,${b64}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('شماره‌ی غیرمالک اجازه‌ی افزودن فایل ندارد', foreign?.success === false, JSON.stringify(foreign).slice(0, 160));
+
+/* ۳) سقف تعداد فایل هر گزارش */
+const cap = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+for ($i = 0; $i < 6; $i++) {
+    $pdo->exec("INSERT INTO report_media (report_id, kind, file_path, original_name, mime_type, size_bytes) VALUES (${MRID}, 'image', 'uploads/reports/2026/09/f$_i.png', 'f.png', 'image/png', 100)");
+}
+$_GET = ['action' => 'upload'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${MRID}', 'name' => 'cap.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,${b64}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('سقف تعداد فایل هر گزارش رعایت می‌شود', cap?.success === false && String(cap?.error || '').includes('حداکثر'), JSON.stringify(cap).slice(0, 160));
+
+/* گزارش تازه برای آزمون تکه‌تکه (سقف بالا پر شد) */
+const chunkReport = pickJson(await run(`
+$_POST = ['phone' => '09121112233', 'title' => 'گزارش آزمون فیلم تکه‌تکه', 'description' => 'توضیح', 'category' => 'سایر'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`));
+const CRID = Number(chunkReport?.id || 0);
+ok('گزارش دوم برای آزمون تکه‌تکه ساخته شد', CRID > 0, String(CRID));
+
+/* ۴) ارسال تکه‌تکه: PNG در دو نیمه */
+const raw = pngBuffer;
+const half1 = raw.slice(0, Math.floor(raw.length / 2)).toString('base64');
+const half2 = raw.slice(Math.floor(raw.length / 2)).toString('base64');
+
+const chunk1 = pickJson(await run(`
+$_GET = ['action' => 'chunk'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${CRID}', 'uploadId' => 'abcdef12abcd1234', 'index' => '0', 'total' => '2', 'name' => 'chunk.png', 'mime' => 'image/png', 'data' => '${half1}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('تکه‌ی اول پذیرفته می‌شود و هنوز ثبت نهایی نمی‌شود',
+  chunk1?.success === true && chunk1?.done === false && chunk1?.received === 1, JSON.stringify(chunk1).slice(0, 160));
+
+const chunk2 = pickJson(await run(`
+$_GET = ['action' => 'chunk'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${CRID}', 'uploadId' => 'abcdef12abcd1234', 'index' => '1', 'total' => '2', 'name' => 'chunk.png', 'mime' => 'image/png', 'data' => '${half2}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('تکه‌ی آخر، فایل را به هم می‌چسباند و ثبت می‌کند',
+  chunk2?.success === true && chunk2?.done === true && chunk2?.media_count === 1, JSON.stringify(chunk2).slice(0, 200));
+
+const assembled = chunk2?.media?.path ? fs.statSync(`${APP}/${chunk2.media.path}`).size : 0;
+ok('حجم فایل ساخته‌شده با فایل اصلی یکی است', assembled === raw.length, `${assembled} ≠ ${raw.length}`);
+
+/* ۵) ترتیب تکه‌ها */
+const badOrder = pickJson(await run(`
+$_GET = ['action' => 'chunk'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${CRID}', 'uploadId' => 'bad0order0123', 'index' => '1', 'total' => '3', 'name' => 'x.png', 'mime' => 'image/png', 'data' => '${half1}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('تکه‌ی خارج از نوبت رد می‌شود (فایل خراب ساخته نشود)', badOrder?.success === false && badOrder?.expected === 0, JSON.stringify(badOrder).slice(0, 160));
+
+/* ۶) محتوای غیرمجاز در تکه‌ی آخر رد می‌شود */
+const evilTxt = Buffer.from('not an image at all').toString('base64');
+const evil = pickJson(await run(`
+$_GET = ['action' => 'chunk'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${CRID}', 'uploadId' => 'evil00001234567', 'index' => '0', 'total' => '1', 'name' => 'evil.txt', 'mime' => 'text/plain', 'data' => '${evilTxt}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('فایل غیرمجاز در مسیر تکه‌تکه هم ذخیره نمی‌شود', evil?.success === false, JSON.stringify(evil).slice(0, 160));
+
+/* ۷) وضعیت پیوست‌های گزارش */
+const status = pickJson(await run(`
+$_GET = ['action' => 'media_status'];
+$_POST = ['phone' => '09121112233', 'reportId' => '${CRID}'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+require '${APP}/api/media.php';`));
+ok('کنش media_status تعداد پیوست‌ها را برمی‌گرداند', status?.success === true && status?.media_count === 1, JSON.stringify(status).slice(0, 160));
+
+/* ۸) پنل ادمین همان فایل تکه‌تکه‌شده را می‌بیند */
+const panelMedia = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+require '${APP}/admin/includes/functions.php';
+$media = getReportMedia($pdo, ${CRID});
+echo json_encode([
+  'count' => count($media),
+  'kind' => $media[0]['kind'] ?? '',
+  'url' => $media ? adminMediaUrl($media[0]['path']) : '',
+]);`));
+ok('پنل ادمین فایل ارسال‌شده از مسیر تازه را می‌بیند',
+  panelMedia?.count === 1 && panelMedia?.kind === 'image' && String(panelMedia?.url || '').startsWith('../uploads/'),
+  JSON.stringify(panelMedia));
+
 console.log('\n=== ساختار خودترمیم روی دیتابیس قدیمی ===');
 const legacy = pickJson(await run(`
 $legacy = '/tmp/eplak-regression-legacy.sqlite';

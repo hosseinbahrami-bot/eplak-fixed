@@ -933,7 +933,7 @@
     showScreen('screen-report-step4');
   }
 
-  function submitNewReport() {
+  async function submitNewReport() {
     const iconMap = { 'سایر': '⋯', 'نظافت': '💡', 'زیرساخت': '🌿', 'زیرسبز': '🌳', 'روشنایی': '🔆' };
     const currentPhone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
     const title = (reportDraft.desc || '').slice(0, 28) || (reportDraft.type + ' - گزارش جدید');
@@ -1009,29 +1009,63 @@
 
     // 6. ارسال ناهمگام به سرور در پس‌زمینه (کاملاً موازی بدون قفل کردن رابط کاربری)
     if (currentPhone) {
-      /* اگر عکس/فیلمی انتخاب شده باشد، همان‌ها با FormData آپلود می‌شوند؛
-         در غیر این صورت مسیر سبک JSON قبلی طی می‌شود. */
       const filesToUpload = (draftPhotos || []).map(item => item.file).filter(Boolean);
 
-      const sendReport = (filesToUpload.length && typeof window.syncFormDataToBackend === 'function')
-        ? (() => {
-            const form = new FormData();
-            Object.keys(draftPayload).forEach(key => form.append(key, draftPayload[key] == null ? '' : draftPayload[key]));
-            filesToUpload.forEach(file => form.append('media[]', file, file.name));
-            setUploadStatus('در حال ارسال ' + toPersianDigits(filesToUpload.length) + ' پیوست (عکس/فیلم)…');
-            if (typeof window.syncFormDataToBackendWithProgress === 'function') {
-              return window.syncFormDataToBackendWithProgress('reports', form, pct => {
-                setUploadStatus('در حال ارسال پیوست‌ها… ' + toPersianDigits(Math.max(1, pct)) + '٪');
-              });
-            }
-            return window.syncFormDataToBackend('reports', form);
-          })()
-        : (typeof window.syncDataToBackend === 'function'
-            ? window.syncDataToBackend('reports', draftPayload)
-            : Promise.resolve(null));
+      /* ── چرا دیگر FormData نمی‌فرستیم؟ ────────────────────────────────
+         هاست فعلی، درخواست multipart/form-data که فایل دارد را با کد 403
+         می‌بندد (فایروال ModSecurity/Imunify). مسیر JSON باز است، پس:
+           • فایل‌های کوچک (عکس فشرده‌شده و فیلم کوتاه) داخل همان JSON
+             به‌صورت base64 همراه گزارش می‌روند — یک درخواست، همان لحظه.
+           • فایل‌های حجیم (فیلم) پس از ساخته شدن گزارش، تکه‌تکه (۱ مگابایتی)
+             به api/media.php فرستاده و روی سرور به هم چسبانده می‌شوند. */
+      const INLINE_MAX_FILE = 6 * 1024 * 1024;      /* هر فایل تا ۶ مگابایت */
+      const INLINE_MAX_TOTAL = 12 * 1024 * 1024;    /* مجموع تا ۱۲ مگابایت */
+      const inlineFiles = [];
+      const largeFiles = [];
+      let inlineBytes = 0;
+      filesToUpload.forEach(file => {
+        if (file.size <= INLINE_MAX_FILE && (inlineBytes + file.size) <= INLINE_MAX_TOTAL) {
+          inlineFiles.push(file);
+          inlineBytes += file.size;
+        } else {
+          largeFiles.push(file);
+        }
+      });
+
+      const reportPayload = Object.assign({}, draftPayload);
+
+      const preparePayload = async () => {
+        if (!inlineFiles.length) return true;
+        setUploadStatus('در حال آماده‌سازی ' + toPersianDigits(filesToUpload.length) + ' پیوست (عکس/فیلم)…');
+        const items = [];
+        for (const file of inlineFiles) {
+          const dataUrl = (typeof window.eplakReadFileAsDataUrl === 'function')
+            ? await window.eplakReadFileAsDataUrl(file)
+            : '';
+          if (!dataUrl) {
+            showToast('خواندن فایل «' + file.name + '» ممکن نشد؛ دوباره تلاش کنید');
+            return false;
+          }
+          items.push({ name: file.name || 'attachment', mime: file.type || '', data: dataUrl });
+        }
+        reportPayload.media = items;
+        return true;
+      };
+
+      const sendReport = preparePayload().then(ready => {
+        if (!ready) return null;
+        if (typeof window.syncJsonToBackendWithProgress === 'function') {
+          return window.syncJsonToBackendWithProgress('reports', reportPayload, pct => {
+            setUploadStatus('در حال ارسال گزارش و پیوست‌ها… ' + toPersianDigits(Math.max(1, pct)) + '٪');
+          });
+        }
+        return (typeof window.syncDataToBackend === 'function')
+          ? window.syncDataToBackend('reports', reportPayload)
+          : Promise.resolve(null);
+      });
 
       sendReport
-        .then(backendRes => {
+        .then(async backendRes => {
           if (backendRes && backendRes.tracking_code) {
             newReport.code = backendRes.tracking_code;
             if (backendRes.id) {
@@ -1054,12 +1088,15 @@
             }
             if (filesToUpload.length > 0) {
               const savedCount = Array.isArray(backendRes.media) ? backendRes.media.length : 0;
+              const pendingLarge = largeFiles.length;
               if (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length) {
                 setUploadStatus('⚠️ ' + backendRes.media_errors[0], 'error');
                 showToast('برخی فایل‌ها ذخیره نشد: ' + backendRes.media_errors[0]);
               } else if (savedCount === 0) {
                 setUploadStatus('⚠️ پیوست‌ها ذخیره نشدند؛ حجم فایل را کم کنید و دوباره تلاش کنید', 'error');
                 showToast('پیوست‌ها ذخیره نشدند؛ حجم فایل را کم کنید و دوباره تلاش کنید');
+              } else if (pendingLarge > 0) {
+                setUploadStatus('✅ ' + toPersianDigits(savedCount) + ' پیوست ارسال شد؛ ارسال ' + toPersianDigits(pendingLarge) + ' فایل حجیم در حال انجام است…', 'done');
               } else {
                 setUploadStatus('✅ ' + toPersianDigits(savedCount) + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
                 showToast('عکس/فیلم‌ها با موفقیت ارسال شد ✅');
@@ -1084,6 +1121,41 @@
           } else if (!backendRes) {
             setUploadStatus('⚠️ گزارش ثبت شد ولی پیوست‌ها به سرور نرسیدند؛ اینترنت را بررسی کنید', 'error');
             showToast('گزارش ثبت شد ولی ارتباط با سرور برقرار نشد؛ پیوست‌ها ارسال نشدند');
+          }
+
+          /* ── فایل‌های حجیم (فیلم): ارسال تکه‌تکه پس از ساخته شدن گزارش ── */
+          if (largeFiles.length && newReport.backendId && typeof window.uploadReportMediaChunked === 'function') {
+            try {
+              setUploadStatus('در حال ارسال ' + toPersianDigits(largeFiles.length) + ' فیلم/فایل حجیم…');
+              const chunkRes = await window.uploadReportMediaChunked(
+                newReport.backendId, currentPhone, largeFiles,
+                pct => setUploadStatus('در حال ارسال فیلم… ' + toPersianDigits(Math.max(1, pct)) + '٪')
+              );
+              if (chunkRes && chunkRes.ok && chunkRes.media.length) {
+                const merged = (Array.isArray(newReport.media) ? newReport.media : []).concat(
+                  chunkRes.media.map(item => ({
+                    kind: item.kind,
+                    url: mediaUrlOf(item.url),
+                    name: item.name,
+                    size: item.size
+                  }))
+                );
+                newReport.media = merged;
+                if (typeof saveReports === 'function') saveReports(currentPhone);
+                setUploadStatus('✅ ' + toPersianDigits(merged.length) + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
+                showToast('فیلم/فایل‌های حجیم با موفقیت ارسال شد ✅');
+              } else if (chunkRes && chunkRes.unsupported) {
+                setUploadStatus('⚠️ ارسال فایل حجیم روی این هاست فعال نیست؛ بسته‌ی تازه‌ی سایت را روی هاست Extract کنید', 'error');
+                showToast('برای ارسال فیلم، بسته‌ی تازه‌ی سایت را روی هاست Extract کنید');
+              } else {
+                const reason = (chunkRes && chunkRes.error) ? chunkRes.error : 'ارسال فایل حجیم ناموفق بود';
+                setUploadStatus('⚠️ گزارش ثبت شد ولی ' + reason, 'error');
+                showToast(reason);
+              }
+            } catch (e) {
+              console.warn('[reports] chunked upload note:', e);
+              setUploadStatus('⚠️ ارسال فایل حجیم ناموفق بود؛ دوباره تلاش کنید', 'error');
+            }
           }
 
           if (typeof loadReportsFromBackend === 'function') {
