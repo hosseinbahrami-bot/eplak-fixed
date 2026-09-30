@@ -218,6 +218,18 @@ bash tools/build-update-package.sh
 It rebuilds `eplak-fixed-update.zip` from the current code and verifies that all
 critical files are inside and that `data/`, `uploads/` and `shared/config.php` are not.
 
+### 6.1.6) ⚠️ The upload pitfall: keep `shared/config.php`
+That file is **not** inside the package (it holds your database credentials) and it must
+**always stay on the host**. If you delete existing files before extracting, or extract into a
+fresh folder, the file is lost and the site stops with
+“**database connection failed**” (your data is safe — only the connection breaks).
+
+**Correct upload:** extract the zip into the existing folder and choose
+**Overwrite** — do **not** delete files first.
+
+Recovery: open `https://<your-site>/rescue-db.php`, enter the database details from
+cPanel → MySQL Databases, and press “test & save”.
+
 ### 7) Automated tests (safety check before any change)
 Run the whole suite locally — no server, MySQL or Android Studio needed:
 

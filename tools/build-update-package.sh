@@ -33,7 +33,7 @@ echo "بررسی سریع محتوای بسته:"
 LIST="$(unzip -Z1 "$OUT")"
 has() { printf '%s\n' "$LIST" | grep -Fxq "$1"; }
 
-for f in .htaccess index.html index.php sw.js manifest.json shared/bootstrap.php \
+for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared/bootstrap.php \
          shared/webpush.php shared/media.php shared/notification_reads.php shared/fcm.php \
          api/push.php api/media.php api/reports.php api/notifications.php \
          admin/settings.php admin/login.php admin/report_detail.php admin/notification_view.php \

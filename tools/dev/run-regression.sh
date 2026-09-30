@@ -13,6 +13,7 @@
 #    pushcrypto → رمزنگاری اعلان مرورگر و امضای VAPID
 #    fcm        → موتور فایربیس (JWT، ارسال پیام، توکن باطل)
 #    backend    → دیتابیس، بذرها، آپلود عکس، صفحات پنل
+#    rescue     → ابزار بازیابی اتصال دیتابیس (rescue-db.php)
 # ============================================================================
 set -uo pipefail
 
@@ -58,7 +59,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend; do
+for t in notify app pushcrypto fcm backend rescue; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"
