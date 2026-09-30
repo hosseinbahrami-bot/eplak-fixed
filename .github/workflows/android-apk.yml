@@ -129,6 +129,28 @@ jobs:
             FCM_STATE="⏳ غیرفعال — فایل android-app/app/google-services.json افزوده نشده است"
           fi
 
+          # آیا خودِ کد گیرنده‌ی اعلان فایربیس داخل اپ کامپایل شده است؟
+          if unzip -p "$APK" classes.dex | strings | grep -q "EplakMessagingService"; then
+            FCM_CODE="✅"
+          else
+            FCM_CODE="❌ (کد گیرنده‌ی اعلان کامپایل نشده)"
+            MISMATCH=1
+          fi
+
+          # آیا شناسه‌ی پروژه‌ی فایربیس داخل منابع اپ نشسته است؟
+          PROJ=""
+          if [ -f android-app/app/google-services.json ]; then
+            PROJ=$(grep -oP '"project_number"\s*:\s*"?\K[0-9]+' android-app/app/google-services.json | head -1)
+            if [ -n "$PROJ" ] && unzip -p "$APK" resources.arsc | strings | grep -q "$PROJ"; then
+              FCM_WIRED="✅ متصل به پروژه‌ی $PROJ"
+            else
+              FCM_WIRED="❌ اتصال برقرار نشد"
+              MISMATCH=1
+            fi
+          else
+            FCM_WIRED="— (بدون فایل فایربیس)"
+          fi
+
           # تأیید اینکه اپ دقیقاً کد سایت همین کامیت را در خود دارد
           MISMATCH=0
           ROWS=""
@@ -158,6 +180,7 @@ jobs:
             echo "| اثرانگشت SHA-256 | \`$SHA\` |"
             echo "| وضعیت فایربیس (اعلان اپ بسته) | $FCM_STATE |"
             echo "| کد اعلان‌ها داخل اپ | $FCM_CODE |"
+            echo "| اتصال به پروژه‌ی فایربیس | $FCM_WIRED |"
             echo "| کد پیوست عکس/فیلم | $MEDIA_CODE |"
             echo ""
             echo "### تأیید کد سایت داخل اپ (مقایسه‌ی هش با مخزن)"
@@ -200,6 +223,7 @@ jobs:
             echo "APK_BUILDCODE=$BUILDCODE"
             echo "APK_FCM_STATE=$FCM_STATE"
             echo "APK_FCM_CODE=$FCM_CODE"
+            echo "APK_FCM_WIRED=$FCM_WIRED"
             echo "APK_VERIFY=$VERIFY_SUMMARY"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
@@ -243,6 +267,7 @@ jobs:
             echo "| اثرانگشت SHA-256 | \`$APK_SHA\` |"
             echo "| تأیید محتوا | $APK_VERIFY |"
             echo "| اعلان فایربیس (اپ بسته) | $APK_FCM_STATE |"
+            echo "| اتصال به پروژه‌ی فایربیس | $APK_FCM_WIRED |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
             echo "> پس از افزودن \`android-app/app/google-services.json\`، همین فایل با اعلان فایربیس ساخته می‌شود."
