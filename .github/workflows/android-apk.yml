@@ -167,6 +167,11 @@ jobs:
           # بررسی وجود کد اعلان‌ها و شناسه‌ی نسخه در اپ
           if unzip -p "$APK" assets/modules/live.js | grep -q "registerAppDevice"; then FCM_CODE="✅"; else FCM_CODE="❌"; MISMATCH=1; fi
           if unzip -p "$APK" assets/modules/reports.js | grep -q "reportMedia\|media"; then MEDIA_CODE="✅"; else MEDIA_CODE="❌"; fi
+          # نشانه‌های چهار خواسته‌ی تازه داخل خود APK
+          if unzip -p "$APK" assets/modules/online-guard.js | grep -q "eplakOfflineGate"; then ONLINE_CODE="✅"; else ONLINE_CODE="❌"; MISMATCH=1; fi
+          if unzip -p "$APK" assets/index.html | grep -q "eplakOfflineGate"; then OFFLINE_UI="✅"; else OFFLINE_UI="❌"; MISMATCH=1; fi
+          if unzip -p "$APK" assets/modules/live.js | grep -q "deleteNotifications"; then DELETE_CODE="✅"; else DELETE_CODE="❌"; MISMATCH=1; fi
+          if unzip -p "$APK" assets/core/storage.js | grep -q "prepareAppExit"; then SESSION_CODE="✅"; else SESSION_CODE="❌"; MISMATCH=1; fi
 
           {
             echo "## 🤖 گزارش ساخت فایل APK"
@@ -182,6 +187,10 @@ jobs:
             echo "| کد اعلان‌ها داخل اپ | $FCM_CODE |"
             echo "| اتصال به پروژه‌ی فایربیس | $FCM_WIRED |"
             echo "| کد پیوست عکس/فیلم | $MEDIA_CODE |"
+            echo "| سپر «بدون اینترنت» در اپ | $ONLINE_CODE |"
+            echo "| پرده‌ی «بدون اینترنت» در صفحه | $OFFLINE_UI |"
+            echo "| کد حذف اعلان | $DELETE_CODE |"
+            echo "| پاک‌سازی حساب پس از خروج | $SESSION_CODE |"
             echo ""
             echo "### تأیید کد سایت داخل اپ (مقایسه‌ی هش با مخزن)"
             echo ""
@@ -225,6 +234,10 @@ jobs:
             echo "APK_FCM_CODE=$FCM_CODE"
             echo "APK_FCM_WIRED=$FCM_WIRED"
             echo "APK_VERIFY=$VERIFY_SUMMARY"
+            echo "APK_ONLINE_CODE=$ONLINE_CODE"
+            echo "APK_OFFLINE_UI=$OFFLINE_UI"
+            echo "APK_DELETE_CODE=$DELETE_CODE"
+            echo "APK_SESSION_CODE=$SESSION_CODE"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
 
