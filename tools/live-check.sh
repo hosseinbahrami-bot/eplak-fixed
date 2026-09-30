@@ -320,6 +320,13 @@ say "|---|---|"
 say "| نسخه‌ی اپ | \`${VER:-؟}\` |"
 say "| کامیت ساخته‌شده | \`${COMMIT:-؟}\` |"
 say "| حجم فایل | ${APK_SIZE:-0} بایت |"
+APK_VER_NUM="$(printf '%s' "${VER:-}" | awk -F. '{print $3+0}')"
+if [ "${APK_VER_NUM:-0}" -ge 14 ] 2>/dev/null; then
+  say "| نسخه‌ی تازه اپ (۲.۰.۱۴ یا بالاتر) | ✅ \`${VER}\` |"
+else
+  say "| نسخه‌ی تازه اپ | ⚠️ \`${VER:-؟}\` — نسخه‌ی ۲.۰.۱۴ حذف اعلان، سپر آفلاین و ورود دوباره را دارد |"
+  ISSUES+=("روی گوشی نسخه‌ی ۲.۰.۱۴ یا بالاتر نصب کنید (نسخه‌ی فعلی Releases: ${VER:-؟})")
+fi
 say "| فایربیس داخل اپ | ${FCM_LINE:-؟} |"
 say "| اتصال پروژه | ${LINK_LINE:-—} |"
 if printf '%s' "$FCM_LINE" | grep -qE "گنجانده|متصل"; then
@@ -376,6 +383,27 @@ if [ "$CODE_STORAGE" = "200" ] && has "$TMP/storage.out" "prepareAppExit"; then
   say "| پاک شدن حساب پس از خروج از اپ | $CODE_STORAGE | ✅ هست |"
 else
   say "| پاک شدن حساب پس از خروج از اپ | $CODE_STORAGE | ⏳ کد قدیمی است |"
+fi
+
+# پرده‌ی «بدون اینترنت» باید هم در صفحه باشد و هم محتوا را پنهان کند
+CODE_INDEX=$(grab "$BASE/index.html" "$TMP/index2.out")
+if [ "$CODE_INDEX" = "200" ] && has "$TMP/index2.out" "eplakOfflineGate"; then
+  if has "$TMP/index2.out" "phone-frame { visibility: hidden"; then
+    say "| پرده‌ی «بدون اینترنت» در صفحه + پنهان شدن محتوا | $CODE_INDEX | ✅ هست |"
+  else
+    say "| پرده‌ی «بدون اینترنت» در صفحه | $CODE_INDEX | ⚠️ هست ولی پنهان‌سازی محتوا نیست |"
+  fi
+else
+  say "| پرده‌ی «بدون اینترنت» در صفحه | $CODE_INDEX | ⏳ نیست |"
+  ISSUES+=("index.html روی هاست قدیمی است؛ بسته‌ی تازه را Extract کنید")
+fi
+
+# نشانه‌های سرور تازه: اعلان رویدادی و تاریخ شمسی
+CODE_PUSH2=$(grab "$BASE/api/push.php?action=config" "$TMP/push2.out")
+if [ "$CODE_PUSH2" = "200" ] && has "$TMP/push2.out" "fcm_ready"; then
+  say "| موتور سرور تازه (فایربیس + اعلان رویدادی) | $CODE_PUSH2 | ✅ هست |"
+else
+  say "| موتور سرور تازه (فایربیس + اعلان رویدادی) | $CODE_PUSH2 | ⏳ سرور قدیمی است |"
 fi
 say ""
 
