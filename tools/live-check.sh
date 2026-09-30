@@ -61,6 +61,31 @@ else
   ISSUES+=("صفحه‌ی ورود پنل در دسترس نبود (کد $CODE_LOGIN)")
 fi
 
+# ── ۱-۲) اگر سایت خطای دیتابیس دارد، متن دقیق خطا را نشان بده ──────────────
+if [ "$CODE_LOGIN" = "500" ]; then
+  hdr "۱-۲) ⚠️ متن دقیق خطای سرور"
+  python3 - "$LOGIN" <<'PYEOF'
+import re, sys, html
+try:
+    raw = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+except Exception as e:
+    print('  (خواندن پاسخ ممکن نشد:', e, ')'); raise SystemExit
+m = re.search(r'<div class="detail">(.*?)</div>', raw, re.S)
+detail = html.unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip() if m else ''
+title = re.search(r'<h1>(.*?)</h1>', raw, re.S)
+print('  پیام:', html.unescape(re.sub(r'<[^>]+>', '', title.group(1))).strip() if title else '—')
+print('  جزئیات فنی:', detail if detail else '—')
+body = html.unescape(re.sub(r'<[^>]+>', ' ', raw))
+hints = [h.strip() for h in re.findall(r'<li>(.*?)</li>', raw, re.S)]
+if hints:
+    print()
+    print('  راه‌حل‌های پیشنهادی خود سایت:')
+    for h in hints[:4]:
+        print('   •', html.unescape(re.sub(r'<[^>]+>', '', h)).strip()[:180])
+PYEOF
+  say ""
+fi
+
 # ── ۲) فایل جاوااسکریپت اعلان‌ها (نشانه‌ی اصلی نسخه‌ی جدید) ─────────────────
 hdr "۲) فایل \`modules/live.js\` — نشانه‌های نسخه‌ی جدید"
 LIVE="$TMP/live.js"
