@@ -178,9 +178,38 @@ jobs:
           if unzip -p "$APK" assets/index.html | grep -q "reportMapPicker"; then MAP_UI="✅"; else MAP_UI="❌"; fi
           if unzip -p "$APK" assets/modules/reports.js | grep -q "getCurrentPosition"; then GPS_CODE="✅"; else GPS_CODE="❌"; fi
           if unzip -p "$APK" assets/modules/reports.js | grep -q "compressReportImage"; then PHOTO_COMPRESS="✅"; else PHOTO_COMPRESS="❌"; fi
-          # کد جاوا: انتخاب فایل و موقعیت باید داخل dex کامپایل شده باشد
-          if unzip -p "$APK" classes.dex | strings | grep -q "GeolocationPermissions"; then GEO_KOTLIN="✅"; else GEO_KOTLIN="⚠️ (در dex دیده نشد)"; fi
-          if unzip -p "$APK" AndroidManifest.xml | strings | grep -q "ACCESS_FINE_LOCATION"; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
+          # کد جاوا: انتخاب فایل (onShowFileChooser) و موقعیت (GeolocationPermissions)
+          # باید داخل فایل‌های dex کامپایل شده باشند؛ جست‌وجو مستقیم داخل zip انجام
+          # می‌شود (نه با strings) تا نتیجه قابل‌اعتماد باشد.
+          DEX_REPORT="$(python3 - "$APK" <<'PYEOF'
+          import sys, zipfile
+          needles = {
+              'FileChooserParams': 'onShowFileChooser',
+              'GeolocationPermissions': 'onGeolocationPermissionsShowPrompt',
+              'ACCESS_FINE_LOCATION': 'ACCESS_FINE_LOCATION',
+          }
+          try:
+              with zipfile.ZipFile(sys.argv[1]) as z:
+                  names = z.namelist()
+                  dex = [n for n in names if n.endswith('.dex')]
+                  blob = b''.join(z.read(n) for n in dex)
+                  manifest = z.read('AndroidManifest.xml') if 'AndroidManifest.xml' in names else b''
+          except Exception as e:
+              print('ERR ' + str(e))
+              sys.exit(0)
+          print('DEXFILES=' + ','.join(dex))
+          for needle, label in needles.items():
+              found = needle.encode() in blob
+              if not found and needle == 'ACCESS_FINE_LOCATION':
+                  found = (needle.encode() in manifest) or (needle.encode('utf-16-le') in manifest)
+              print(('YES' if found else 'NO') + '|' + label)
+          PYEOF
+          )"
+          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|onShowFileChooser'; then FILEPICK_KOTLIN="✅"; else FILEPICK_KOTLIN="❌ (کد انتخاب فایل داخل اپ کامپایل نشده)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|onGeolocationPermissionsShowPrompt'; then GEO_KOTLIN="✅"; else GEO_KOTLIN="⚠️ (در dex دیده نشد)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|ACCESS_FINE_LOCATION'; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
+          DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | grep '^DEXFILES=' | cut -d= -f2)"
+          echo "بررسی کد داخل APK: $(printf '%s\n' "$DEX_REPORT" | tr '\n' ' ')"
 
           {
             echo "## 🤖 گزارش ساخت فایل APK"
@@ -205,6 +234,7 @@ jobs:
             echo "| GPS گوشی (getCurrentPosition) | $GPS_CODE |"
             echo "| فشرده‌سازی عکس پیش از ارسال | $PHOTO_COMPRESS |"
             echo "| کد موقعیت‌یابی در اپ اندروید | $GEO_KOTLIN |"
+            echo "| کد انتخاب عکس/فیلم در اندروید (onShowFileChooser) | $FILEPICK_KOTLIN |"
             echo "| مجوز موقعیت مکانی در مانیفست | $LOC_PERM |"
             echo ""
             echo "### تأیید کد سایت داخل اپ (مقایسه‌ی هش با مخزن)"
@@ -257,7 +287,9 @@ jobs:
             echo "APK_MAP_UI=$MAP_UI"
             echo "APK_GPS_CODE=$GPS_CODE"
             echo "APK_PHOTO_COMPRESS=$PHOTO_COMPRESS"
+            echo "APK_FILEPICK_KOTLIN=$FILEPICK_KOTLIN"
             echo "APK_GEO_KOTLIN=$GEO_KOTLIN"
+            echo "APK_DEX_FILES=$DEX_FILES"
             echo "APK_LOC_PERM=$LOC_PERM"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
@@ -310,6 +342,7 @@ jobs:
             echo "| GPS گوشی در فرم ثبت درخواست | $APK_GPS_CODE |"
             echo "| فشرده‌سازی عکس پیش از ارسال | $APK_PHOTO_COMPRESS |"
             echo "| کد موقعیت‌یابی اندروید | $APK_GEO_KOTLIN |"
+            echo "| کد انتخاب عکس/فیلم در اندروید | $APK_FILEPICK_KOTLIN |"
             echo "| مجوز موقعیت مکانی در مانیفست | $APK_LOC_PERM |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
