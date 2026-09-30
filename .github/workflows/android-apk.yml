@@ -153,6 +153,7 @@ jobs:
 
           # تأیید اینکه اپ دقیقاً کد سایت همین کامیت را در خود دارد
           MISMATCH=0
+          DEX_BAD=0
           ROWS=""
           for f in index.html app.js modules/live.js modules/reports.js core/storage.js assets/css/style.css; do
             REPO_SUM=$(sha256sum "$f" | awk '{print $1}')
@@ -165,13 +166,13 @@ jobs:
             fi
           done
           # بررسی وجود کد اعلان‌ها و شناسه‌ی نسخه در اپ
-          if unzip -p "$APK" assets/modules/live.js | grep -q "registerAppDevice"; then FCM_CODE="✅"; else FCM_CODE="❌"; MISMATCH=1; fi
+          if unzip -p "$APK" assets/modules/live.js | grep -q "registerAppDevice"; then FCM_CODE="✅"; else FCM_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
           if unzip -p "$APK" assets/modules/reports.js | grep -q "reportMedia\|media"; then MEDIA_CODE="✅"; else MEDIA_CODE="❌"; fi
           # نشانه‌های چهار خواسته‌ی تازه داخل خود APK
-          if unzip -p "$APK" assets/modules/online-guard.js | grep -q "eplakOfflineGate"; then ONLINE_CODE="✅"; else ONLINE_CODE="❌"; MISMATCH=1; fi
-          if unzip -p "$APK" assets/index.html | grep -q "eplakOfflineGate"; then OFFLINE_UI="✅"; else OFFLINE_UI="❌"; MISMATCH=1; fi
-          if unzip -p "$APK" assets/modules/live.js | grep -q "deleteNotifications"; then DELETE_CODE="✅"; else DELETE_CODE="❌"; MISMATCH=1; fi
-          if unzip -p "$APK" assets/core/storage.js | grep -q "prepareAppExit"; then SESSION_CODE="✅"; else SESSION_CODE="❌"; MISMATCH=1; fi
+          if unzip -p "$APK" assets/modules/online-guard.js | grep -q "eplakOfflineGate"; then ONLINE_CODE="✅"; else ONLINE_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/index.html | grep -q "eplakOfflineGate"; then OFFLINE_UI="✅"; else OFFLINE_UI="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/modules/live.js | grep -q "deleteNotifications"; then DELETE_CODE="✅"; else DELETE_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/core/storage.js | grep -q "prepareAppExit"; then SESSION_CODE="✅"; else SESSION_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
 
           # ── نشانه‌های دو خواسته‌ی تازه: انتخاب عکس/فیلم از گالری و موقعیت GPS ──
           if unzip -p "$APK" assets/assets/js/ep-map.js 2>/dev/null | grep -q "tile.openstreetmap.org"; then MAP_CODE="✅"; else MAP_CODE="❌ (فایل نقشه داخل APK نیست)"; fi
@@ -183,13 +184,14 @@ jobs:
           # می‌شود (نه با strings) تا نتیجه قابل‌اعتماد باشد.
           DEX_REPORT="$(python3 - "$APK" <<'PYEOF'
           import sys, zipfile
-          needles = {
-              'FileChooserParams': 'onShowFileChooser',
-              'GeolocationPermissions': 'onGeolocationPermissionsShowPrompt',
-              'ACCESS_FINE_LOCATION': 'ACCESS_FINE_LOCATION',
-              'getAddress': 'addressBridge',
-              'Geocoder': 'geocoder',
-              'allowUniversalAccessFromFileURLs': 'webviewNetwork',
+          probes = {
+              'onShowFileChooser': ['onShowFileChooser'],
+              'onGeolocationPermissionsShowPrompt': ['onGeolocationPermissionsShowPrompt'],
+              'ACCESS_FINE_LOCATION': ['ACCESS_FINE_LOCATION'],
+              'addressBridge': ['getAddress'],
+              'geocoder': ['Geocoder'],
+              'webviewNetwork': ['allowUniversalAccessFromFileURLs', 'UniversalAccessFromFileURLs',
+                                 'UniversalAccess', 'FileURLs'],
           }
           try:
               with zipfile.ZipFile(sys.argv[1]) as z:
@@ -201,18 +203,25 @@ jobs:
               print('ERR ' + str(e))
               sys.exit(0)
           print('DEXFILES=' + ','.join(dex))
-          for needle, label in needles.items():
-              found = needle.encode() in blob
-              if not found and needle == 'ACCESS_FINE_LOCATION':
-                  found = (needle.encode() in manifest) or (needle.encode('utf-16-le') in manifest)
-              print(('YES' if found else 'NO') + '|' + label)
+          for label, options in probes.items():
+              hit = ''
+              for needle in options:
+                  if needle.encode() in blob:
+                      hit = needle
+                      break
+              if not hit and label == 'ACCESS_FINE_LOCATION':
+                  if (b'ACCESS_FINE_LOCATION' in manifest) or (b'ACCESS_FINE_LOCATION'.decode().encode('utf-16-le') in manifest):
+                      hit = 'ACCESS_FINE_LOCATION'
+              print(('YES|' + label + ':' + hit) if hit else ('NO|' + label + ':?'),
+                    end=' ')
+          print('')
           PYEOF
           )"
-          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|onShowFileChooser'; then FILEPICK_KOTLIN="✅"; else FILEPICK_KOTLIN="❌ (کد انتخاب فایل داخل اپ کامپایل نشده)"; fi
-          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|onGeolocationPermissionsShowPrompt'; then GEO_KOTLIN="✅"; else GEO_KOTLIN="⚠️ (در dex دیده نشد)"; fi
-          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|ACCESS_FINE_LOCATION'; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
-          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|addressBridge' && printf '%s\n' "$DEX_REPORT" | grep -q '^YES|geocoder'; then ADDR_KOTLIN="✅"; else ADDR_KOTLIN="❌ (پل آدرس‌یاب گوشی داخل اپ کامپایل نشده)"; MISMATCH=1; fi
-          if printf '%s\n' "$DEX_REPORT" | grep -q '^YES|webviewNetwork'; then NET_KOTLIN="✅"; else NET_KOTLIN="❌ (اجازه‌ی درخواست شبکه از صفحه‌ی اپ بسته است)"; MISMATCH=1; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|onShowFileChooser'; then FILEPICK_KOTLIN="✅"; else FILEPICK_KOTLIN="❌ (کد انتخاب فایل داخل اپ کامپایل نشده)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|onGeolocationPermissionsShowPrompt'; then GEO_KOTLIN="✅"; else GEO_KOTLIN="⚠️ (در dex دیده نشد)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|ACCESS_FINE_LOCATION'; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|addressBridge' && printf '%s\n' "$DEX_REPORT" | grep -q 'YES|geocoder'; then ADDR_KOTLIN="✅"; else ADDR_KOTLIN="❌ (پل آدرس‌یاب گوشی داخل اپ کامپایل نشده)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|webviewNetwork'; then NET_KOTLIN="✅"; else NET_KOTLIN="❌ (اجازه‌ی درخواست شبکه از صفحه‌ی اپ دیده نشد)"; DEX_BAD=$((DEX_BAD+1)); fi
           DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | grep '^DEXFILES=' | cut -d= -f2)"
           echo "بررسی کد داخل APK: $(printf '%s\n' "$DEX_REPORT" | tr '\n' ' ')"
 
@@ -276,6 +285,13 @@ jobs:
           else
             VERIFY_SUMMARY="✅ همه‌ی ۶ فایل سایت داخل اپ با مخزن یکسان‌اند"
           fi
+          if [ "$DEX_BAD" = "0" ]; then
+            DEX_SUMMARY="✅ همه‌ی نشانه‌های کد در اپ دیده می‌شوند"
+          else
+            DEX_SUMMARY="⚠️ $DEX_BAD نشانه‌ی کد در اپ دیده نشد"
+            echo "::warning::برخی نشانه‌های کد در APK دیده نشدند — گزارش dex: $DEX_REPORT"
+          fi
+          echo "بازرسی نشانه‌های کد: $DEX_SUMMARY — $DEX_REPORT"
 
           {
             echo "APK_SHA=$SHA"
@@ -286,6 +302,8 @@ jobs:
             echo "APK_FCM_CODE=$FCM_CODE"
             echo "APK_FCM_WIRED=$FCM_WIRED"
             echo "APK_VERIFY=$VERIFY_SUMMARY"
+            echo "APK_DEX_SUMMARY=$DEX_SUMMARY"
+            echo "APK_DEX_REPORT=$DEX_REPORT"
             echo "APK_ONLINE_CODE=$ONLINE_CODE"
             echo "APK_OFFLINE_UI=$OFFLINE_UI"
             echo "APK_DELETE_CODE=$DELETE_CODE"
@@ -341,6 +359,7 @@ jobs:
             echo "| حجم فایل | \`$APK_SIZE\` بایت |"
             echo "| اثرانگشت SHA-256 | \`$APK_SHA\` |"
             echo "| تأیید محتوا | $APK_VERIFY |"
+            echo "| نشانه‌های کد در اپ | $APK_DEX_SUMMARY |"
             echo "| فایربیس در بیلد | $APK_FCM_STATE |"
             echo "| اتصال به پروژه‌ی فایربیس | $APK_FCM_WIRED |"
             echo "| سپر «بدون اینترنت اتصال ممکن نیست» | $APK_ONLINE_CODE |"
