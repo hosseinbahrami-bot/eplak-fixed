@@ -144,8 +144,26 @@ function eplakMediaDetectType(string $tmpPath, string $originalName): array {
 }
 
 /* ثبت ردیف فایل در دیتابیس */
-function eplakMediaInsertRow(PDO $pdo, int $reportId, string $relativePath, string $kind, string $originalName, string $mime, int $size): bool {
+function eplakMediaInsertRow(PDO $pdo, int $reportId, string $relativePath, string $kind, string $originalName, string $mime, int $size, string $clientRef = ''): bool {
     try {
+        /* اگر ستون client_ref وجود ندارد (هاست قدیمی)، مسیر بدون آن ادامه می‌یابد */
+        $hasRef = ($clientRef !== '') && eplakTableHasColumn($pdo, 'report_media', 'client_ref');
+        if ($hasRef) {
+            $stmt = $pdo->prepare(
+                'INSERT INTO report_media (report_id, kind, file_path, original_name, mime_type, size_bytes, client_ref)
+                 VALUES (:report_id, :kind, :file_path, :original_name, :mime_type, :size_bytes, :client_ref)'
+            );
+            $stmt->execute([
+                ':report_id'     => $reportId,
+                ':kind'          => $kind,
+                ':file_path'     => $relativePath,
+                ':original_name' => mb_substr($originalName, 0, 250, 'UTF-8'),
+                ':mime_type'     => $mime,
+                ':size_bytes'    => $size,
+                ':client_ref'    => mb_substr($clientRef, 0, 64, 'UTF-8'),
+            ]);
+            return true;
+        }
         $stmt = $pdo->prepare(
             'INSERT INTO report_media (report_id, kind, file_path, original_name, mime_type, size_bytes)
              VALUES (:report_id, :kind, :file_path, :original_name, :mime_type, :size_bytes)'
@@ -163,6 +181,67 @@ function eplakMediaInsertRow(PDO $pdo, int $reportId, string $relativePath, stri
         error_log('[eplak-media] insert failed: ' . $e->getMessage());
         return false;
     }
+}
+
+/* ── «عکس/فیلم اول، گزارش بعد» ─────────────────────────────────────────
+   فایل‌ها پیش از ساخته شدن گزارش، با شناسه‌ی یکتای درخواست (report_id = 0)
+   ذخیره می‌شوند؛ به‌محض ساخته شدن گزارش، همین ردیف‌ها به آن متصل می‌شوند. */
+
+/** تعداد فایل‌های در انتظار اتصال برای یک شناسه‌ی درخواست */
+function eplakMediaStagedCount(PDO $pdo, string $clientRef): int {
+    if ($clientRef === '' || !eplakTableHasColumn($pdo, 'report_media', 'client_ref')) {
+        return 0;
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :ref AND report_id = 0');
+        $stmt->execute([':ref' => $clientRef]);
+        return (int) $stmt->fetchColumn();
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+/** اتصال همه‌ی فایل‌های «در انتظار» به گزارش تازه — خروجی: فهرست فایل‌ها */
+function eplakMediaAttachStaged(PDO $pdo, int $reportId, string $clientRef): array {
+    if ($reportId <= 0 || $clientRef === '' || !eplakTableHasColumn($pdo, 'report_media', 'client_ref')) {
+        return [];
+    }
+    try {
+        /* جدول report_media شماره‌ی کاربر ندارد؛ امنیت از دو راه تأمین می‌شود:
+           ۱) فایل فقط با «شناسه‌ی یکتای» ۶۴ کاراکتریِ تصادفی که فقط روی گوشی
+              خودِ کاربر است ذخیره می‌شود، ۲) هنگام ساخت گزارش، مالکیت گزارش با
+              شماره‌ی کاربر بررسی شده است. */
+        $upd = $pdo->prepare('UPDATE report_media SET report_id = :rid WHERE client_ref = :ref AND report_id = 0');
+        $upd->execute([':rid' => $reportId, ':ref' => $clientRef]);
+    } catch (Throwable $e) {
+        error_log('[eplak-media] attach staged failed: ' . $e->getMessage());
+    }
+    return eplakMediaForReport($pdo, $reportId);
+}
+
+/** پاک‌سازی فایل‌های جامانده‌ی «در انتظار اتصال» (پیش‌فرض: قدیمی‌تر از ۲۴ ساعت) */
+function eplakMediaCleanupStaged(PDO $pdo, int $maxAgeSeconds = 86400): int {
+    if (!eplakTableHasColumn($pdo, 'report_media', 'client_ref')) {
+        return 0;
+    }
+    $removed = 0;
+    try {
+        $cutoff = date('Y-m-d H:i:s', time() - max(3600, $maxAgeSeconds));
+        $rows = $pdo->prepare('SELECT id, file_path FROM report_media WHERE report_id = 0 AND client_ref <> :empty AND created_at < :cutoff');
+        $rows->execute([':empty' => '', ':cutoff' => $cutoff]);
+        foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $abs = EPLAK_ROOT . '/' . ltrim((string) $row['file_path'], '/');
+            if (is_file($abs)) {
+                @unlink($abs);
+            }
+            $del = $pdo->prepare('DELETE FROM report_media WHERE id = :id');
+            $del->execute([':id' => (int) $row['id']]);
+            $removed++;
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-media] cleanup staged failed: ' . $e->getMessage());
+    }
+    return $removed;
 }
 
 /* رمزگشایی محتوای base64 (پشتیبانی از data URL هم: data:image/png;base64,xxx)
@@ -193,7 +272,7 @@ function eplakMediaKindFromMime(string $mime): string {
 }
 
 /* ذخیره‌ی محتوای خام (مسیر JSON با base64) */
-function eplakMediaStoreBinary(PDO $pdo, int $reportId, string $binary, string $originalName, string $declaredMime = ''): array {
+function eplakMediaStoreBinary(PDO $pdo, int $reportId, string $binary, string $originalName, string $declaredMime = '', string $clientRef = ''): array {
     $tmp = tempnam(sys_get_temp_dir(), 'eplakmedia');
     if ($tmp === false) {
         return ['ok' => false, 'error' => 'ساخت فایل موقت ناموفق بود.'];
@@ -205,13 +284,13 @@ function eplakMediaStoreBinary(PDO $pdo, int $reportId, string $binary, string $
         'type'     => $declaredMime,
         'error'    => UPLOAD_ERR_OK,
         'size'     => strlen($binary),
-    ]);
+    ], $clientRef);
     @unlink($tmp);
     return $result;
 }
 
 /* ذخیره‌ی یک فایل آپلودی ($_FILES[...]) برای گزارش مشخص */
-function eplakMediaStoreFile(PDO $pdo, int $reportId, array $file): array {
+function eplakMediaStoreFile(PDO $pdo, int $reportId, array $file, string $clientRef = ''): array {
     $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
     if ($error === UPLOAD_ERR_NO_FILE) {
         return ['ok' => false, 'error' => 'فایلی انتخاب نشده بود.'];
@@ -254,11 +333,20 @@ function eplakMediaStoreFile(PDO $pdo, int $reportId, array $file): array {
        علت: وقتی یک ارسال بی‌پاسخ می‌ماند، اپ دوباره تلاش می‌کند و فایروال/
        شبکه ممکن است فایل را دو بار به سرور برساند (پیوست‌های تکراری در پنل). */
     try {
-        $dupStmt = $pdo->prepare('SELECT id, kind, file_path, original_name, mime_type, size_bytes
-                                  FROM report_media
-                                  WHERE report_id = :rid AND original_name = :name AND size_bytes = :size
-                                  ORDER BY id ASC LIMIT 1');
-        $dupStmt->execute([':rid' => $reportId, ':name' => $originalName, ':size' => $size]);
+        if ($reportId === 0 && $clientRef !== '' && eplakTableHasColumn($pdo, 'report_media', 'client_ref')) {
+            /* در حالت «در انتظار اتصال»، تکراری‌بودن داخل همان شناسه بررسی می‌شود */
+            $dupStmt = $pdo->prepare('SELECT id, kind, file_path, original_name, mime_type, size_bytes
+                                      FROM report_media
+                                      WHERE report_id = 0 AND client_ref = :ref AND original_name = :name AND size_bytes = :size
+                                      ORDER BY id ASC LIMIT 1');
+            $dupStmt->execute([':ref' => $clientRef, ':name' => $originalName, ':size' => $size]);
+        } else {
+            $dupStmt = $pdo->prepare('SELECT id, kind, file_path, original_name, mime_type, size_bytes
+                                      FROM report_media
+                                      WHERE report_id = :rid AND original_name = :name AND size_bytes = :size
+                                      ORDER BY id ASC LIMIT 1');
+            $dupStmt->execute([':rid' => $reportId, ':name' => $originalName, ':size' => $size]);
+        }
         $dupRow = $dupStmt->fetch(PDO::FETCH_ASSOC);
         if ($dupRow) {
             return [
@@ -299,7 +387,7 @@ function eplakMediaStoreFile(PDO $pdo, int $reportId, array $file): array {
     }
     @chmod($absolutePath, 0644);
 
-    if (!eplakMediaInsertRow($pdo, $reportId, $relativePath, $detected['kind'], $originalName, $detected['mime'], $size)) {
+    if (!eplakMediaInsertRow($pdo, $reportId, $relativePath, $detected['kind'], $originalName, $detected['mime'], $size, $clientRef)) {
         @unlink($absolutePath);
         return ['ok' => false, 'error' => 'ثبت فایل در دیتابیس ناموفق بود.'];
     }
@@ -382,6 +470,9 @@ function eplakMediaUrl(string $relativePath): string {
 
 /* فایل‌های یک گزارش */
 function eplakMediaForReport(PDO $pdo, int $reportId): array {
+    if ($reportId <= 0) {
+        return [];   /* ردیف‌های «در انتظار اتصال» جزو پیوست‌های گزارش نیستند */
+    }
     try {
         $stmt = $pdo->prepare('SELECT * FROM report_media WHERE report_id = :id ORDER BY id ASC');
         $stmt->execute([':id' => $reportId]);
@@ -453,7 +544,8 @@ function eplakMediaCounts(PDO $pdo, array $reportIds = []): array {
     $out = [];
     try {
         if (!$reportIds) {
-            $rows = $pdo->query('SELECT report_id, kind, COUNT(*) AS c FROM report_media GROUP BY report_id, kind')->fetchAll();
+            /* ردیف‌های «در انتظار اتصال» (report_id صفر) جزو گزارش‌ها شمرده نمی‌شوند */
+            $rows = $pdo->query('SELECT report_id, kind, COUNT(*) AS c FROM report_media WHERE report_id > 0 GROUP BY report_id, kind')->fetchAll();
         } else {
             $ids = [];
             foreach ($reportIds as $id) {

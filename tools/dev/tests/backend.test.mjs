@@ -48,7 +48,7 @@ ok('بذرها اجرا شدند (۶ خبر/دانستنی + ۶۵ واحد)', db
 const wanted = ['notifications', 'notification_reads', 'notification_deletes', 'device_tokens', 'push_subscriptions', 'report_media', 'app_settings'];
 const missing = wanted.filter((t) => !(db?.tables || []).includes(t));
 ok('همه‌ی جدول‌های لازم ساخته شدند', missing.length === 0, 'گم‌شده: ' + missing.join(', '));
-ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-(09-30|10-0[12])\./.test(String(db?.schema)), String(db?.schema));
+ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-(09-30|10-0[123])\./.test(String(db?.schema)), String(db?.schema));
 ok('ستون شناسه‌ی یکتای درخواست به جدول گزارش‌ها اضافه شد (پایه‌ی جلوگیری از تکرار)',
   (db?.report_cols || []).includes('client_ref'), JSON.stringify(db?.report_cols || []));
 ok('ستون‌های شمارش فایربیس ساخته شدند', (db?.send_cols || []).includes('fcm_sent') && (db?.send_cols || []).includes('fcm_failed'), JSON.stringify(db?.send_cols));
@@ -791,6 +791,99 @@ try {
 }`);
 ok('دیتابیس اجازه‌ی دو گزارش با یک شناسه‌ی یکتا را نمی‌دهد (قید یکتا)',
   /"blocked":true/.test(uniqueCheck), String(uniqueCheck).slice(0, 120));
+
+/* ═══════════════════════════════════════════════════════════════════
+   دور ۲۵: «تا بارگیری تمام فیلم و عکس، اپ کد پیگیری نده»
+   مسیر تازه: اول عکس/فیلم روی سرور و در انتظار اتصال، بعد ساخت گزارش
+   ═══════════════════════════════════════════════════════════════════ */
+console.log('\n=== دور ۲۵: اول فایل، بعد گزارش (یک کد پیگیری با پیوست) ===');
+
+const STAGE_REF = 'EPL-STAGE' + Date.now().toString(36).toUpperCase();
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/* ذخیره‌ی یک فایل «در انتظار اتصال» (reportId صفر + شناسه‌ی یکتا) */
+const stageUpload = (ref, name, mime, data) => run(`
+$_GET = ['action' => 'upload'];
+$_POST = [
+  'phone' => '09121112233', 'reportId' => 0, 'client_ref' => '${ref}',
+  'name' => '${name}', 'mime' => '${mime}', 'data' => '${data}',
+];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/media.php';`);
+
+const staged1 = pickJson(await stageUpload(STAGE_REF, 'stage-a.png', 'image/png', PNG));
+ok('عکس پیش از ساخته شدن گزارش روی سرور ذخیره می‌شود و «در انتظار اتصال» علامت می‌خورد',
+  staged1?.success === true && staged1?.staged === true && Number(staged1?.media_count) === 1,
+  JSON.stringify(staged1).slice(0, 180));
+
+const staged2 = pickJson(await stageUpload(STAGE_REF, 'stage-b.png', 'image/png', PNG));
+ok('فیلم/عکس دوم هم به همان مجموعه‌ی در انتظار اضافه می‌شود',
+  staged2?.success === true && Number(staged2?.media_count) === 2, String(staged2?.media_count));
+
+const stagedRows = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+$st = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :r AND report_id = 0');
+$st->execute([':r' => '${STAGE_REF}']);
+echo json_encode(['staged' => (int) $st->fetchColumn()]);`));
+ok('فایل‌های در انتظار هنوز به هیچ گزارشی وصل نشده‌اند (report_id صفر)',
+  Number(stagedRows?.staged) === 2, String(stagedRows?.staged));
+
+/* حالا گزارش با همان شناسه‌ی یکتا ساخته می‌شود — بدون ارسال دوباره‌ی فایل */
+const stagedReport = pickJson(await run(`
+$_POST = [
+  'phone' => '09121112233', 'title' => 'چاله خیابان ۲', 'description' => 'توضیح تکرار',
+  'category' => 'سایر', 'client_ref' => '${STAGE_REF}',
+];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`));
+
+ok('گزارش فقط پس از پایان بارگذاری ساخته می‌شود و کد پیگیری می‌گیرد',
+  stagedReport?.success === true && !!stagedReport?.tracking_code && Number(stagedReport?.id) > 0,
+  JSON.stringify(stagedReport).slice(0, 160));
+ok('گزارش ساخته‌شده با فایل‌های در انتظارِ خودش تحویل داده می‌شود (کد با فیلم و عکس)',
+  Array.isArray(stagedReport?.media) && stagedReport.media.length === 2, JSON.stringify(stagedReport?.media?.length));
+
+const attachedRows = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+$st = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :r AND report_id = :id');
+$st->execute([':r' => '${STAGE_REF}', ':id' => ${Number(stagedReport?.id) || 0}]);
+$left = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :r AND report_id = 0');
+$left->execute([':r' => '${STAGE_REF}']);
+echo json_encode(['attached' => (int) $st->fetchColumn(), 'left' => (int) $left->fetchColumn()]);`));
+ok('همه‌ی فایل‌های در انتظار به گزارش وصل شدند و موردی باقی نماند',
+  Number(attachedRows?.attached) === 2 && Number(attachedRows?.left) === 0, JSON.stringify(attachedRows));
+
+const stagedList = pickJson(await run(`
+$_GET = ['phone' => '09121112233'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/reports.php';`));
+const stagedListRows = Array.isArray(stagedList?.reports) ? stagedList.reports : [];
+const sameRef = stagedListRows.filter(r => String(r.client_ref || '') === STAGE_REF);
+ok('فهرست گزارش‌های کاربر برای این درخواست فقط یک ردیف دارد (تکرار در جزئیات گزارش)',
+  sameRef.length === 1, `rows=${sameRef.length}`);
+
+/* اپ قدیمی (بدون شناسه‌ی یکتا): ارسال دوباره‌ی سریعِ همان محتوا نباید گزارش دوم بسازد */
+const legacyOnce = () => run(`
+$_POST = ['phone' => '09121112233', 'title' => 'چراغ سوخته کوچه ۵', 'description' => 'نسخه‌ی قدیمی اپ', 'category' => 'روشنایی'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`);
+const legacyFirst  = pickJson(await legacyOnce());
+const legacySecond = pickJson(await legacyOnce());
+ok('اپ قدیمی (بدون شناسه) هم با ارسال دوباره‌ی سریع، گزارش دوم نمی‌سازد',
+  Number(legacyFirst?.id) > 0 && Number(legacySecond?.id) === Number(legacyFirst?.id) && legacySecond?.deduped === true,
+  `first=${legacyFirst?.id} second=${legacySecond?.id} deduped=${legacySecond?.deduped}`);
+ok('کد پیگیری نسخه‌ی قدیمی هم تکراری ساخته نمی‌شود',
+  String(legacySecond?.tracking_code) === String(legacyFirst?.tracking_code));
+
+const legacyCount = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+$st = $pdo->prepare("SELECT COUNT(*) FROM reports WHERE user_phone = '09121112233' AND title = 'چراغ سوخته کوچه ۵'");
+$st->execute();
+echo json_encode(['n' => (int) $st->fetchColumn()]);`));
+ok('روی سرور فقط یک ردیف برای آن درخواست قدیمی وجود دارد', Number(legacyCount?.n) === 1, String(legacyCount?.n));
 
 /* ═══════════════════════════════════════════════════════════════════
    پاسخ‌دادن به تیکت از پنل ادمین باید برای کاربر اعلان بسازد

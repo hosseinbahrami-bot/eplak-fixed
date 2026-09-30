@@ -22,7 +22,8 @@ function getDashboardStats(PDO $pdo): array {
 
     $reportsWithMedia = 0;
     try {
-        $reportsWithMedia = (int) $pdo->query('SELECT COUNT(DISTINCT report_id) FROM report_media')->fetchColumn();
+        /* فقط گزارش‌های واقعی — ردیف‌های «در انتظار اتصال» (report_id صفر) شمرده نمی‌شوند */
+        $reportsWithMedia = (int) $pdo->query('SELECT COUNT(DISTINCT report_id) FROM report_media WHERE report_id > 0')->fetchColumn();
     } catch (Throwable $e) {
         $reportsWithMedia = 0;
     }

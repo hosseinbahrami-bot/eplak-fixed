@@ -183,7 +183,7 @@ ok('پیام جعلی قدیمی حذف شده است', !/موقعیت فعلی 
 ok('موقعیت روی نقشه‌ی واقعی ساخته می‌شود', /EplakMap\.create/.test(reportsJs) && /reportMapPicker/.test(reportsJs));
 ok('مختصات انتخاب‌شده ذخیره و نمایش داده می‌شود', /reportDraft\.geo/.test(reportsJs) && /reportCoordsText/.test(reportsJs));
 ok('خطای «دسترسی بسته» با راهنمای فعال‌سازی نمایش داده می‌شود', /دسترسی به موقعیت بسته است/.test(reportsJs) && /موقعیت مکانی/.test(reportsJs));
-ok('مختصات همراه گزارش به سرور فرستاده می‌شود', /draftPayload\.lat/.test(reportsJs) && /draftPayload\.lng/.test(reportsJs));
+ok('مختصات همراه گزارش به سرور فرستاده می‌شود', /payload\.lat = report\.lat/.test(reportsJs) && /payload\.lng = report\.lng/.test(reportsJs));
 ok('در اپ اندروید اجازه‌ی موقعیت از پل اندروید گرفته می‌شود',
   /AndroidApp\.hasLocationPermission/.test(reportsJs) && /AndroidApp\.requestLocationPermission/.test(reportsJs));
 ok('پاسخ اجازه‌ی موقعیت از اندروید دریافت می‌شود', /eplakLocationPermissionResult/.test(reportsJs));
@@ -217,14 +217,17 @@ ok('ارسال JSON با base64 (مسیر بازی که فایروال هاست 
 ok('ارسال تکه‌تکه‌ی فایل حجیم (فیلم) پیاده شده است',
   /uploadReportMediaChunked/.test(storageJs) && /media\.php\?action=chunk/.test(storageJs) && /FileReader/.test(storageJs));
 ok('اپ فایل‌ها را در بدنه‌ی JSON می‌فرستد (multipart روی هاست بسته است)',
-  /\.media = items/.test(reportsJs) && !/new FormData\(\)/.test(reportsJs));
-ok('فیلم‌های حجیم پس از ثبت گزارش تکه‌تکه فرستاده می‌شوند',
-  /largeFiles/.test(reportsJs) && /uploadReportMediaChunked\(/.test(reportsJs));
+  /uploadReportMediaChunked/.test(storageJs) && !/new FormData\(\)/.test(reportsJs));
+ok('عکس و فیلم پیش از ساخته شدن گزارش تکه‌تکه فرستاده می‌شوند',
+  /uploadStagedMedia/.test(reportsJs) && /uploadReportMediaChunked\(0, phone, files/.test(reportsJs)
+  && /clientRef: report\.clientRef/.test(reportsJs));
 ok('اگر نسخه‌ی هاست قدیمی باشد، پیام روشن به کاربر داده می‌شود',
-  /بسته‌ی تازه‌ی سایت را روی هاست Extract کنید/.test(reportsJs));
+  /بسته‌ی تازه را Extract کنید/.test(storageJs));
 ok('آپلود به window معرفی شده است', /window\.syncFormDataToBackendWithProgress\s*=/.test(storageJs));
-ok('پیام موفقیت پیوست‌ها به کاربر نشان داده می‌شود', /پیوست با موفقیت ارسال/.test(reportsJs));
-ok('اگر پیوست ذخیره نشد، کاربر دلیل را می‌بیند', /media_errors/.test(reportsJs) && /پیوست/.test(reportsJs));
+ok('پیام موفقیت پیوست‌ها همراه کد پیگیری به کاربر نشان داده می‌شود',
+  /گزارش با عکس\/فیلم‌ها ثبت شد/.test(reportsJs));
+ok('اگر پیوست ذخیره نشد، کاربر دلیل را می‌بیند و کد پیگیری صادر نمی‌شود',
+  /mediaRes\.errors\[0\]/.test(reportsJs) && /صادر نمی‌شود/.test(reportsJs));
 
 /* ══════════ ۴) اپ اندروید: انتخاب فایل و موقعیت ══════════ */
 console.log('\n=== اپ اندروید (WebView) ===');
@@ -277,7 +280,7 @@ ok('هر دو نسخه‌ی اسکیما (SQLite و MySQL) ستون مختصات
   reportsDdl.length === 2 && reportsDdl.every((d) => /\blat\b/.test(d) && /\blng\b/.test(d) && /location_accuracy/.test(d)),
   `تعداد DDL=${reportsDdl.length}`);
 ok('نسخه‌ی اسکیما برای افزودن خودکار جدول‌ها/ستون‌ها بالا رفته است',
-  /EPLAK_SCHEMA_VERSION', '2026-10-02\.1'/.test(bootstrap));
+  /EPLAK_SCHEMA_VERSION', '2026-10-03\.1'/.test(bootstrap));
 ok('جدول روند رسیدگی (report_events) در هر دو درایور ساخته می‌شود',
   (bootstrap.match(/CREATE TABLE IF NOT EXISTS report_events/g) || []).length === 2);
 ok('کمکی بررسی وجود ستون در هسته تعریف شده است', /function eplakTableHasColumn/.test(bootstrap));
@@ -352,23 +355,24 @@ ok('توضیح خطا شامل کد واقعی سرور است (۴۰۳/۴۱۳/۴
 ok('تابع‌های تازه روی window صادر شده‌اند',
   /window\.eplakMediaStatus/.test(storageJs) && /window\.eplakTransportMessage/.test(storageJs) && /window\.eplakIsTransportFailure/.test(storageJs));
 
-ok('آستانه‌ی «همراه گزارش» کوچک شده است (۶۰۰KB هر فایل / ۷۰۰KB مجموع)',
-  /INLINE_MAX_FILE = Number\(window\.EPLAK_INLINE_MAX_FILE\) \|\| \(600 \* 1024\)/.test(reportsJs)
-  && /INLINE_MAX_TOTAL = Number\(window\.EPLAK_INLINE_MAX_TOTAL\) \|\| \(700 \* 1024\)/.test(reportsJs));
-ok('اگر ارسال همراه پیوست شکست خورد، گزارش بدون پیوست ثبت می‌شود',
-  /mediaDeferred = true/.test(reportsJs) && /delete plain\.media/.test(reportsJs));
-ok('پیوست‌های جامانده از مسیر تکه‌تکه فرستاده می‌شوند',
-  /const stillToSend = deferredInlineFiles\.concat\(largeFiles\)/.test(reportsJs) && /sendMediaChunked\(stillToSend/.test(reportsJs));
+ok('مرحله‌ی بارگذاری پیوست‌ها صریح و پشت‌سرهم است (بدون مسیر موازی قدیمی)',
+  /async function uploadStagedMedia/.test(reportsJs) && /await uploadStagedMedia\(newReport, filesToUpload, currentPhone\)/.test(reportsJs));
+ok('گزارش تنها پس از موفقیت کامل بارگذاری ساخته می‌شود',
+  /const created = await finalizePendingReport\(newReport, currentPhone\)/.test(reportsJs)
+  && !/createReportOnServer\(\)\s*\n\s*\.then\(async outcome/.test(reportsJs));
+ok('اگر بارگذاری ناتمام بماند، گزارش ساخته نمی‌شود و فایل‌ها دوباره صف می‌شوند',
+  /showReportUploadFailed\(newReport, filesToUpload/.test(reportsJs)
+  && /eplakQueuePendingMedia\(report\.backendId \|\| 0, phone, files, report\.clientRef\)/.test(reportsJs));
 ok('دکمه‌ی «تلاش دوباره» برای پیوست‌های نرسیده وجود دارد',
-  /reportUploadRetry/.test(reportsJs) && /تلاش دوباره برای ارسال پیوست‌ها/.test(reportsJs));
-ok('پیام خطا دلیل دقیق (کد سرور) را به کاربر می‌گوید',
-  /uploadNote/.test(reportsJs) && /گزارش ثبت شد ولی/.test(reportsJs));
+  /reportUploadRetry/.test(reportsJs) && /تلاش دوباره برای ارسال عکس\/فیلم/.test(reportsJs));
+ok('پیام خطا دلیل دقیق را به کاربر می‌گوید و کد پیگیری صادر نمی‌شود',
+  /showReportUploadFailed\(report, list, phone, mediaRes\.note/.test(reportsJs) && /صادر نمی‌شود/.test(reportsJs));
 ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی را دارد (علت اصلی باگ ارسال)',
   /allowUniversalAccessFromFileURLs = true/.test(main));
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=18/.test(indexHtml) && /modules\/reports\.js\?v=24/.test(indexHtml)
+  /core\/storage\.js\?v=19/.test(indexHtml) && /modules\/reports\.js\?v=25/.test(indexHtml)
   && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
   && /assets\/css\/style\.css\?v=89/.test(indexHtml)
   && /assets\/js\/icons\.js\?v=13/.test(indexHtml)

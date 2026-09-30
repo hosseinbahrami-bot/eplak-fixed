@@ -371,3 +371,69 @@ one without).
    tracking code, and the admin panel shows one report with both attachments.
 4. Previously created duplicates are not deleted automatically; remove them from the
    admin panel (Reports → delete) if you want.
+
+---
+
+## 24) Round 25 — “Photos and videos first, tracking code last” (one code, with attachments)
+
+### 1. What the user reported
+“Inside the report details the same submission appears twice, each with its own
+tracking code”, and “give one tracking code with the photo and video, and do not give
+a tracking code until all photos and videos finish uploading”.
+
+### 2. Root cause
+- Previously the app **created the report first** (and got the code), then uploaded
+  photos/videos. If an upload stalled, the app re-submitted, and the local row (with
+  its own local code) sat next to the server row → “two rows, two codes”.
+- A local row was dropped only when title/description/location matched a server row
+  exactly; otherwise both were rendered.
+
+### 3. The new flow: media first, report second
+1. The user taps “ثبت نهایی”; the app immediately creates a unique `client_ref` and
+   shows the success screen with **“در حال بارگذاری…”** — **no code at all**.
+2. **All** photos and videos (chunked for large files) are uploaded with that reference
+   and stored server-side with `report_id = 0` as **staged** rows.
+3. Only after **every** file is delivered does the app create the report.
+4. The server attaches the staged files to that single new report and returns **one**
+   tracking code; the app reveals the code only now.
+5. If any file fails: **no report is created and no code is issued**; the files stay in
+   the phone’s retry queue and are re-sent by the “تلاش دوباره برای ارسال عکس/فیلم”
+   button or automatically (app open / network back) — always with the **same**
+   `client_ref`, so two reports/two codes can never be created.
+
+### 4. Duplicate row in report details — fixed
+- The reports list API now returns `client_ref`.
+- The app matches rows by that reference: if the server has two rows for one request,
+  only one (the one with more attachments) is shown, and the local row for that request
+  is no longer rendered beside it.
+- Until uploads finish, the code position shows “در حال بارگذاری عکس/فیلم…”; there is no
+  temporary/fabricated code anymore.
+
+### 5. Older app versions (no unique id)
+If an older app submits **without** a reference, the server treats the same
+phone+title+description within a short window (3 minutes) as a duplicate and returns
+the existing report and code, so even an old app cannot create two reports with two codes.
+
+### 6. Database changes
+- `report_media.client_ref` was added; schema is now `2026-10-03.1` (auto-upgrades).
+- Staged files older than 24 hours are cleaned up automatically so host storage does not
+  fill up.
+- The admin “reports with media” stat no longer counts staged rows.
+
+### 7. Tests
+- 10 new tests across both sides: (a) server — staging with `report_id = 0`, auto-attach
+  at creation, no leftover staged rows, single row in the list, legacy-app anti-duplication;
+  (b) app — media-before-report order, no code until completion, retry queue keyed by the
+  unique id, duplicate rows collapsed to one.
+- Verified with a real run: two staged files → report created with `media_count = 2` and
+  `rows = 1`; legacy resubmission → `deduped = true` with the same code.
+
+### Deploy steps
+1. Extract the fresh `eplak-fixed-update.zip` over the `eplak-fixed` folder (Overwrite);
+   the schema auto-upgrades to `2026-10-03.1`.
+2. Install the new APK (2.0.30+); older versions reveal the code immediately.
+3. Test: submit a report with a photo **and** a video. The success screen first shows
+   “در حال بارگذاری…”, then **one tracking code**; “گزارش‌های من” and the details show
+   one row with one code and the same photo/video.
+4. Previously created duplicates are not deleted automatically; remove them from the
+   admin panel (Reports → delete) if you want.

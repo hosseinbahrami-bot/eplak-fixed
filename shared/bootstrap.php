@@ -555,8 +555,12 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         original_name VARCHAR(255) DEFAULT '',
         mime_type VARCHAR(100) DEFAULT '',
         size_bytes INT NOT NULL DEFAULT 0,
+        client_ref VARCHAR(64) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
+    /* ردیف‌های «در انتظار اتصال» (report_id = 0) با شناسه‌ی یکتای درخواست
+       نگه داشته می‌شوند تا پیش از ساخته شدن گزارش هم عکس/فیلم ذخیره شود. */
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_report_media_client_ref ON report_media (client_ref)"); } catch (Throwable $e) {}
 
     /* روند رسیدگی به گزارش — همان چیزی که هم در اپ و هم در پنل ادمین
        نشان داده می‌شود. هر ردیف یک گام است: ثبت، ارجاع، تغییر وضعیت،
@@ -668,7 +672,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-10-02.1');   /* + شناسه‌ی یکتای درخواست (reports.client_ref) برای جلوگیری از ثبت تکراری */
+    define('EPLAK_SCHEMA_VERSION', '2026-10-03.1');   /* + client_ref روی report_media برای ارسال «اول فایل، بعد گزارش» */   /* + شناسه‌ی یکتای درخواست (reports.client_ref) برای جلوگیری از ثبت تکراری */
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -1106,6 +1110,7 @@ function eplakGetPdo(): PDO {
         original_name VARCHAR(255) DEFAULT '',
         mime_type VARCHAR(100) DEFAULT '',
         size_bytes INT NOT NULL DEFAULT 0,
+        client_ref VARCHAR(64) DEFAULT '' ,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         KEY idx_report_media_report (report_id)
     )");

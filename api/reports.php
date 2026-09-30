@@ -62,7 +62,9 @@ if ($method === 'GET') {
         /* ستون‌های مختصات ممکن است در دیتابیس‌های قدیمی هنوز ساخته نشده باشند */
         $hasGeo = eplakTableHasColumn($pdo, 'reports', 'lat') && eplakTableHasColumn($pdo, 'reports', 'lng');
         $geoCols = $hasGeo ? ', lat, lng' : '';
-        $stmt = $pdo->prepare('SELECT id, user_phone, title, description, category, department, sub_department, location, status, reply, created_at' . $geoCols . '
+        $hasRef  = eplakTableHasColumn($pdo, 'reports', 'client_ref');
+        $refCol  = $hasRef ? ', client_ref' : '';
+        $stmt = $pdo->prepare('SELECT id, user_phone, title, description, category, department, sub_department, location, status, reply, created_at' . $geoCols . $refCol . '
                                FROM reports WHERE user_phone = :phone ORDER BY created_at DESC, id DESC LIMIT 200');
         $stmt->execute([':phone' => $phone]);
         $rows = $stmt->fetchAll();
@@ -80,6 +82,9 @@ if ($method === 'GET') {
             $row['media_count'] = count($row['media']);
             $row['timeline'] = $eventMap[$id] ?? [];
             $row['timeline_count'] = count($row['timeline']);
+            /* شناسه‌ی یکتای درخواست — اپ با همین، رکورد محلی و سروری را
+               دقیقاً تطبیق می‌دهد تا یک درخواست دو بار نشان داده نشود. */
+            $row['client_ref'] = $hasRef ? (string) ($row['client_ref'] ?? '') : '';
             /* روند رسیدگی چهارمرحله‌ای — ساخته‌شده با همان تابعی که پنل ادمین
                استفاده می‌کند، تا هر دو طرف دقیقاً یک چیز نشان دهند. */
             $row['flow'] = eplakReportFlowStages(
@@ -221,6 +226,16 @@ if (!$input) {
 }
 
 /* ── ثبت گزارش جدید ─────────────────────────────────────────────────── */
+/* پاک‌سازی فایل‌های «در انتظار اتصال» که بیش از یک روز مانده‌اند (درخواستی
+   که هرگز تکمیل نشده است) — تا فضای سرور پر نشود. */
+try {
+    if (eplakTableHasColumn($pdo, 'report_media', 'client_ref')) {
+        eplakMediaCleanupStaged($pdo, 86400);
+    }
+} catch (Throwable $e) {
+    error_log('[eplak-api:reports.cleanup-staged] ' . $e->getMessage());
+}
+
 $phone         = eplakNormalizePhone($input['phone'] ?? ($input['userPhone'] ?? ''));
 /* شناسه‌ی یکتای درخواست (کلاینت): اگر همین درخواست قبلاً ثبت شده باشد،
    دوباره رکورد و کد پیگیری تازه ساخته نمی‌شود — همان کد قبلی برگردانده
@@ -269,11 +284,45 @@ if ($clientRef !== '' && eplakTableHasColumn($pdo, 'reports', 'client_ref')) {
     }
 }
 
+/* ── تکراری‌یابیِ محتوایی (برای نسخه‌های قدیمی اپ که شناسه نمی‌فرستند) ──
+   اگر همین شماره، دقیقاً همین عنوان و توضیح را چند لحظه پیش ثبت کرده باشد،
+   همان گزارش برگردانده می‌شود؛ علت: اپ قدیمی در نبود پاسخ، دوباره ارسال
+   می‌کرد و دو گزارش با دو کد ساخته می‌شد. پنجره‌ی زمانی کوتاه است تا ثبت
+   عمدیِ دو درخواست مشابه توسط کاربر سرکوب نشود. */
+if ($existingId === 0 && $clientRef === '') {
+    try {
+        $windowSeconds = 180;
+        $dupeStmt = $pdo->prepare(
+            'SELECT id FROM reports
+             WHERE user_phone = :phone AND title = :title AND description = :desc
+               AND created_at >= :since
+             ORDER BY id DESC LIMIT 1'
+        );
+        $dupeStmt->execute([
+            ':phone' => $phone,
+            ':title' => $subject,
+            ':desc'  => $details,
+            ':since' => date('Y-m-d H:i:s', time() - $windowSeconds),
+        ]);
+        $existingId = (int) ($dupeStmt->fetchColumn() ?: 0);
+        if ($existingId > 0) {
+            error_log('[eplak-api:reports.dedupe-content] same content within ' . $windowSeconds . 's → report ' . $existingId);
+        }
+    } catch (Throwable $e) {
+        $existingId = 0;
+    }
+}
+
 if ($existingId > 0) {
     /* پیوست‌های همین تلاش را به گزارش موجود اضافه می‌کنیم تا هیچ عکس/فیلمی
        از دست نرود (اکنون عکس و فیلم با هم فرستاده می‌شوند). */
     $dupMedia = [];
     $dupMediaErrors = [];
+
+    /* فایل‌هایی که پیش از ساخت گزارش «در انتظار اتصال» ذخیره شده‌اند */
+    if ($clientRef !== '') {
+        $dupMedia = eplakMediaAttachStaged($pdo, $existingId, $clientRef);
+    }
     $mediaInput = $input['media'] ?? [];
     if (is_array($mediaInput)) {
         $count = 0;
@@ -456,6 +505,16 @@ try {
 /* ── ذخیره‌ی عکس/فیلم‌های گزارش ─────────────────────────────────────── */
 $savedMedia = [];
 $mediaErrors = [];
+
+/* ── اتصال فایل‌هایی که پیش از ساخت گزارش فرستاده شده‌اند ──────────────
+   اپ نو ابتدا عکس/فیلم را «در انتظار اتصال» می‌فرستد و تنها پس از پایان
+   بارگذاری، گزارش را می‌سازد؛ پس اینجا همان فایل‌ها به گزارش وصل می‌شوند. */
+if ($clientRef !== '') {
+    $staged = eplakMediaAttachStaged($pdo, $insertId, $clientRef);
+    foreach ($staged as $item) {
+        $savedMedia[] = $item;
+    }
+}
 
 try {
     if ($isMultipart) {

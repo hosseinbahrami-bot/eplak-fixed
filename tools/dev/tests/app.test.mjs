@@ -242,7 +242,8 @@ const iconsSrc = fs.readFileSync(path.join(ROOT, 'assets/js/icons.js'), 'utf8');
 ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=24/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  /modules\/reports\.js\?v=25/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))
+  && /core\/storage\.js\?v=19/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -282,8 +283,9 @@ const storageSrc = fs.readFileSync(path.join(ROOT, 'core/storage.js'), 'utf8');
 ok('صف پیوست‌های ناموفق روی گوشی ساخته می‌شود (IndexedDB)',
   /PENDING_DB = 'eplak_pending_media'/.test(storageSrc) && /function queuePendingMedia/.test(storageSrc)
   && /eplak_pending_media/.test(storageSrc));
-ok('صف، فایل‌های ناموفق را با شناسه‌ی گزارش نگه می‌دارد',
-  /key: String\(reportId\)/.test(storageSrc) && /blob: file/.test(storageSrc));
+ok('صف، فایل‌های ناموفق را با شناسه‌ی گزارش/شناسه‌ی یکتا نگه می‌دارد',
+  /key: \(ref \? ref : String\(reportId\)\)/.test(storageSrc) && /blob: file/.test(storageSrc)
+  && /clientRef: ref,/.test(storageSrc));
 ok('ارسال دوباره‌ی صف با گروه‌بندی بر اساس گزارش انجام می‌شود',
   /async function flushPendingMedia/.test(storageSrc) && /uploadReportMediaChunked\(group\.reportId/.test(storageSrc));
 ok('فایل‌های موفق از صف حذف می‌شوند و ناموفق‌ها می‌مانند',
@@ -293,8 +295,8 @@ ok('اگر مرورگر IndexedDB نداشت، رفتار قبلی حفظ می�
 ok('صف در دسترس لایه‌ی اپ قرار می‌گیرد',
   /window\.eplakQueuePendingMedia/.test(storageSrc) && /window\.eplakFlushPendingMedia/.test(storageSrc)
   && /window\.eplakCountPendingMedia/.test(storageSrc));
-ok('فایل‌های ناموفق هنگام ثبت گزارش در صف گذاشته می‌شوند',
-  /eplakQueuePendingMedia\(newReport\.backendId, phone, files\)/.test(reportsJs));
+ok('فایل‌های ناموفق همراه «شناسه‌ی یکتا» در صف گذاشته می‌شوند',
+  /eplakQueuePendingMedia\(report\.backendId \|\| 0, phone, files, report\.clientRef\)/.test(reportsJs));
 ok('صف هنگام باز شدن اپ و برگشتن اینترنت خودکار فرستاده می‌شود',
   /window\.addEventListener\('online', function \(\) \{ flushPendingUploads\(\); \}\)/.test(reportsJs)
   && /setTimeout\(flushPendingUploads, 2500\)/.test(reportsJs));
@@ -342,18 +344,67 @@ ok('ایموجی‌های آب‌وهوا، کیفیت هوا و خدمات در
 
 console.log('\n=== یک درخواست = یک کد پیگیری (سمت اپ) ===');
 ok('هر درخواست یک «شناسه‌ی یکتا» می‌گیرد و همراه payload به سرور می‌رود',
-  /const clientRef = 'EPL-'/.test(reportsJs) && /client_ref: clientRef/.test(reportsJs)
-  && /clientRef: clientRef,/.test(reportsJs));
-ok('شناسه‌ی یکتا روی خود گزارش ذخیره می‌شود (بین تلاش‌های بعدی ثابت می‌ماند)',
-  /clientRef,\s*\n\s*code,/.test(reportsJs));
+  /const clientRef = 'EPL-'/.test(reportsJs) && /client_ref: report\.clientRef/.test(reportsJs)
+  && /clientRef,\s*\n\s*code: '',/.test(reportsJs));
+ok('شناسه‌ی یکتا روی خود گزارش ذخیره می‌شود و کد تا پایان بارگذاری خالی می‌ماند',
+  /clientRef,\s*\n\s*code: '',/.test(reportsJs));
 ok('اگر کاربر دو بار روی «ثبت نهایی» بزند، فقط یک گزارش ساخته می‌شود',
   /let reportSubmitInFlight = false/.test(reportsJs) && /if \(reportSubmitInFlight\) \{\s*\n\s*return;/.test(reportsJs));
 ok('پاسخ «تکراری» سرور باعث ساخته شدن گزارش/کد تازه در اپ نمی‌شود',
-  /if \(backendRes\.deduped\) \{/.test(reportsJs) && /کد پیگیری تکراری ساخته نشد/.test(reportsJs)
+  /if \(res\.deduped\) \{/.test(reportsJs) && /کد پیگیری تکراری ساخته نشد/.test(reportsJs)
   && /\$row\['flow'\] = eplakReportFlowStages\(/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8'))
   && /'deduped'       => true/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8')));
 ok('سرور پیش از ساخت گزارش، وجود شناسه‌ی یکتا را بررسی می‌کند',
   /SELECT id FROM reports WHERE client_ref = :ref/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8')));
+
+console.log('\n=== یک درخواست = یک کد پیگیری؛ کد فقط پس از پایان بارگذاری ===');
+{
+  const submitBlock = reportsJs.slice(
+    reportsJs.indexOf('async function submitNewReport'),
+    reportsJs.indexOf('window.submitNewReport = submitNewReport'));
+  const uploadAt  = submitBlock.indexOf('await uploadStagedMedia(');
+  const createAt  = submitBlock.indexOf('await finalizePendingReport(');
+  ok('عکس و فیلم پیش از ساخت گزارش بارگذاری می‌شوند (ترتیب: اول فایل، بعد گزارش)',
+    uploadAt > -1 && createAt > -1 && uploadAt < createAt);
+  ok('تا پایان بارگذاری هیچ کد پیگیری نشان داده نمی‌شود',
+    /setSuccessCodeState\('loading'\)/.test(submitBlock)
+    && /code: '',\s*\/\* ← هیچ کد ساختگی محلی/.test(reportsJs)
+    && !/EP-1403-' \+ String\(1000 \+ reports\.length \+ 1\)/.test(submitBlock));
+  ok('تا وقتی فایلی نرسیده، گزارش روی سرور ساخته نمی‌شود و کاربر دکمه‌ی تلاش دوباره می‌بیند',
+    /if \(!mediaRes\.ok\) \{/.test(submitBlock) && /showReportUploadFailed\(/.test(submitBlock)
+    && /offerMediaRetry\(files, phone, report\)/.test(reportsJs));
+  ok('در فهرست/جزئیات، جای کد پیگیری «در حال بارگذاری…» نشان داده می‌شود',
+    /function reportCodeLabel\(/.test(reportsJs) && /در حال بارگذاری عکس\/فیلم…/.test(reportsJs)
+    && /escapeHtml\(reportCodeLabel\(r\)\)/.test(reportsJs));
+  ok('گزارش‌های ناتمام (آفلاین) فقط پس از رسیدن فایل‌ها ساخته می‌شوند',
+    /eplakFlushPendingMediaRef\(r\.clientRef, phone\)/.test(reportsJs)
+    && /async function flushPendingMediaRef/.test(storageSrc)
+    && /window\.eplakFlushPendingMediaRef\s*=/.test(storageSrc));
+  ok('شناسه‌ی یکتا در پاسخ سرور به اپ می‌رسد (تطبیق دقیق رکوردها)',
+    /clientRef: String\(item\.client_ref \|\| ''\)/.test(reportsJs)
+    && /\$row\['client_ref'\] = \$hasRef \?/.test(fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8')));
+  ok('رکوردهای تکراری همان درخواست در فهرست به یک ردیف تبدیل می‌شوند (یک کد)',
+    /const byRef = new Map\(\)/.test(reportsJs) && /const serverRefs = new Set\(byRef\.keys\(\)\)/.test(reportsJs)
+    && /if \(ref && serverRefs\.has\(ref\)\) return false;/.test(reportsJs));
+}
+
+console.log('\n=== سرور: فایل‌های «در انتظار اتصال» به گزارش وصل می‌شوند ===');
+{
+  const mediaPhp = fs.readFileSync(path.join(ROOT, 'api/media.php'), 'utf8');
+  const reportsPhp = fs.readFileSync(path.join(ROOT, 'api/reports.php'), 'utf8');
+  const sharedMedia = fs.readFileSync(path.join(ROOT, 'shared/media.php'), 'utf8');
+  ok('سرور ارسال فایل را پیش از ساخته شدن گزارش می‌پذیرد (reportId صفر + شناسه‌ی یکتا)',
+    /\$staging = \(\$clientRef !== ''\) && eplakTableHasColumn\(\$pdo, 'report_media', 'client_ref'\)/.test(mediaPhp)
+    && /eplakMediaStagedCount\(\$pdo, \$clientRef\)/.test(mediaPhp));
+  ok('فایل‌های در انتظار اتصال در زمان ساخت گزارش به آن وصل می‌شوند',
+    /eplakMediaAttachStaged\(\$pdo, \$insertId, \$clientRef\)/.test(reportsPhp)
+    && /eplakMediaAttachStaged\(\$pdo, \$existingId, \$clientRef\)/.test(reportsPhp)
+    && /function eplakMediaAttachStaged/.test(sharedMedia));
+  ok('فایل‌های جامانده‌ی در انتظار اتصال روی سرور پاک‌سازی می‌شوند',
+    /eplakMediaCleanupStaged\(\$pdo, 86400\)/.test(reportsPhp) && /function eplakMediaCleanupStaged/.test(sharedMedia));
+  ok('نسخه‌ی ساختار دیتابیس برای گذار به «اول فایل، بعد گزارش» بالا رفته است',
+    /EPLAK_SCHEMA_VERSION', '2026-10-03\.1'/.test(fs.readFileSync(path.join(ROOT, 'shared/bootstrap.php'), 'utf8')));
+}
 
 console.log('\n=== عکس و فیلم با هم ارسال می‌شوند (موازی) ===');
 ok('ارسال فایل‌ها موازی است (نه یکی‌یکی) — تعداد خطوط هم‌زمان قابل تنظیم',
@@ -361,12 +412,15 @@ ok('ارسال فایل‌ها موازی است (نه یکی‌یکی) — تع
   && /async function runMediaPool/.test(storageSrc));
 ok('هر دو مسیر ارسال (تکه‌تکه و پشتیبان) از استخر موازی استفاده می‌کنند',
   (storageSrc.match(/runMediaPool\(remaining/g) || []).length === 2);
-ok('فایل‌های همراه گزارش (عکس و فیلم) هم موازی خوانده می‌شوند',
-  /Promise\.all\(inlineFiles\.map\(readOne\)\)/.test(reportsJs));
+ok('عکس و فیلم پیش از ساخته شدن گزارش بارگذاری می‌شوند (یک کد، با پیوست)',
+  /async function uploadStagedMedia/.test(reportsJs)
+  && /uploadReportMediaChunked\(0, phone, files/.test(reportsJs)
+  && /\{ clientRef: report\.clientRef \}/.test(reportsJs));
 ok('درصد پیشرفت با شمارنده‌ی دقیق محاسبه می‌شود (نه تخمینی)',
   /progressDone/.test(storageSrc) && /markProgressDone/.test(storageSrc));
 ok('ارسال دیرهنگام گزارش‌های آفلاین هم شناسه‌ی یکتا و مختصات را با خود می‌برد',
-  /client_ref: r\.clientRef \|\| ''/.test(reportsJs) && /lat: \(typeof r\.lat === 'number'\)/.test(reportsJs));
+  /client_ref: report\.clientRef/.test(reportsJs)
+  && /typeof report\.lat === 'number' && typeof report\.lng === 'number'/.test(reportsJs));
 
 const servicesJs = fs.readFileSync(path.join(ROOT, 'modules/services.js'), 'utf8');
 const liveJs = fs.readFileSync(path.join(ROOT, 'modules/live.js'), 'utf8');

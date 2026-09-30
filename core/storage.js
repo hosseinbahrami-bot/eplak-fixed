@@ -315,7 +315,7 @@
 
   /* ارسال یک فایل با اندازه‌ی تکه‌ی مشخص.
      خروجی: { ok, media, error, status, unsupported, blocked } */
-  async function uploadSingleMediaFile(file, size, reportId, phone, onProgress, useFallbackEndpoint) {
+  async function uploadSingleMediaFile(file, size, reportId, phone, onProgress, useFallbackEndpoint, clientRef) {
     const fileName = file.name || 'attachment';
     const total = Math.max(1, Math.ceil(file.size / size));
     const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
@@ -336,6 +336,7 @@
       const res = await postJson(wholeUrl, {
         action: 'add_media',
         phone: phone,
+        client_ref: clientRef || '',
         reportId: reportId,
         name: fileName,
         mime: file.type || '',
@@ -415,10 +416,13 @@
      مرحله ۴: اگر مسیر تکه‌تکه اصلاً بسته بود، هر فایل یک‌جا از دروازه‌ی
               api/reports.php?action=add_media (که همیشه باز است) می‌رود.
      در هر مرحله، فایل‌های موفق کنار گذاشته می‌شوند تا دوباره فرستاده نشوند. */
-  async function uploadReportMediaChunked(reportId, phone, files, onProgress) {
+  async function uploadReportMediaChunked(reportId, phone, files, onProgress, opts) {
+    /* opts.clientRef → ارسال «در انتظار اتصال»: فایل پیش از ساخته شدن گزارش
+       ذخیره می‌شود و هنگام ساخت گزارش به آن متصل می‌گردد. */
+    const clientRef = (opts && opts.clientRef) ? String(opts.clientRef) : '';
     const list = Array.from(files || []);
     const empty = { ok: true, media: [], failed: [], error: '', unsupported: false, blocked: false, status: 0 };
-    if (!reportId || !list.length) return empty;
+    if ((!reportId && !clientRef) || !list.length) return empty;
 
     const savedMedia = [];
     let remaining = list.slice();
@@ -450,7 +454,7 @@
       const stillFailed = [];
       /* چند فایل هم‌زمان فرستاده می‌شوند تا عکس و فیلم با هم بالا بروند */
       const results = await runMediaPool(remaining, (file) => {
-        return uploadSingleMediaFile(file, size, reportId, phone, () => {}, false);
+        return uploadSingleMediaFile(file, size, reportId, phone, () => {}, false, clientRef);
       }, () => markProgressDone());
       results.forEach((res, idx) => {
         const file = remaining[idx];
@@ -478,7 +482,7 @@
     if (remaining.length) {
       const stillFailed = [];
       const results = await runMediaPool(remaining, (file) => {
-        return uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true);
+        return uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true, clientRef);
       }, () => markProgressDone());
       results.forEach((res, idx) => {
         const file = remaining[idx];
@@ -547,9 +551,12 @@
   }
 
   /* افزودن فایل‌های ناموفق به صف (برای ارسال خودکار در فرصت بعدی) */
-  async function queuePendingMedia(reportId, phone, files) {
+  async function queuePendingMedia(reportId, phone, files, clientRef) {
     const list = Array.from(files || []).filter(f => f && typeof f === 'object' && (f.size || 0) > 0);
-    if (!reportId || !phone || !list.length) return false;
+    const ref = clientRef ? String(clientRef) : '';
+    /* بدون شناسه‌ی گزارش هم می‌توان فایل را صف کرد، به شرط داشتن شناسه‌ی
+       یکتای درخواست (مسیر «اول فایل، بعد گزارش»). */
+    if ((!reportId && !ref) || !phone || !list.length) return false;
     const db = await openPendingDb();
     if (!db) return false;
     const stamp = Date.now();
@@ -558,8 +565,9 @@
         const store = pendingTx(db, 'readwrite');
         list.forEach((file, i) => {
           store.put({
-            key: String(reportId) + '-' + stamp + '-' + i,
-            reportId: Number(reportId),
+            key: (ref ? ref : String(reportId)) + '-' + stamp + '-' + i,
+            reportId: Number(reportId) || 0,
+            clientRef: ref,
             phone: String(phone),
             name: file.name || ('attachment-' + (i + 1)),
             type: file.type || '',
@@ -588,6 +596,41 @@
   }
 
   /* تلاش دوباره برای همه‌ی فایل‌های صف (هنگام باز شدن اپ یا برگشتن اینترنت) */
+  /* ── ارسال فایل‌های صف‌شده‌ی یک «درخواست» (شناسه‌ی یکتا) ────────────────
+     برمی‌گرداند true اگر همه‌ی فایل‌های آن درخواست رسیده باشند؛ تا وقتی
+     false است، اپ گزارش را نمی‌سازد و کد پیگیری صادر نمی‌شود. */
+  async function flushPendingMediaRef(clientRef, phone, reportId) {
+    const ref = clientRef ? String(clientRef) : '';
+    if (!ref || !phone) return false;
+    const db = await openPendingDb();
+    if (!db) return false;
+    const rows = await new Promise(resolve => {
+      try {
+        const req = pendingTx(db, 'readonly').getAll();
+        req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
+        req.onerror = function () { resolve([]); };
+      } catch (e) { resolve([]); }
+    });
+    const mine = rows.filter(r => String(r.clientRef || '') === ref && String(r.phone) === String(phone));
+    if (!mine.length) return true;    /* چیزی برای این درخواست در صف نمانده است */
+    mine.sort((a, b) => String(a.addedAt).localeCompare(String(b.addedAt)));
+    const res = await uploadReportMediaChunked(Number(reportId) || 0, String(phone), mine.map(i => i.blob), null, { clientRef: ref });
+    const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
+    if (res && res.ok && okCount > 0) {
+      await new Promise(resolve => {
+        try {
+          const tx = pendingTx(db, 'readwrite');
+          mine.forEach(item => { try { tx.objectStore('files').delete(item.key); } catch (e) {} });
+          tx.oncomplete = function () { resolve(true); };
+          tx.onerror = function () { resolve(false); };
+          tx.onabort = function () { resolve(false); };
+        } catch (e) { resolve(false); }
+      });
+      return true;   /* فایل‌های همین درخواست رسیدند */
+    }
+    return false;
+  }
+
   async function flushPendingMedia(onReportDone) {
     const db = await openPendingDb();
     if (!db) return { sent: 0, left: 0 };
@@ -604,8 +647,9 @@
     rows.sort((a, b) => String(a.addedAt).localeCompare(String(b.addedAt)));
     const groups = new Map();
     rows.forEach(row => {
-      const key = String(row.reportId) + '|' + String(row.phone);
-      if (!groups.has(key)) groups.set(key, { reportId: row.reportId, phone: row.phone, items: [] });
+      const ref = row.clientRef ? String(row.clientRef) : '';
+      const key = (ref ? ('ref:' + ref) : ('id:' + String(row.reportId))) + '|' + String(row.phone);
+      if (!groups.has(key)) groups.set(key, { reportId: Number(row.reportId) || 0, clientRef: ref, phone: row.phone, items: [] });
       groups.get(key).items.push(row);
     });
 
@@ -613,12 +657,13 @@
     const failedGroups = new Set();
     const leftovers = [];
     for (const [key, group] of groups.entries()) {
-      const res = await uploadReportMediaChunked(group.reportId, group.phone, group.items.map(i => i.blob), null);
+      const res = await uploadReportMediaChunked(group.reportId, group.phone, group.items.map(i => i.blob), null,
+        group.clientRef ? { clientRef: group.clientRef } : null);
       const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
       if (res && res.ok && okCount > 0) {
         sent += group.items.length;
         if (typeof onReportDone === 'function') {
-          try { onReportDone(group.reportId, group.items.length); } catch (e) {}
+          try { onReportDone(group.reportId, group.clientRef, group.items.length); } catch (e) {}
         }
       } else {
         failedGroups.add(key);
@@ -646,6 +691,7 @@
 
   window.eplakQueuePendingMedia = queuePendingMedia;
   window.eplakFlushPendingMedia = flushPendingMedia;
+  window.eplakFlushPendingMediaRef = flushPendingMediaRef;
   window.eplakCountPendingMedia = countPendingMedia;
 
   /* وضعیت پیوست‌های یک گزارش روی سرور (برای تأیید نهایی که فایل‌ها ذخیره شدند) */
@@ -1233,6 +1279,7 @@
   window.eplakMediaStatus                 = reportMediaStatus;
   window.eplakQueuePendingMedia           = queuePendingMedia;
   window.eplakFlushPendingMedia           = flushPendingMedia;
+  window.eplakFlushPendingMediaRef        = flushPendingMediaRef;
   window.eplakCountPendingMedia           = countPendingMedia;
   window.eplakTransportMessage            = transportMessage;
   window.eplakIsTransportFailure          = isTransportFailure;

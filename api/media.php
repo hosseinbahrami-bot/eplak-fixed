@@ -41,24 +41,37 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
         eplakJsonError('شماره موبایل معتبر الزامی است', 400);
     }
 
-    $reportId = (int) ($input['reportId'] ?? ($input['report_id'] ?? 0));
-    if ($reportId <= 0) {
-        eplakJsonError('شناسه‌ی گزارش نامعتبر است', 400);
-    }
+    /* ── شناسه‌ی یکتای درخواست ────────────────────────────────────────────
+       اپ عکس و فیلم را پیش از ساخته شدن گزارش می‌فرستد (تا کد پیگیری فقط پس
+       از پایان بارگذاری صادر شود). در این حالت reportId صفر است و فایل با
+       شناسه‌ی یکتا «در انتظار اتصال» ذخیره می‌شود. */
+    $clientRef = strtoupper(preg_replace('/[^A-Za-z0-9\-]/', '', (string) ($input['client_ref'] ?? ($input['clientRef'] ?? ''))) ?? '');
+    $clientRef = substr($clientRef, 0, 64);
+    $staging = ($clientRef !== '') && eplakTableHasColumn($pdo, 'report_media', 'client_ref');
 
-    /* مالکیت: فقط صاحب همان گزارش می‌تواند فایل اضافه کند */
-    try {
-        $own = $pdo->prepare('SELECT id FROM reports WHERE id = :id AND user_phone = :phone LIMIT 1');
-        $own->execute([':id' => $reportId, ':phone' => $phone]);
-        if (!$own->fetchColumn()) {
-            eplakJson(['success' => false, 'error' => 'گزارش یافت نشد'], 404);
+    $reportId = (int) ($input['reportId'] ?? ($input['report_id'] ?? 0));
+
+    if ($reportId <= 0) {
+        if (!$staging) {
+            eplakJsonError('شناسه‌ی گزارش نامعتبر است', 400);
         }
-        $stmtCount = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE report_id = :id');
-        $stmtCount->execute([':id' => $reportId]);
-        $existing = (int) $stmtCount->fetchColumn();
-    } catch (Throwable $e) {
-        eplakServerError($e, 'media.owner');
-        exit;
+        /* سقف تعداد فایل هر درخواست در حالت «در انتظار اتصال» هم رعایت می‌شود */
+        $existing = eplakMediaStagedCount($pdo, $clientRef);
+    } else {
+        /* مالکیت: فقط صاحب همان گزارش می‌تواند فایل اضافه کند */
+        try {
+            $own = $pdo->prepare('SELECT id FROM reports WHERE id = :id AND user_phone = :phone LIMIT 1');
+            $own->execute([':id' => $reportId, ':phone' => $phone]);
+            if (!$own->fetchColumn()) {
+                eplakJson(['success' => false, 'error' => 'گزارش یافت نشد'], 404);
+            }
+            $stmtCount = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE report_id = :id');
+            $stmtCount->execute([':id' => $reportId]);
+            $existing = (int) $stmtCount->fetchColumn();
+        } catch (Throwable $e) {
+            eplakServerError($e, 'media.owner');
+            exit;
+        }
     }
 
     /* پاک‌سازی تکه‌های نیمه‌کاره‌ی قدیمی (بیش از ۶ ساعت) */
@@ -109,15 +122,18 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
         if ($binary === null || $binary === '') {
             eplakJson(['success' => false, 'error' => 'محتوای فایل قابل خواندن نبود.'], 400);
         }
-        $result = eplakMediaStoreBinary($pdo, $reportId, $binary, $name, $mime);
+        $result = eplakMediaStoreBinary($pdo, $reportId, $binary, $name, $mime, ($reportId <= 0) ? $clientRef : '');
         if (!$result['ok']) {
             eplakJson(['success' => false, 'error' => $result['error']], 400);
         }
-        $files = eplakMediaForReport($pdo, $reportId);
+        $count = ($reportId <= 0)
+            ? eplakMediaStagedCount($pdo, $clientRef)
+            : count(eplakMediaForReport($pdo, $reportId));
         eplakJson([
             'success'     => true,
             'media'       => $result['media'],
-            'media_count' => count($files),
+            'media_count' => $count,
+            'staged'      => ($reportId <= 0),
         ]);
         exit;
     }
@@ -152,7 +168,7 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
        (شبکه‌ی بی‌پاسخ → تلاش دوباره‌ی اپ → جلوگیری از پیوست تکراری) */
     if (is_file($doneJsonPath)) {
         $done = json_decode((string) @file_get_contents($doneJsonPath), true);
-        if (is_array($done) && (int) ($done['report_id'] ?? 0) === $reportId) {
+        if (is_array($done) && (int) ($done['report_id'] ?? -1) === $reportId) {
             $files = eplakMediaForReport($pdo, $reportId);
             eplakJson([
                 'success'     => true,
@@ -231,7 +247,7 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
         'type'     => $mime,
         'error'    => UPLOAD_ERR_OK,
         'size'     => (int) (filesize($partPath) ?: 0),
-    ]);
+    ], ($reportId <= 0) ? $clientRef : '');
     @unlink($metaPath);
     if (!$stored['ok']) {
         @unlink($partPath);
@@ -253,8 +269,11 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
         'received'    => $total,
         'total'       => $total,
         'done'        => true,
+        'staged'      => ($reportId <= 0),
         'media'       => $stored['media'],
-        'media_count' => count($files),
+        'media_count' => ($reportId <= 0)
+            ? eplakMediaStagedCount($pdo, $clientRef)
+            : count($files),
     ]);
     exit;
 }
