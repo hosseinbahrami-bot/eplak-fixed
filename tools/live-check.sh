@@ -120,6 +120,7 @@ NEW_WEB="no"
 ENGINE_OK="no"
 NEW_VER_PAGE="no"
 APK_FCM="no"
+RESCUE_PRESENT="no"
 if has "$LIVE" "registerAppDevice"; then NEW_WEB="yes"; fi
 
 # ── ۳) سرویس اعلان سرور ────────────────────────────────────────────────────
@@ -231,6 +232,28 @@ for f in "admin/version.php" "admin/notification_view.php" "admin/notifications.
   say "| $f | $pc | $note |"
   if [ "$f" = "admin/version.php" ] && [ "$pc" != "404" ]; then NEW_VER_PAGE="yes"; fi
 done
+
+# ── ۵-۲) بررسی امنیتی: ابزار بازیابی نباید روی سایت بماند ──────────────────
+hdr "۵-۲) وضعیت ابزار بازیابی (rescue-db.php)"
+RESCUE_OUT="$TMP/rescue.html"
+CODE_RESCUE=$(grab "$BASE/rescue-db.php" "$RESCUE_OUT")
+say "| مورد | نتیجه |"
+say "|---|---|"
+say "| کد پاسخ | \`$CODE_RESCUE\` |"
+case "$CODE_RESCUE" in
+  200)
+    if has "$RESCUE_OUT" "بازیابی اتصال دیتابیس"; then
+      say "| وضعیت | ⚠️ ابزار بازیابی روی سایت است — اگر کارتان تمام شده، پاکش کنید |"
+      RESCUE_PRESENT="yes"
+    else
+      say "| وضعیت | ✅ فایل نیست (صفحه‌ی دیگری پاسخ داد) |"
+      RESCUE_PRESENT="no"
+    fi
+    ;;
+  404|403) say "| وضعیت | ✅ روی سایت نیست (خوب است) |"; RESCUE_PRESENT="no" ;;
+  000) say "| وضعیت | ❓ پاسخ نداد |"; RESCUE_PRESENT="no" ;;
+  *) say "| وضعیت | کد $CODE_RESCUE |"; RESCUE_PRESENT="no" ;;
+esac
 
 # ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
 hdr "۶) لینک‌های دانلود (گیت‌هاب)"
@@ -352,6 +375,9 @@ else
   say "- ⏳ فایل APK فعلی فایربیس ندارد"
 fi
 say "- 📱 برای دیدن تعداد گوشی‌های ثبت‌شده: پنل ادمین → «بررسی نسخه» (باید بزرگ‌تر از صفر باشد)"
+if [ "$RESCUE_PRESENT" = "yes" ]; then
+  say "- ⚠️ ابزار بازیابی `rescue-db.php` روی سایت است — بعد از رفع مشکل، حذفش کنید (امنیت)"
+fi
 
 if [ ${#ISSUES[@]} -gt 0 ]; then
   say ""
