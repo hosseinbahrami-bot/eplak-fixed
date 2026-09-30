@@ -7232,3 +7232,8 @@ body.media-viewer-locked { overflow: hidden; }
 .filter-tab-icon svg { display: block; }
 .eplak-offline-icon svg { width: 46px; height: 46px; display: block; margin: 0 auto; color: var(--teal); }
 .lux-occ-item svg { vertical-align: -2px; color: var(--teal); }
+
+/* آیکون برچسب‌های سریع خدمات (پک آیکون) */
+.svc-tag-icon { display: inline-flex; vertical-align: -2px; margin-left: 4px; }
+.svc-tag-icon svg { display: block; }
+.pcf-icon svg { vertical-align: -2px; }

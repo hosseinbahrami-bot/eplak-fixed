@@ -3,6 +3,14 @@
   /* =========================================================
      Favorites (علاقه‌مندی‌ها)
   ========================================================= */
+  /* آیکون خدمت از پک آیکون حرفه‌ای (یک‌دست با کل اپ) */
+  function serviceIcon(icon, size) {
+    if (window.EplakIcons && typeof window.EplakIcons.get === 'function') {
+      return window.EplakIcons.get(icon || 'services', { size: size || 20 });
+    }
+    return icon || '';
+  }
+
   function getServiceCatalog() {
     const isEn = (window.i18n && typeof window.i18n.getLanguage === 'function')
       ? window.i18n.getLanguage() === 'en'
@@ -49,7 +57,7 @@
               </svg>
             </button>
             <div style="display:flex; flex-direction:column; align-items:center; gap:8px; width:100%;">
-              <div class="service-icon" style="background:${s.bg || 'rgba(0,201,167,0.15)'};">${s.icon}</div>
+              <div class="service-icon" style="background:${s.bg || 'rgba(0,201,167,0.15)'};">${serviceIcon(s.icon, 22)}</div>
               <div style="text-align:center; padding:0 4px;">
                 <h3 style="font-size:13px; font-weight:800; margin-bottom:4px; line-height:1.3;">${escapeHtml(s.title)}</h3>
                 <p style="font-size:11px; color:var(--text-muted); line-height:1.4;">${escapeHtml(s.sub)}</p>
@@ -165,7 +173,7 @@
       return `
         <div class="fav-picker-item ${isFav ? 'is-fav' : ''}" data-service-id="${s.id}" onclick="toggleFavorite('${s.id}')">
           <div style="display:flex; align-items:center; gap:12px; min-width:0;">
-            <div class="fav-picker-icon" style="background:${s.bg || 'rgba(0,201,167,0.15)'};">${s.icon}</div>
+            <div class="fav-picker-icon" style="background:${s.bg || 'rgba(0,201,167,0.15)'};">${serviceIcon(s.icon, 20)}</div>
             <div style="min-width:0;">
               <div class="fav-picker-title">${escapeHtml(s.title)}</div>
               <div class="fav-picker-sub">${escapeHtml(s.sub)}</div>

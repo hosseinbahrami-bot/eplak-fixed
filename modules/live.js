@@ -358,7 +358,7 @@
     }
 
     banner.innerHTML = '<div style="width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,rgba(0,201,167,0.25),rgba(15,118,110,0.4));color:#00c9a7;display:grid;place-items:center;font-size:22px;flex-shrink:0;box-shadow:0 0 15px rgba(0,201,167,0.3);">' +
-      '📢' +
+      (window.EplakIcons ? window.EplakIcons.get('megaphone', { size: 22 }) : '📢') +
       '</div>' +
       '<div style="flex:1;min-width:0;">' +
       '  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +

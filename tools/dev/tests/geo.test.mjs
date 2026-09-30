@@ -372,7 +372,9 @@ ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز ش
   && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
   && /assets\/css\/style\.css\?v=89/.test(indexHtml)
   && /assets\/js\/icons\.js\?v=13/.test(indexHtml)
-  && /core\/state\.js\?v=11/.test(indexHtml) && /core\/i18n\.js\?v=14/.test(indexHtml));
+  && /core\/state\.js\?v=11/.test(indexHtml) && /core\/i18n\.js\?v=14/.test(indexHtml)
+  && /modules\/profile\.js\?v=12/.test(indexHtml) && /modules\/services\.js\?v=13/.test(indexHtml)
+  && /modules\/live\.js\?v=14/.test(indexHtml) && /modules\/city-live\.js\?v=13/.test(indexHtml));
 
 /* ══════════ ۸) پایش زنده: پیش‌پرواز و سقف حجم بدنه ══════════ */
 console.log('\n=== پایش زنده (live-check) ===');

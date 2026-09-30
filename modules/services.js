@@ -1273,6 +1273,14 @@
   /* =========================================================
      Render — صفحه خدمات (کادر جستجوی مدرن + کادرهای مربعی ۶ گانه)
   ========================================================= */
+  /* helper آیکون پک برای برچسب‌های سریع خدمات */
+  function svcIcon(name) {
+    if (window.EplakIcons && typeof window.EplakIcons.get === 'function') {
+      return window.EplakIcons.get(name, { size: 14 });
+    }
+    return '';
+  }
+
   function renderServices() {
     const wrap = document.getElementById('servicesListWrap');
     if (!wrap) return;
@@ -1307,14 +1315,16 @@
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
         '</button>' +
       '</div>' +
+      /* آیکون‌های این نوار از پک آیکون می‌آیند تا با کل اپ یک‌دست باشند */
       '<div class="svc-quick-tags" id="svcQuickTags">' +
-        '<button type="button" class="svc-quick-tag" data-term="دیدار" onclick="quickFilterServices(\'دیدار حضوری\')">🏛️ ' + (isEn ? 'Mayor Meeting' : 'دیدار با شهردار') + '</button>' +
-        '<button type="button" class="svc-quick-tag" data-term="عوارض" onclick="quickFilterServices(\'عوارض\')">💳 ' + (isEn ? 'Taxes' : 'عوارض و نوسازی') + '</button>' +
-        '<button type="button" class="svc-quick-tag" data-term="کسب" onclick="quickFilterServices(\'کسب و کار\')">🏪 ' + (isEn ? 'Business' : 'کسب و کار') + '</button>' +
-        '<button type="button" class="svc-quick-tag" data-term="پسماند" onclick="quickFilterServices(\'پسماند\')">♻️ ' + (isEn ? 'Recycling' : 'پسماند و تفکیک') + '</button>' +
-        '<button type="button" class="svc-quick-tag" data-term="ترافیک" onclick="quickFilterServices(\'ترافیک\')">🚇 ' + (isEn ? 'Transport' : 'حمل‌ونقل و ترافیک') + '</button>' +
-        '<button type="button" class="svc-quick-tag" data-term="مناقصه" onclick="quickFilterServices(\'مناقصه\')">📑 ' + (isEn ? 'Tenders' : 'مناقصات') + '</button>' +
-        '<button type="button" class="svc-quick-tag" data-term="آرامستان" onclick="quickFilterServices(\'آرامستان\')">🕊️ ' + (isEn ? 'Cemeteries' : 'آرامستان‌ها') + '</button>' +
+
+        '<button type="button" class="svc-quick-tag" data-term="دیدار" onclick="quickFilterServices(\'دیدار حضوری\')"><i class="svc-tag-icon">' + svcIcon('building') + '</i>' + (isEn ? 'Mayor Meeting' : 'دیدار با شهردار') + '</button>' +
+        '<button type="button" class="svc-quick-tag" data-term="عوارض" onclick="quickFilterServices(\'عوارض\')"><i class="svc-tag-icon">' + svcIcon('payment') + '</i>' + (isEn ? 'Taxes' : 'عوارض و نوسازی') + '</button>' +
+        '<button type="button" class="svc-quick-tag" data-term="کسب" onclick="quickFilterServices(\'کسب و کار\')"><i class="svc-tag-icon">' + svcIcon('store') + '</i>' + (isEn ? 'Business' : 'کسب و کار') + '</button>' +
+        '<button type="button" class="svc-quick-tag" data-term="پسماند" onclick="quickFilterServices(\'پسماند\')"><i class="svc-tag-icon">' + svcIcon('recycle') + '</i>' + (isEn ? 'Recycling' : 'پسماند و تفکیک') + '</button>' +
+        '<button type="button" class="svc-quick-tag" data-term="ترافیک" onclick="quickFilterServices(\'ترافیک\')"><i class="svc-tag-icon">' + svcIcon('transport') + '</i>' + (isEn ? 'Transport' : 'حمل‌ونقل و ترافیک') + '</button>' +
+        '<button type="button" class="svc-quick-tag" data-term="مناقصه" onclick="quickFilterServices(\'مناقصه\')"><i class="svc-tag-icon">' + svcIcon('tenders') + '</i>' + (isEn ? 'Tenders' : 'مناقصات') + '</button>' +
+        '<button type="button" class="svc-quick-tag" data-term="آرامستان" onclick="quickFilterServices(\'آرامستان\')"><i class="svc-tag-icon">' + svcIcon('tomb') + '</i>' + (isEn ? 'Cemeteries' : 'آرامستان‌ها') + '</button>' +
       '</div>' +
     '</div>';
 

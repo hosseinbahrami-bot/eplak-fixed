@@ -340,6 +340,15 @@ ok('نقشه‌ی ایموجی بدون کلید تکراری و کامل است
 ok('ایموجی‌های آب‌وهوا، کیفیت هوا و خدمات در پک آیکون نگاشت شده‌اند',
   ['🌧️','🌤️','❄️','🌫️','🌡️','☀️','😊','😷','🕊️','♻️','🏛️','🗑️','🤝','📵','🔕'].every((e) => new RegExp("'" + e + "':").test(iconsSrc)));
 
+const servicesJs = fs.readFileSync(path.join(ROOT, 'modules/services.js'), 'utf8');
+const liveJs = fs.readFileSync(path.join(ROOT, 'modules/live.js'), 'utf8');
+const profileJs = fs.readFileSync(path.join(ROOT, 'modules/profile.js'), 'utf8');
+ok('برچسب‌های سریع خدمات، بنر اعلان و لیست علاقه‌مندی‌ها هم از پک آیکون می‌آیند (نه ایموجی خام)',
+  /svcIcon\('building'\)/.test(servicesJs) && /svcIcon\('recycle'\)/.test(servicesJs)
+  && /EplakIcons\.get\('megaphone'/.test(liveJs) && /function serviceIcon\(icon, size\)/.test(profileJs));
+ok('آیکون‌های پک در ماژول‌ها هیچ ایموجی‌ای را در HTML جا نمی‌گذارند',
+  !/svc-quick-tag[^>]*>\s*[🏛💳🏪♻🚇📑🕊]/.test(servicesJs));
+
 const flowBlock = reportsJs.slice(
   reportsJs.indexOf('روند رسیدگی (چهار مرحله'),
   reportsJs.indexOf("showScreen('screen-report-detail')"));
