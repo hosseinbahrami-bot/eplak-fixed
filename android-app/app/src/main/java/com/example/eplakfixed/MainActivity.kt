@@ -1,17 +1,26 @@
 package com.example.eplakfixed
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,6 +35,18 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
 
+    /* ── انتخاب عکس/فیلم از گالری ─────────────────────────────────────────
+       بدون این بخش، ضربه زدن روی «افزودن عکس یا فیلم» در فرم ثبت درخواست
+       هیچ کاری نمی‌کرد (اندروید فایل‌چوزر را خودش باز نمی‌کند و باید با
+       onShowFileChooser از طرف صفحه‌ی وب باز شود). */
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    /* ── موقعیت مکانی (GPS) ───────────────────────────────────────────────
+       callback مربوط به درخواست موقعیت از داخل WebView تا زمان پاسخ کاربر
+       نگه داشته می‌شود. */
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+    private var pendingGeoOrigin: String? = null
+
     /* درخواست اجازه‌ی اعلان (اندروید ۱۳ و بالاتر) — نتیجه‌اش به لایه‌ی وب خبر داده می‌شود */
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -34,6 +55,115 @@ class MainActivity : AppCompatActivity() {
                 null
             )
         }
+
+    /* نتیجه‌ی انتخاب فایل (تک یا چند فایل) به WebView برگردانده می‌شود.
+       اگر کاربر لغو کند، باید مقدار null بفرستیم؛ وگرنه فیلد فایل هرگز
+       دوباره کار نمی‌کرد. */
+    private val fileChooserLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = filePathCallback ?: return@registerForActivityResult
+            filePathCallback = null
+            callback.onReceiveValue(collectChosenUris(result.resultCode, result.data))
+        }
+
+    /* نتیجه‌ی اجازه‌ی موقعیت مکانی */
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+            /* پاسخ به WebView (اگر درخواست از سمت خود WebView آمده باشد) */
+            val callback = pendingGeoCallback
+            val origin = pendingGeoOrigin
+            pendingGeoCallback = null
+            pendingGeoOrigin = null
+            if (callback != null && origin != null) {
+                callback.invoke(origin, granted, false)
+            }
+
+            /* خبر دادن به لایه‌ی وب تا در صورت گرفتن اجازه، موقعیت را دوباره بخواهد */
+            notifyWebLocationPermission(granted)
+
+            if (!granted) {
+                Toast.makeText(
+                    this,
+                    "اجازه‌ی موقعیت مکانی داده نشد؛ می‌توانید محل را با کشیدن نقشه انتخاب کنید",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+    private fun notifyWebLocationPermission(granted: Boolean) {
+        webView.post {
+            try {
+                webView.evaluateJavascript(
+                    "window.eplakLocationPermissionResult && window.eplakLocationPermissionResult($granted);",
+                    null
+                )
+            } catch (e: Throwable) {
+            }
+        }
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+        val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+        return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestLocationPermission() {
+        if (hasLocationPermission()) {
+            notifyWebLocationPermission(true)
+            return
+        }
+        locationPermissionLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        )
+    }
+
+    /* Uriهای انتخاب‌شده (یک فایل یا چند فایل) از نتیجه‌ی گالری */
+    private fun collectChosenUris(resultCode: Int, data: Intent?): Array<Uri>? {
+        if (resultCode != android.app.Activity.RESULT_OK || data == null) return null
+
+        /* انتخاب چندتایی */
+        data.clipData?.let { clip ->
+            val uris = ArrayList<Uri>(clip.itemCount)
+            for (i in 0 until clip.itemCount) {
+                clip.getItemAt(i)?.uri?.let { uris.add(it) }
+            }
+            if (uris.isNotEmpty()) return uris.toTypedArray()
+        }
+
+        /* انتخاب تک‌فایل */
+        data.data?.let { return arrayOf(it) }
+        return null
+    }
+
+    /* ساخت Intent گالری: هم عکس، هم فیلم و (اگر صفحه چند انتخاب بخواهد) چندتایی */
+    private fun buildFileChooserIntent(params: WebChromeClient.FileChooserParams): Intent {
+        val mimeTypes = LinkedHashSet<String>()
+        params.acceptTypes?.forEach { raw ->
+            raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { mimeTypes.add(it) }
+        }
+        if (mimeTypes.isEmpty()) {
+            mimeTypes.add("image/*")
+            mimeTypes.add("video/*")
+        }
+
+        val allowMultiple = params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE
+
+        val pickIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple)
+        }
+
+        return Intent.createChooser(pickIntent, "انتخاب عکس یا فیلم").apply {
+            /* روی برخی گوشی‌ها، پنجره‌ی انتخاب باید از ترد اصلی باز شود */
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +202,11 @@ class MainActivity : AppCompatActivity() {
             webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
+        /* فعال‌سازی موقعیت‌یابی داخل WebView (به‌جز اجازه‌ی کاربر، همین گزینه
+           هم باید روشن باشد تا navigator.geolocation کار کند). */
+        @Suppress("DEPRECATION")
+        webSettings.setGeolocationEnabled(true)
+
         // دیباگ وب‌ویو فقط در بیلد Debug (در نسخه‌ی انتشار، امکان اتصال DevTools به اپ بسته می‌شود)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
@@ -80,7 +215,63 @@ class MainActivity : AppCompatActivity() {
 
         // اتصال کلاینت‌ها
         webView.webViewClient = WebViewClient()
-        webView.webChromeClient = WebChromeClient()
+
+        /* ── WebChromeClient واقعی ────────────────────────────────────────
+           دو قابلیت حیاتی از همین‌جا تأمین می‌شود:
+             ۱) باز شدن گالری برای انتخاب عکس/فیلم در فرم ثبت درخواست
+             ۲) اجازه‌ی موقعیت مکانی برای بخش «موقعیت» (GPS گوشی) */
+        webView.webChromeClient = object : WebChromeClient() {
+
+            override fun onShowFileChooser(
+                webView: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: FileChooserParams
+            ): Boolean {
+                /* درخواست قبلی (اگر نیمه‌کاره مانده) بسته می‌شود */
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+
+                return try {
+                    fileChooserLauncher.launch(buildFileChooserIntent(fileChooserParams))
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    this@MainActivity.filePathCallback = null
+                    filePathCallback.onReceiveValue(null)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "برنامه‌ی گالری روی این گوشی پیدا نشد",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    false
+                } catch (e: Throwable) {
+                    this@MainActivity.filePathCallback = null
+                    filePathCallback.onReceiveValue(null)
+                    false
+                }
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String,
+                callback: GeolocationPermissions.Callback
+            ) {
+                if (hasLocationPermission()) {
+                    /* اجازه قبلاً گرفته شده است */
+                    callback.invoke(origin, true, false)
+                    return
+                }
+
+                /* اجازه را از کاربر می‌گیریم و پس از پاسخ، به WebView خبر می‌دهیم */
+                pendingGeoCallback = callback
+                pendingGeoOrigin = origin
+                requestLocationPermission()
+            }
+
+            override fun onGeolocationPermissionsHidePrompt() {
+                super.onGeolocationPermissionsHidePrompt()
+                pendingGeoCallback = null
+                pendingGeoOrigin = null
+            }
+        }
 
         // مدیریت هوشمند دکمه بازگشت (Hardware Back Button / Gesture Back)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -131,6 +322,75 @@ class MainActivity : AppCompatActivity() {
                 .apply()
             activity.runOnUiThread {
                 activity.finish()
+            }
+        }
+
+        /* ── موقعیت مکانی (GPS) ───────────────────────────────────────────
+           لایه‌ی وب (modules/reports.js) پیش از صدا زدن navigator.geolocation
+           این دو متد را صدا می‌زند تا اگر اجازه داده نشده، اول از کاربر پرسیده
+           شود؛ نتیجه‌ی اجازه با window.eplakLocationPermissionResult به وب
+           برمی‌گردد. */
+
+        /** آیا اجازه‌ی موقعیت مکانی به اپ داده شده است؟ */
+        @JavascriptInterface
+        fun hasLocationPermission(): Boolean = this@MainActivity.hasLocationPermission()
+
+        /** درخواست اجازه‌ی موقعیت مکانی از کاربر (اندروید ۶ و بالاتر) */
+        @JavascriptInterface
+        fun requestLocationPermission() {
+            activity.runOnUiThread { this@MainActivity.requestLocationPermission() }
+        }
+
+        /** باز کردن صفحه‌ی تنظیمات خود اپ (برای روشن کردن دسترسی موقعیت) */
+        @JavascriptInterface
+        fun openAppSettings() {
+            activity.runOnUiThread {
+                try {
+                    val intent = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", activity.packageName, null)
+                    )
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    activity.startActivity(intent)
+                } catch (e: Throwable) {
+                    try {
+                        activity.startActivity(
+                            Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (e2: Throwable) {
+                    }
+                }
+            }
+        }
+
+        /** آیا سرویس موقعیت‌یاب گوشی (GPS) روشن است؟ */
+        @JavascriptInterface
+        fun isLocationServiceEnabled(): Boolean {
+            return try {
+                val manager = activity.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    manager.isLocationEnabled
+                } else {
+                    manager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                        manager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+                }
+            } catch (e: Throwable) {
+                true
+            }
+        }
+
+        /** باز کردن یک لینک بیرونی (مثل نمایش موقعیت در نقشه‌ی کامل) */
+        @JavascriptInterface
+        fun openUrl(url: String) {
+            if (url.isBlank()) return
+            activity.runOnUiThread {
+                try {
+                    activity.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Throwable) {
+                    Toast.makeText(activity, "برنامه‌ای برای باز کردن این لینک پیدا نشد", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 

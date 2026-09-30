@@ -425,7 +425,7 @@
   }
 
   function resetReportDraft() {
-    reportDraft = { type: 'سایر', department: '', subDepartment: '', desc: '', location: '', photos: [] };
+    reportDraft = { type: 'سایر', department: '', subDepartment: '', desc: '', location: '', photos: [], geo: null };
     const desc = document.getElementById('reportDescInput');
     if (desc) { desc.value = ''; updateCount(desc); }
     document.querySelectorAll('#deptListWrap .dept-sub-item').forEach(s => s.classList.remove('active'));
@@ -436,6 +436,8 @@
     if (loc) loc.value = '';
     const photoPrev = document.getElementById('reportPhotosPreview');
     if (photoPrev) photoPrev.innerHTML = '';
+    const coords = document.getElementById('reportCoordsText');
+    if (coords) coords.textContent = 'موقعیتی انتخاب نشده است';
   }
 
   function toggleDept(headerEl) {
@@ -483,16 +485,222 @@
     showScreen('screen-report-step2');
   }
 
+  /* =========================================================
+     موقعیت مکانی: GPS گوشی + نمایش روی نقشه
+     ---------------------------------------------------------
+     - نشانگر نقشه همیشه در مرکز است؛ کاربر با کشیدن نقشه آن را روی محل
+       دقیق مشکل می‌گذارد (lat/lng در reportDraft.geo نگه داشته می‌شود).
+     - دکمه‌ی «استفاده از موقعیت فعلی من» با GPS خود گوشی موقعیت را می‌گیرد
+       (در اپ اندروید، اجازه‌ی دسترسی از پل AndroidApp گرفته می‌شود).
+     - آدرس خیابان (اختیاری) از سرویس آزاد OpenStreetMap گرفته می‌شود؛ اگر
+       اینترنت/سرویس پاسخ ندهد، همان مختصات ثبت می‌شود.
+  ========================================================= */
+  let reportMap = null;
+  let reportGeoTimer = null;
+  let pendingGpsRequest = false;
+
+  function coordsText() {
+    const geo = reportDraft.geo || {};
+    const out = document.getElementById('reportCoordsText');
+    if (!out) return;
+    if (typeof geo.lat !== 'number' || typeof geo.lng !== 'number') {
+      out.textContent = 'موقعیتی انتخاب نشده است';
+      return;
+    }
+    const base = (window.EplakMap && window.EplakMap.formatPosition)
+      ? window.EplakMap.formatPosition(geo.lat, geo.lng, geo.accuracy)
+      : (geo.lat.toFixed(6) + ' , ' + geo.lng.toFixed(6));
+    out.textContent = base;
+  }
+
+  /* آدرس را از مختصات می‌گیرد و در کادر «یا آدرس را وارد کنید» می‌گذارد */
+  function lookupAddress(lat, lng, force) {
+    if (!window.EplakMap || typeof window.EplakMap.reverseGeocode !== 'function') return;
+    clearTimeout(reportGeoTimer);
+    reportGeoTimer = setTimeout(function () {
+      window.EplakMap.reverseGeocode(lat, lng).then(function (address) {
+        if (!address) return;
+        const locEl = document.getElementById('reportLocationInput');
+        if (!locEl) return;
+        /* اگر کاربر خودش آدرسی نوشته، آن را با نتیجه‌ی جست‌وجو بازنویسی نمی‌کنیم
+           (مگر در حالت «موقعیت فعلی من» که force=true است). */
+        if (!force && locEl.value.trim() !== '') return;
+        locEl.value = address;
+        reportDraft.location = address;
+      }).catch(function () {});
+    }, 400);
+  }
+
+  /* ساخت نقشه فقط وقتی صفحه‌ی «موقعیت» دیده می‌شود (برای صرفه‌جویی در اینترنت) */
+  function initReportMap(force) {
+    if (reportMap && !force) return reportMap;
+    const box = document.getElementById('reportMapPicker');
+    if (!box || !window.EplakMap) return null;
+    if (box.offsetHeight === 0 && !force) return null;   /* صفحه هنوز دیده نمی‌شود */
+
+    const geo = reportDraft.geo || {};
+    const hasFix = typeof geo.lat === 'number' && typeof geo.lng === 'number';
+    reportMap = window.EplakMap.create(box, {
+      lat: hasFix ? geo.lat : 35.3242,
+      lng: hasFix ? geo.lng : 51.6455,
+      zoom: hasFix ? 17 : 14,
+      draggable: true,
+      hasFix: hasFix,
+      onChange: function (pos) {
+        if (!pos.hasFix) return;
+        reportDraft.geo = { lat: pos.lat, lng: pos.lng, accuracy: (reportDraft.geo || {}).accuracy, source: 'map' };
+        coordsText();
+        lookupAddress(pos.lat, pos.lng, false);
+      }
+    });
+    coordsText();
+    return reportMap;
+  }
+  window.initReportMap = initReportMap;
+
+  /* نمایش مختصات انتخاب‌شده در نقشه‌ی کامل (برای بازبینی/ارسال به دیگران) */
+  function openReportCoordsInMap() {
+    const geo = reportDraft.geo || {};
+    if (typeof geo.lat !== 'number' || typeof geo.lng !== 'number') {
+      showToast('اول موقعیت را انتخاب کنید');
+      return;
+    }
+    const url = 'https://www.openstreetmap.org/?mlat=' + geo.lat.toFixed(6)
+      + '&mlon=' + geo.lng.toFixed(6) + '#map=17/' + geo.lat.toFixed(6) + '/' + geo.lng.toFixed(6);
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.openUrl === 'function') {
+        window.AndroidApp.openUrl(url);
+        return;
+      }
+    } catch (e) {}
+    window.open(url, '_blank', 'noopener');
+  }
+  window.openReportCoordsInMap = openReportCoordsInMap;
+
+  /* پیام‌های دقیق و راهنمای رفع مشکل برای هر نوع خطای موقعیت */
+  function geoErrorText(err) {
+    const code = err && typeof err.code === 'number' ? err.code : 0;
+    if (code === 1) {   /* PERMISSION_DENIED */
+      return 'دسترسی به موقعیت بسته است. برای فعال‌سازی: تنظیمات گوشی → برنامه‌ها → ای‌پلاک → مجوزها → موقعیت مکانی → «فقط هنگام استفاده از برنامه»';
+    }
+    if (code === 2) {
+      return 'موقعیت قابل تشخیص نیست. کمی صبر کنید یا در فضای باز دوباره تلاش کنید';
+    }
+    if (code === 3) {
+      return 'زمان گرفتن موقعیت تمام شد؛ دوباره تلاش کنید';
+    }
+    return 'موقعیت دریافت نشد؛ مختصات را با کشیدن نقشه انتخاب کنید';
+  }
+
+  function setGpsButtonBusy(busy) {
+    const btn = document.getElementById('reportGpsBtn');
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.style.opacity = busy ? '0.65' : '1';
+    const label = btn.querySelector('span');
+    if (label) label.textContent = busy ? 'در حال دریافت موقعیت…' : 'استفاده از موقعیت فعلی من';
+  }
+
+  function applyGeoFix(lat, lng, accuracy) {
+    reportDraft.geo = { lat: lat, lng: lng, accuracy: accuracy, source: 'gps' };
+    const map = initReportMap(true);
+    if (map) map.setPosition(lat, lng);
+    if (map) map.setZoom(17);
+    coordsText();
+    lookupAddress(lat, lng, true);
+    showToast('موقعیت شما روی نقشه مشخص شد ✅');
+  }
+
+  /* نتیجه‌ی اجازه‌ی دسترسی موقعیت از سمت اندروید */
+  window.eplakLocationPermissionResult = function (granted) {
+    setGpsButtonBusy(false);
+    if (granted && pendingGpsRequest) {
+      pendingGpsRequest = false;
+      useCurrentLocation();
+      return;
+    }
+    pendingGpsRequest = false;
+    if (!granted) {
+      showToast('اجازه‌ی موقعیت داده نشد؛ می‌توانید محل را با کشیدن نقشه انتخاب کنید');
+    }
+  };
+
   function useCurrentLocation() {
-    document.getElementById('reportLocationInput').value = 'موقعیت فعلی کاربر (دریافت‌شده از GPS)';
-    showToast('موقعیت فعلی شما دریافت شد');
+    /* در اپ اندروید ابتدا اجازه‌ی دسترسی به موقعیت گرفته می‌شود */
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.hasLocationPermission === 'function'
+          && !window.AndroidApp.hasLocationPermission()) {
+        pendingGpsRequest = true;
+        setGpsButtonBusy(true);
+        if (typeof window.AndroidApp.requestLocationPermission === 'function') {
+          window.AndroidApp.requestLocationPermission();
+          showToast('برای ثبت دقیق محل، اجازه‌ی «موقعیت مکانی» را بدهید');
+          return;
+        }
+      }
+    } catch (e) {}
+
+    if (!navigator.geolocation) {
+      showToast('این گوشی از موقعیت‌یابی پشتیبانی نمی‌کند؛ محل را روی نقشه انتخاب کنید');
+      initReportMap(true);
+      return;
+    }
+
+    setGpsButtonBusy(true);
+    showToast('در حال دریافت موقعیت دقیق…');
+
+    navigator.geolocation.getCurrentPosition(
+      function (position) {
+        setGpsButtonBusy(false);
+        const lat = Number(position.coords.latitude);
+        const lng = Number(position.coords.longitude);
+        if (isNaN(lat) || isNaN(lng)) {
+          showToast('موقعیت دریافتی نامعتبر بود؛ دوباره تلاش کنید');
+          return;
+        }
+        applyGeoFix(lat, lng, Number(position.coords.accuracy) || 0);
+      },
+      function (err) {
+        setGpsButtonBusy(false);
+        /* اگر GPS گوشی خاموش باشد، راهنمای روشن کردنش را نشان می‌دهیم
+           (تشخیص از روی پل اندروید؛ در مرورگر این تابع وجود ندارد). */
+        let gpsOff = false;
+        try {
+          if (window.AndroidApp && typeof window.AndroidApp.isLocationServiceEnabled === 'function') {
+            gpsOff = !window.AndroidApp.isLocationServiceEnabled();
+          }
+        } catch (e) {}
+        if (gpsOff && (!err || err.code !== 1)) {
+          showToast('سرویس موقعیت (GPS) گوشی خاموش است؛ آن را روشن کنید یا محل را با کشیدن نقشه انتخاب کنید');
+        } else {
+          showToast(geoErrorText(err));
+        }
+        initReportMap(true);
+        /* اگر کاربر قبلاً «دسترسی به موقعیت» گرفتن با گوشی را فعال کرده،
+           در اپ اندروید دکمه‌ی میان‌بر تنظیمات را نشان می‌دهیم. */
+        try {
+          if (err && err.code === 1 && window.AndroidApp && typeof window.AndroidApp.openAppSettings === 'function') {
+            pendingGpsRequest = false;
+          }
+        } catch (e) {}
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
   }
 
   function goReportStep3() {
     const locEl = document.getElementById('reportLocationInput');
-    reportDraft.location = locEl.value.trim();
+    reportDraft.location = (locEl ? locEl.value : '').trim();
+    const geo = reportDraft.geo || {};
+    const hasCoords = typeof geo.lat === 'number' && typeof geo.lng === 'number';
+    /* اگر مختصات GPS/نقشه داریم، نوشتن آدرس اجباری نیست */
+    if (!reportDraft.location && hasCoords) {
+      reportDraft.location = (window.EplakMap && window.EplakMap.formatPosition)
+        ? window.EplakMap.formatPosition(geo.lat, geo.lng, 0).replace('عرض ', 'موقعیت: ')
+        : ('موقعیت ' + geo.lat.toFixed(5) + ' , ' + geo.lng.toFixed(5));
+    }
     if (!reportDraft.location) {
-      showToast('لطفاً موقعیت مکانی را مشخص کنید');
+      showToast('لطفاً موقعیت مکانی را مشخص کنید (GPS یا کشیدن نقشه)');
       return;
     }
     showScreen('screen-report-step3');
@@ -530,7 +738,104 @@
   /* افزودن عکس/فیلم انتخاب‌شده به پیش‌نویس — فایل واقعی نگه داشته می‌شود تا
      هنگام ثبت گزارش به سرور آپلود شود (قبلاً فقط نام فایل ذخیره می‌شد و هیچ
      فایلی به سرور نمی‌رفت، بنابراین در پنل مدیریت چیزی دیده نمی‌شد). */
-  function addReportPhotos(input) {
+  /* وضعیت ارسال پیوست‌ها روی صفحه‌ی «گزارش ثبت شد» — کاربر باید ببیند عکس و
+     فیلمش واقعاً در حال رفتن به سرور است و بعد هم تأیید بگیرد. */
+  function setUploadStatus(text, tone) {
+    const el = document.getElementById('reportUploadStatus');
+    if (!el) return;
+    if (!text) {
+      el.style.display = 'none';
+      el.textContent = '';
+      return;
+    }
+    el.style.display = 'block';
+    el.textContent = text;
+    el.style.color = (tone === 'error') ? '#ef4444' : (tone === 'done' ? 'var(--teal)' : 'var(--text-muted)');
+  }
+  window.setReportUploadStatus = setUploadStatus;
+
+  /* ── فشرده‌سازی عکس پیش از ارسال ──────────────────────────────────────
+     دوربین گوشی‌های امروزی عکس ۳ تا ۸ مگابایتی می‌سازد؛ اگر همان‌طور ارسال شود
+     آپلود روی اینترنت موبایل کند می‌شود و بعضی هاست‌ها هم قبول نمی‌کنند. اینجا
+     عکس تا حداکثر ۱۶۰۰ پیکسل کوچک و با کیفیت ۸۲٪ به JPEG تبدیل می‌شود
+     (حجم نمونه‌ی معمول: ۲۰۰ تا ۵۰۰ کیلوبایت) — عکس‌های کوچک‌تر از ۴۰۰ کیلوبایت
+     دست‌نخورده می‌مانند تا کیفیت بی‌دلیل کم نشود. GIF و HEIC هم دست‌نخورده
+     می‌مانند (یا متحرک‌اند یا مرورگر اندروید نمی‌تواند بازشان کند). */
+  const REPORT_IMAGE_MAX_SIDE = 1600;
+  const REPORT_IMAGE_QUALITY = 0.82;
+  const REPORT_IMAGE_SKIP_BELOW = 400 * 1024;
+
+  function loadImageElement(file) {
+    return new Promise(function (resolve, reject) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('image decode failed')); };
+      img.src = url;
+    });
+  }
+
+  function canvasToBlob(canvas, type, quality) {
+    return new Promise(function (resolve) {
+      if (canvas.toBlob) {
+        canvas.toBlob(function (blob) { resolve(blob); }, type, quality);
+      } else {
+        try {
+          const dataUrl = canvas.toDataURL(type, quality);
+          const bin = atob(dataUrl.split(',')[1] || '');
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          resolve(new Blob([bytes], { type: type }));
+        } catch (e) { resolve(null); }
+      }
+    });
+  }
+
+  async function compressReportImage(file) {
+    const type = (file.type || '').toLowerCase();
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (type === 'image/gif' || ext === 'gif' || type === 'image/heic' || type === 'image/heif') return file;
+    if (file.size <= REPORT_IMAGE_SKIP_BELOW) return file;
+
+    const img = await loadImageElement(file);
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) return file;
+
+    const scale = Math.min(1, REPORT_IMAGE_MAX_SIDE / Math.max(w, h));
+    const targetW = Math.max(1, Math.round(w * scale));
+    const targetH = Math.max(1, Math.round(h * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    /* پس‌زمینه‌ی سفید برای عکس‌های شفاف (PNG) تا تبدیل به JPEG سیاه نشود */
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    const blob = await canvasToBlob(canvas, 'image/jpeg', REPORT_IMAGE_QUALITY);
+    if (!blob || blob.size >= file.size) return file;
+
+    const newName = (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg';
+    try {
+      return new File([blob], newName, { type: 'image/jpeg', lastModified: Date.now() });
+    } catch (e) {
+      /* مرورگرهای قدیمی که سازنده‌ی File را پشتیبانی نمی‌کنند */
+      blob.name = newName;
+      return blob;
+    }
+  }
+
+  function formatFileSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n >= 1024 * 1024) return (Math.round(n / (1024 * 1024) * 10) / 10) + ' مگابایت';
+    return Math.max(1, Math.round(n / 1024)) + ' کیلوبایت';
+  }
+
+  async function addReportPhotos(input) {
     const files = Array.from(input.files || []);
     const remaining = 3 - reportDraft.photos.length;
     if (remaining <= 0) {
@@ -539,27 +844,55 @@
       return;
     }
 
+    const chosen = files.slice(0, remaining);
+    if (files.length > remaining) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+    }
+
+    /* حجم‌های غیرمجاز همان‌جا رد می‌شوند تا کاربر بعد از ثبت گزارش غافلگیر نشود */
     let rejected = 0;
-    files.slice(0, remaining).forEach(file => {
+    const accepted = [];
+    chosen.forEach(file => {
       const kind = detectMediaKind(file);
       const maxMb = kind === 'video' ? REPORT_MEDIA_MAX_VIDEO_MB : REPORT_MEDIA_MAX_IMAGE_MB;
       if (file.size > maxMb * 1024 * 1024) {
         rejected++;
-        showToast('حجم ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' «' + file.name + '» بیش از ' + maxMb + ' مگابایت است');
+        showToast('حجم ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' «' + file.name + '» بیش از ' + maxMb + ' مگابایت است؛ فایل سبک‌تری انتخاب کنید');
         return;
+      }
+      accepted.push({ file: file, kind: kind });
+    });
+
+    if (accepted.some(item => item.kind === 'image')) {
+      showToast('در حال آماده‌سازی عکس‌ها…');
+    }
+
+    for (const item of accepted) {
+      let file = item.file;
+      if (item.kind === 'image') {
+        try {
+          file = await compressReportImage(item.file);
+        } catch (e) {
+          file = item.file;   /* اگر فشرده‌سازی نشد، همان فایل اصلی ارسال می‌شود */
+        }
       }
       reportDraft.photos.push({
         file: file,
-        name: file.name,
-        kind: kind,
+        name: file.name || item.file.name,
+        kind: item.kind,
         size: file.size,
         previewUrl: URL.createObjectURL(file)
       });
-    });
-
-    if (files.length > remaining + rejected) {
-      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
     }
+
+    const videos = accepted.filter(item => item.kind === 'video');
+    if (videos.length && rejected === 0) {
+      const biggest = videos.reduce((a, b) => (a.file.size > b.file.size ? a : b));
+      if (biggest.file.size > 20 * 1024 * 1024) {
+        showToast('فیلم ' + formatFileSize(biggest.file.size) + ' است؛ ارسالش کمی طول می‌کشد');
+      }
+    }
+
     renderReportPhotosPreview();
     input.value = '';
   }
@@ -591,7 +924,11 @@
     document.getElementById('confirmDeptText').textContent = reportDraft.subDepartment
       ? (reportDraft.department + ' / ' + reportDraft.subDepartment) : '—';
     document.getElementById('confirmDescText').textContent = reportDraft.desc || '—';
-    document.getElementById('confirmLocationText').textContent = reportDraft.location || '—';
+    const geo = reportDraft.geo || {};
+    const hasCoords = typeof geo.lat === 'number' && typeof geo.lng === 'number';
+    document.getElementById('confirmLocationText').textContent = hasCoords
+      ? ((reportDraft.location || '') + ' — ' + geo.lat.toFixed(5) + ' , ' + geo.lng.toFixed(5))
+      : (reportDraft.location || '—');
     document.getElementById('confirmPhotoCount').textContent = `${toPersianDigits(reportDraft.photos.length)} فایل (عکس/فیلم)`;
     showScreen('screen-report-step4');
   }
@@ -608,6 +945,8 @@
       code,
       title,
       location: reportDraft.location || 'نامشخص',
+      lat: (reportDraft.geo && typeof reportDraft.geo.lat === 'number') ? reportDraft.geo.lat : null,
+      lng: (reportDraft.geo && typeof reportDraft.geo.lng === 'number') ? reportDraft.geo.lng : null,
       rawDate: nowIso,
       date: formatReportDate(nowIso),
       dateTime: formatReportDateTime(nowIso),
@@ -657,6 +996,15 @@
       subDepartment: newReport.subDepartment || '',
       location: newReport.location || ''
     };
+    /* مختصات دقیق موقعیت (از GPS گوشی یا نشانگر نقشه) — برای نمایش روی نقشه
+       در پنل ادمین و برای مسیریابی اکیپ شهرداری */
+    if (typeof newReport.lat === 'number' && typeof newReport.lng === 'number') {
+      draftPayload.lat = newReport.lat;
+      draftPayload.lng = newReport.lng;
+      draftPayload.location = (newReport.location && newReport.location !== 'نامشخص')
+        ? newReport.location
+        : (newReport.lat.toFixed(6) + ' , ' + newReport.lng.toFixed(6));
+    }
     resetReportDraft();
 
     // 6. ارسال ناهمگام به سرور در پس‌زمینه (کاملاً موازی بدون قفل کردن رابط کاربری)
@@ -670,6 +1018,12 @@
             const form = new FormData();
             Object.keys(draftPayload).forEach(key => form.append(key, draftPayload[key] == null ? '' : draftPayload[key]));
             filesToUpload.forEach(file => form.append('media[]', file, file.name));
+            setUploadStatus('در حال ارسال ' + toPersianDigits(filesToUpload.length) + ' پیوست (عکس/فیلم)…');
+            if (typeof window.syncFormDataToBackendWithProgress === 'function') {
+              return window.syncFormDataToBackendWithProgress('reports', form, pct => {
+                setUploadStatus('در حال ارسال پیوست‌ها… ' + toPersianDigits(Math.max(1, pct)) + '٪');
+              });
+            }
             return window.syncFormDataToBackend('reports', form);
           })()
         : (typeof window.syncDataToBackend === 'function'
@@ -698,8 +1052,20 @@
                 size: item.size
               }));
             }
-            if (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length) {
-              showToast('برخی فایل‌ها ذخیره نشد: ' + backendRes.media_errors[0]);
+            if (filesToUpload.length > 0) {
+              const savedCount = Array.isArray(backendRes.media) ? backendRes.media.length : 0;
+              if (Array.isArray(backendRes.media_errors) && backendRes.media_errors.length) {
+                setUploadStatus('⚠️ ' + backendRes.media_errors[0], 'error');
+                showToast('برخی فایل‌ها ذخیره نشد: ' + backendRes.media_errors[0]);
+              } else if (savedCount === 0) {
+                setUploadStatus('⚠️ پیوست‌ها ذخیره نشدند؛ حجم فایل را کم کنید و دوباره تلاش کنید', 'error');
+                showToast('پیوست‌ها ذخیره نشدند؛ حجم فایل را کم کنید و دوباره تلاش کنید');
+              } else {
+                setUploadStatus('✅ ' + toPersianDigits(savedCount) + ' پیوست با موفقیت ارسال و در پنل شهرداری ثبت شد', 'done');
+                showToast('عکس/فیلم‌ها با موفقیت ارسال شد ✅');
+              }
+            } else {
+              setUploadStatus('');
             }
 
             const currentTrackElem = document.getElementById('successTrackCode');
@@ -708,6 +1074,18 @@
             }
             if (typeof saveReports === 'function') saveReports(currentPhone);
           }
+          else if (backendRes && backendRes.success === false) {
+            /* سرور دلیل دقیق را گفته است (مثلاً حجم فایل بیش از حد مجاز) */
+            const reason = String(backendRes.error || '').trim();
+            setUploadStatus('⚠️ ' + (reason !== '' ? reason : 'پیوست‌ها ذخیره نشدند'), 'error');
+            showToast(reason !== ''
+              ? ('گزارش ذخیره شد ولی پیوست ارسال نشد: ' + reason)
+              : 'گزارش ذخیره شد ولی پیوست‌ها به سرور نرسیدند');
+          } else if (!backendRes) {
+            setUploadStatus('⚠️ گزارش ثبت شد ولی پیوست‌ها به سرور نرسیدند؛ اینترنت را بررسی کنید', 'error');
+            showToast('گزارش ثبت شد ولی ارتباط با سرور برقرار نشد؛ پیوست‌ها ارسال نشدند');
+          }
+
           if (typeof loadReportsFromBackend === 'function') {
             loadReportsFromBackend(currentPhone, { silent: true });
           }
@@ -720,10 +1098,32 @@
         })
         .catch(err => {
           console.warn('[reports] background sync note:', err);
+          setUploadStatus('⚠️ ارسال به سرور انجام نشد؛ با وصل بودن اینترنت دوباره تلاش کنید', 'error');
+          showToast('ارسال گزارش به سرور انجام نشد؛ با وصل بودن اینترنت دوباره تلاش می‌شود');
         });
     }
   }
   window.submitNewReport = submitNewReport;
+
+  /* با باز شدن صفحه‌ی «موقعیت»، نقشه ساخته می‌شود و با بازگشت به آن،
+     کاشی‌ها یک‌بار دیگر هم‌اندازه‌گیری می‌شوند تا کامل دیده شوند. */
+  window.addEventListener('eplak-screen-shown', function (ev) {
+    const id = ev && ev.detail ? ev.detail.id : '';
+    if (id !== 'screen-report-step2') return;
+    let tries = 0;
+    const build = function () {
+      tries++;
+      const map = initReportMap(false);
+      if (map) {
+        map.refresh();
+      } else if (tries < 6) {
+        /* ارتفاع کادر نقشه ممکن است کمی دیر تعیین شود (انیمیشن ورود صفحه) */
+        setTimeout(build, 200);
+      }
+      coordsText();
+    };
+    setTimeout(build, 60);
+  });
 
 
   /* =========================================================

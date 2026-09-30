@@ -22,6 +22,12 @@ if ($report && !isset($report['code'])) {
 }
 
 /* پیوست‌های ارسالی شهروند (عکس و فیلم) — از جدول report_media خوانده می‌شوند */
+/* موقعیت دقیق گزارش (از GPS گوشی شهروند یا نشانگر نقشه) */
+$reportLat = ($report && isset($report['lat']) && $report['lat'] !== null && $report['lat'] !== '') ? (float) $report['lat'] : null;
+$reportLng = ($report && isset($report['lng']) && $report['lng'] !== null && $report['lng'] !== '') ? (float) $report['lng'] : null;
+$reportAcc = ($report && isset($report['location_accuracy']) && $report['location_accuracy'] !== null && $report['location_accuracy'] !== '') ? (float) $report['location_accuracy'] : null;
+$hasGeo    = $reportLat !== null && $reportLng !== null;
+
 $reportMedia  = $report ? getReportMedia($pdo, (int) $report['id']) : [];
 $mediaImages  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') !== 'video'));
 $mediaVideos  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') === 'video'));
@@ -39,6 +45,7 @@ if ($report && !empty($report['user_phone'])) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات گزارش</title>
   <link rel="stylesheet" href="assets/style.css?v=6">
+  <script src="../assets/js/ep-map.js?v=1"></script>
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -204,6 +211,36 @@ if ($report && !empty($report['user_phone'])) {
             <span class="detail-label"><i class="fas fa-map-pin" style="color: var(--dark-400); margin-left: 6px;"></i>موقعیت:</span>
             <span class="detail-value"><?= htmlspecialchars($report['location'] ?: 'ثبت نشده') ?></span>
           </div>
+          <?php if ($hasGeo): ?>
+          <div class="detail-item full-width">
+            <span class="detail-label">
+              <i class="fas fa-map-marked-alt" style="color: #ef4444; margin-left: 6px;"></i>
+              موقعیت دقیق روی نقشه:
+            </span>
+            <div id="adminReportMap" style="height: 280px; width: 100%;"></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:8px;">
+              <span style="font-size:12.5px; direction:ltr; font-weight:700; color:var(--teal, #0f766e);">
+                📍 <?= htmlspecialchars(number_format($reportLat, 6, '.', '')) ?> , <?= htmlspecialchars(number_format($reportLng, 6, '.', '')) ?>
+                <?php if ($reportAcc !== null && $reportAcc > 0): ?>
+                  <span style="color: var(--dark-400);">(دقت حدود <?= htmlspecialchars((string) round($reportAcc)) ?> متر)</span>
+                <?php endif; ?>
+              </span>
+              <a class="btn btn-primary" style="font-size:12px;"
+                 href="https://www.openstreetmap.org/?mlat=<?= htmlspecialchars((string) $reportLat) ?>&amp;mlon=<?= htmlspecialchars((string) $reportLng) ?>#map=18/<?= htmlspecialchars((string) $reportLat) ?>/<?= htmlspecialchars((string) $reportLng) ?>"
+                 target="_blank" rel="noopener">
+                <i class="fas fa-external-link-alt"></i> باز کردن در نقشه‌ی کامل
+              </a>
+            </div>
+            <p class="help-text" style="margin-top: 8px;">
+              این نقطه همان جایی است که شهروند روی نقشه‌ی برنامه مشخص کرده است؛ برای اعزام اکیپ از همین مختصات استفاده کنید.
+            </p>
+          </div>
+          <?php else: ?>
+          <div class="detail-item full-width">
+            <span class="detail-label"><i class="fas fa-map-marked-alt" style="color: var(--dark-400); margin-left: 6px;"></i>موقعیت دقیق روی نقشه:</span>
+            <span class="detail-value">مختصات جغرافیایی ثبت نشده است (گزارش‌های قدیمی یا ارسالی بدون نقشه).</span>
+          </div>
+          <?php endif; ?>
           <div class="detail-item full-width">
             <span class="detail-label"><i class="fas fa-align-left" style="color: var(--dark-400); margin-left: 6px;"></i>توضیحات:</span>
             <div class="text-block"><?= nl2br(htmlspecialchars($report['description'])) ?></div>
@@ -367,6 +404,25 @@ if ($report && !empty($report['user_phone'])) {
   </div>
 
   <script>
+    // ===== نقشه‌ی موقعیت دقیق گزارش (کاشی‌های OpenStreetMap — بدون کلید API) =====
+    document.addEventListener('DOMContentLoaded', function() {
+      var mapBox = document.getElementById('adminReportMap');
+      var lat = <?= $hasGeo ? json_encode($reportLat) : 'null' ?>;
+      var lng = <?= $hasGeo ? json_encode($reportLng) : 'null' ?>;
+      if (mapBox && lat !== null && lng !== null && window.EplakMap) {
+        var adminMap = window.EplakMap.create(mapBox, { lat: lat, lng: lng, zoom: 17, draggable: true });
+        adminMap.setPosition(lat, lng);
+        /* دکمه‌ی جابه‌جایی دوباره‌ی نشانگر روی نقطه‌ی اصلی */
+        var resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.className = 'btn btn-secondary';
+        resetBtn.style.cssText = 'font-size:12px; margin-top:8px;';
+        resetBtn.innerHTML = '<i class="fas fa-crosshairs"></i> برگشت نشانگر به موقعیت ثبت‌شده';
+        resetBtn.addEventListener('click', function () { adminMap.setPosition(lat, lng); adminMap.setZoom(17); });
+        mapBox.parentNode.insertBefore(resetBtn, mapBox.nextSibling);
+      }
+    });
+
     // ===== پیش‌نمایش وضعیت هنگام انتخاب =====
     document.addEventListener('DOMContentLoaded', function() {
       const statusSelect = document.getElementById('status');

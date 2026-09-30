@@ -16,6 +16,8 @@
 #    rescue     → ابزار بازیابی اتصال دیتابیس (rescue-db.php)
 #    online     → اپ فقط آنلاین (پرده‌ی «بدون اینترنت»)، حذف اعلان، اعلان فوری
 #                 پس از ثبت درخواست، و ورود دوباره با کد تایید پس از خروج از اپ
+#    geo        → نقشه‌ی موقعیت (کاشی‌های OpenStreetMap)، GPS گوشی، انتخاب
+#                 عکس/فیلم در اپ اندروید و ذخیره/نمایش مختصات در پنل ادمین
 # ============================================================================
 set -uo pipefail
 
@@ -61,7 +63,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue online; do
+for t in notify app pushcrypto fcm backend rescue online geo; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

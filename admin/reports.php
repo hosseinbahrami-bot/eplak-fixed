@@ -103,7 +103,20 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
                   <td><strong><?= htmlspecialchars($report['title']) ?></strong></td>
                   <td><i class="fas fa-user" style="color: #94a3b8; margin-left: 6px;"></i><?= htmlspecialchars($report['user_phone']) ?></td>
                   <td><?= htmlspecialchars($report['department'] ?: $report['category']) ?></td>
-                  <td><?= htmlspecialchars($report['location'] ?: '—') ?></td>
+                  <td>
+                    <?php
+                      $rowLat = (isset($report['lat']) && $report['lat'] !== null && $report['lat'] !== '') ? (float) $report['lat'] : null;
+                      $rowLng = (isset($report['lng']) && $report['lng'] !== null && $report['lng'] !== '') ? (float) $report['lng'] : null;
+                    ?>
+                    <?= htmlspecialchars($report['location'] ?: '—') ?>
+                    <?php if ($rowLat !== null && $rowLng !== null): ?>
+                      <br>
+                      <a href="report_detail.php?id=<?= (int) $report['id'] ?>" title="مشاهده روی نقشه"
+                         style="display:inline-block; margin-top:4px; font-size:11.5px; color:#0f766e; text-decoration:none;">
+                        <i class="fas fa-map-marker-alt" style="color:#ef4444;"></i> موقعیت دقیق روی نقشه
+                      </a>
+                    <?php endif; ?>
+                  </td>
                   <td>
                     <?php
                       $statusClass = $report['status'] === 'انجام‌شده' ? 'status-done' : 'status-pending';

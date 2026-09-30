@@ -8,6 +8,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- موقعیت مکانی: برای بخش «موقعیت» در ثبت درخواست — GPS گوشی.
+         اندروید ۶ و بالاتر این اجازه را هنگام استفاده از کاربر می‌پرسد. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- دوربین/میکروفون لازم نیست؛ عکس و فیلم از گالری انتخاب می‌شود.
+         این تعریف فقط اعلام می‌کند که گوشی بدون GPS هم می‌تواند اپ را نصب کند. -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

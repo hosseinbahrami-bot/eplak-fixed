@@ -173,6 +173,15 @@ jobs:
           if unzip -p "$APK" assets/modules/live.js | grep -q "deleteNotifications"; then DELETE_CODE="✅"; else DELETE_CODE="❌"; MISMATCH=1; fi
           if unzip -p "$APK" assets/core/storage.js | grep -q "prepareAppExit"; then SESSION_CODE="✅"; else SESSION_CODE="❌"; MISMATCH=1; fi
 
+          # ── نشانه‌های دو خواسته‌ی تازه: انتخاب عکس/فیلم از گالری و موقعیت GPS ──
+          if unzip -p "$APK" assets/assets/js/ep-map.js 2>/dev/null | grep -q "tile.openstreetmap.org"; then MAP_CODE="✅"; else MAP_CODE="❌ (فایل نقشه داخل APK نیست)"; fi
+          if unzip -p "$APK" assets/index.html | grep -q "reportMapPicker"; then MAP_UI="✅"; else MAP_UI="❌"; fi
+          if unzip -p "$APK" assets/modules/reports.js | grep -q "getCurrentPosition"; then GPS_CODE="✅"; else GPS_CODE="❌"; fi
+          if unzip -p "$APK" assets/modules/reports.js | grep -q "compressReportImage"; then PHOTO_COMPRESS="✅"; else PHOTO_COMPRESS="❌"; fi
+          # کد جاوا: انتخاب فایل و موقعیت باید داخل dex کامپایل شده باشد
+          if unzip -p "$APK" classes.dex | strings | grep -q "GeolocationPermissions"; then GEO_KOTLIN="✅"; else GEO_KOTLIN="⚠️ (در dex دیده نشد)"; fi
+          if unzip -p "$APK" AndroidManifest.xml | strings | grep -q "ACCESS_FINE_LOCATION"; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
+
           {
             echo "## 🤖 گزارش ساخت فایل APK"
             echo ""
@@ -191,6 +200,12 @@ jobs:
             echo "| پرده‌ی «بدون اینترنت» در صفحه | $OFFLINE_UI |"
             echo "| کد حذف اعلان | $DELETE_CODE |"
             echo "| پاک‌سازی حساب پس از خروج | $SESSION_CODE |"
+            echo "| نقشه‌ی موقعیت داخل اپ (OpenStreetMap) | $MAP_CODE |"
+            echo "| نقشه در صفحه‌ی «موقعیت» | $MAP_UI |"
+            echo "| GPS گوشی (getCurrentPosition) | $GPS_CODE |"
+            echo "| فشرده‌سازی عکس پیش از ارسال | $PHOTO_COMPRESS |"
+            echo "| کد موقعیت‌یابی در اپ اندروید | $GEO_KOTLIN |"
+            echo "| مجوز موقعیت مکانی در مانیفست | $LOC_PERM |"
             echo ""
             echo "### تأیید کد سایت داخل اپ (مقایسه‌ی هش با مخزن)"
             echo ""
@@ -238,6 +253,12 @@ jobs:
             echo "APK_OFFLINE_UI=$OFFLINE_UI"
             echo "APK_DELETE_CODE=$DELETE_CODE"
             echo "APK_SESSION_CODE=$SESSION_CODE"
+            echo "APK_MAP_CODE=$MAP_CODE"
+            echo "APK_MAP_UI=$MAP_UI"
+            echo "APK_GPS_CODE=$GPS_CODE"
+            echo "APK_PHOTO_COMPRESS=$PHOTO_COMPRESS"
+            echo "APK_GEO_KOTLIN=$GEO_KOTLIN"
+            echo "APK_LOC_PERM=$LOC_PERM"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
 
@@ -285,6 +306,11 @@ jobs:
             echo "| پرده‌ی «بدون اینترنت» در صفحه‌ی اپ | $APK_OFFLINE_UI |"
             echo "| حذف اعلان در اپ | $APK_DELETE_CODE |"
             echo "| ورود دوباره با کد تایید پس از خروج | $APK_SESSION_CODE |"
+            echo "| نقشه‌ی موقعیت (OpenStreetMap) در اپ | $APK_MAP_CODE |"
+            echo "| GPS گوشی در فرم ثبت درخواست | $APK_GPS_CODE |"
+            echo "| فشرده‌سازی عکس پیش از ارسال | $APK_PHOTO_COMPRESS |"
+            echo "| کد موقعیت‌یابی اندروید | $APK_GEO_KOTLIN |"
+            echo "| مجوز موقعیت مکانی در مانیفست | $APK_LOC_PERM |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
             if [ -f android-app/app/google-services.json ]; then

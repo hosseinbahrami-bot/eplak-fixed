@@ -39,9 +39,11 @@ for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared
          api/ping.php api/push.php api/media.php api/reports.php api/notifications.php \
          admin/settings.php admin/login.php admin/report_detail.php admin/notification_view.php \
          admin/version.php \
+         assets/js/ep-map.js \
          core/storage.js core/router.js core/i18n.js \
          modules/reports.js modules/live.js modules/dashboard.js modules/online-guard.js \
          docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md \
+         docs/REPORT_MEDIA_GPS_FA.md docs/REPORT_MEDIA_GPS_EN.md \
          docs/FIREBASE_SETUP_FA.md docs/FIREBASE_SETUP_EN.md; do
   if has "$f"; then echo "   ✅ $f"; else echo "   ❌ $f گم شده!"; exit 1; fi
 done

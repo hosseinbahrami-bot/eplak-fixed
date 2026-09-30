@@ -16,6 +16,29 @@ require_once __DIR__ . '/../shared/media.php';
 
 eplakApiHeaders();
 
+/* ── اعتبارسنجی مختصات جغرافیایی (موقعیت دقیق گزارش) ──────────────────
+   مقدارهای نامعتبر (خالی، متن، خارج از محدوده‌ی جهانی) به null تبدیل می‌شوند
+   تا ثبت گزارش هرگز به‌خاطر مختصات خراب نشود. */
+function eplakReportCoord($value, string $axis): ?float {
+    if ($value === null || $value === '' || is_array($value)) {
+        return null;
+    }
+    if (!is_numeric($value)) {
+        return null;
+    }
+    $num = (float) $value;
+    if (!is_finite($num)) {
+        return null;
+    }
+    if ($axis === 'lat' && ($num < -90 || $num > 90)) {
+        return null;
+    }
+    if ($axis === 'lng' && ($num < -180 || $num > 180)) {
+        return null;
+    }
+    return round($num, 7);
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $query  = $_GET;
 $isMultipart = stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data') !== false;
@@ -36,7 +59,10 @@ if ($method === 'GET') {
         eplakJsonError('شماره موبایل معتبر الزامی است', 400);
     }
     try {
-        $stmt = $pdo->prepare('SELECT id, user_phone, title, description, category, department, sub_department, location, status, reply, created_at
+        /* ستون‌های مختصات ممکن است در دیتابیس‌های قدیمی هنوز ساخته نشده باشند */
+        $hasGeo = eplakTableHasColumn($pdo, 'reports', 'lat') && eplakTableHasColumn($pdo, 'reports', 'lng');
+        $geoCols = $hasGeo ? ', lat, lng' : '';
+        $stmt = $pdo->prepare('SELECT id, user_phone, title, description, category, department, sub_department, location, status, reply, created_at' . $geoCols . '
                                FROM reports WHERE user_phone = :phone ORDER BY created_at DESC, id DESC LIMIT 200');
         $stmt->execute([':phone' => $phone]);
         $rows = $stmt->fetchAll();
@@ -51,6 +77,13 @@ if ($method === 'GET') {
             $row['code'] = 'EP-1403-' . str_pad((string) ($id + 1000), 4, '0', STR_PAD_LEFT);
             $row['media'] = $mediaMap[$id] ?? [];
             $row['media_count'] = count($row['media']);
+            if ($hasGeo) {
+                $row['lat'] = isset($row['lat']) && $row['lat'] !== null ? (float) $row['lat'] : null;
+                $row['lng'] = isset($row['lng']) && $row['lng'] !== null ? (float) $row['lng'] : null;
+            } else {
+                $row['lat'] = null;
+                $row['lng'] = null;
+            }
             $out[] = $row;
         }
 
@@ -117,6 +150,9 @@ $reportType    = eplakStr($input['reportType'] ?? ($input['category'] ?? 'سای
 $department    = eplakStr($input['department'] ?? ($input['mainDepartment'] ?? ''), 255);
 $subDepartment = eplakStr($input['subDepartment'] ?? ($input['sub_department'] ?? ''), 255);
 $location      = eplakStr($input['location'] ?? '', 500);
+$lat           = eplakReportCoord($input['lat'] ?? ($input['latitude'] ?? null), 'lat');
+$lng           = eplakReportCoord($input['lng'] ?? ($input['longitude'] ?? ($input['lon'] ?? null)), 'lng');
+$locationAcc   = eplakReportCoord($input['locationAccuracy'] ?? ($input['accuracy'] ?? null), 'lat');
 $name          = eplakStr($input['name'] ?? '', 255);
 $address       = eplakStr($input['address'] ?? '', 500);
 $nid           = eplakStr($input['nid'] ?? '', 20);
@@ -131,6 +167,8 @@ if ($reportType === '') {
     $reportType = 'سایر';
 }
 
+$hasGeo = false;   /* بعداً داخل تراکنش مقدار می‌گیرد؛ اینجا برای اطمینان تعریف می‌شود */
+
 try {
     $pdo->beginTransaction();
 
@@ -142,18 +180,50 @@ try {
         ':nid'     => $nid,
     ]);
 
-    $stmtReport = $pdo->prepare('INSERT INTO reports (user_phone, title, description, category, department, sub_department, location, status)
-                                 VALUES (:phone, :title, :description, :category, :department, :sub_department, :location, :status)');
-    $stmtReport->execute([
-        ':phone'          => $phone,
-        ':title'          => $subject,
-        ':description'    => $details,
-        ':category'       => $reportType,
-        ':department'     => $department,
-        ':sub_department' => $subDepartment,
-        ':location'       => $location,
-        ':status'         => 'pending',
-    ]);
+    /* موقعیت دقیق (GPS گوشی یا نشانگر نقشه) — در صورت وجود ستون‌های lat/lng */
+    $hasGeo = ($lat !== null && $lng !== null)
+        && eplakTableHasColumn($pdo, 'reports', 'lat')
+        && eplakTableHasColumn($pdo, 'reports', 'lng');
+    $hasAcc = $hasGeo && eplakTableHasColumn($pdo, 'reports', 'location_accuracy');
+
+    if ($hasGeo) {
+        $cols = $hasAcc
+            ? 'user_phone, title, description, category, department, sub_department, location, lat, lng, location_accuracy, status'
+            : 'user_phone, title, description, category, department, sub_department, location, lat, lng, status';
+        $vals = $hasAcc
+            ? ':phone, :title, :description, :category, :department, :sub_department, :location, :lat, :lng, :accuracy, :status'
+            : ':phone, :title, :description, :category, :department, :sub_department, :location, :lat, :lng, :status';
+        $stmtReport = $pdo->prepare('INSERT INTO reports (' . $cols . ') VALUES (' . $vals . ')');
+        $params = [
+            ':phone'          => $phone,
+            ':title'          => $subject,
+            ':description'    => $details,
+            ':category'       => $reportType,
+            ':department'     => $department,
+            ':sub_department' => $subDepartment,
+            ':location'       => $location,
+            ':lat'            => $lat,
+            ':lng'            => $lng,
+            ':status'         => 'pending',
+        ];
+        if ($hasAcc) {
+            $params[':accuracy'] = $locationAcc;
+        }
+        $stmtReport->execute($params);
+    } else {
+        $stmtReport = $pdo->prepare('INSERT INTO reports (user_phone, title, description, category, department, sub_department, location, status)
+                                     VALUES (:phone, :title, :description, :category, :department, :sub_department, :location, :status)');
+        $stmtReport->execute([
+            ':phone'          => $phone,
+            ':title'          => $subject,
+            ':description'    => $details,
+            ':category'       => $reportType,
+            ':department'     => $department,
+            ':sub_department' => $subDepartment,
+            ':location'       => $location,
+            ':status'         => 'pending',
+        ]);
+    }
     $insertId = (int) $pdo->lastInsertId();
 
     $pdo->commit();
@@ -243,6 +313,8 @@ eplakJson([
     'success'       => true,
     'id'            => $insertId,
     'tracking_code' => $trackingCode,
+    'lat'           => $hasGeo ? $lat : null,
+    'lng'           => $hasGeo ? $lng : null,
     'media'         => $savedMedia,
     'media_count'   => count($savedMedia),
     'media_errors'  => $mediaErrors,

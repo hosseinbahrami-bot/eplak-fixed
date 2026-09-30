@@ -94,6 +94,44 @@
 
   /* ارسال فرم چندبخشی (برای آپلود عکس/فیلم گزارش‌ها).
      نکته: هدر Content-Type عمداً تنظیم نمی‌شود تا مرورگر خودش boundary بگذارد. */
+  /* آپلود عکس/فیلم با گزارش درصد پیشرفت — چون فایل‌ها ممکن است چند مگابایت
+     باشند و کاربر باید ببیند که ارسال در جریان است (fetch درصد پیشرفت نمی‌دهد،
+     پس از XMLHttpRequest استفاده می‌کنیم). */
+  function syncFormDataToBackendWithProgress(endpoint, formData, onProgress) {
+    return new Promise(resolve => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', BACKEND_BASE_URL + '/' + endpoint + '.php', true);
+        xhr.timeout = 180000;   /* فیلم‌های بزرگ: تا ۳ دقیقه */
+        if (typeof onProgress === 'function' && xhr.upload) {
+          xhr.upload.onprogress = function (ev) {
+            if (ev && ev.lengthComputable) {
+              onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
+            }
+          };
+        }
+        xhr.onload = function () {
+          let data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (typeof onProgress === 'function') onProgress(100);
+          resolve(data);
+        };
+        xhr.onerror = function () {
+          console.warn('[backend] upload failed', endpoint);
+          resolve(null);
+        };
+        xhr.ontimeout = function () {
+          console.warn('[backend] upload timeout', endpoint);
+          resolve(null);
+        };
+        xhr.send(formData);
+      } catch (error) {
+        console.warn('[backend] upload unavailable', error && error.message);
+        resolve(null);
+      }
+    });
+  }
+
   async function syncFormDataToBackend(endpoint, formData) {
     if (!formData || typeof FormData === 'undefined' || !(formData instanceof FormData)) return null;
     try {
@@ -660,6 +698,7 @@
   window.saveNotifications   = saveNotifications;
   window.saveFavorites       = saveFavorites;
   window.syncDataToBackend   = syncDataToBackend;
+  window.syncFormDataToBackendWithProgress = syncFormDataToBackendWithProgress;
   window.syncUserProfileToBackend = syncUserProfileToBackend;
 
 })();

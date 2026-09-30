@@ -99,6 +99,47 @@ ok('پنل عکس شهروند را می‌بیند', panel?.count === 1, JSON.s
 ok('آدرس عکس در پنل درست است', String(panel?.url || '').startsWith('../uploads/'), String(panel?.url));
 ok('داشبورد گزارش‌های دارای فایل را می‌شمارد', (panel?.stats || 0) >= 1, String(panel?.stats));
 
+console.log('\n=== موقعیت دقیق گزارش (GPS) — ذخیره، بازگشت و نمایش ===');
+const geo = pickJson(await run(`
+$_POST = ['phone' => '09121112233', 'title' => 'چاله با موقعیت', 'description' => 'توضیح', 'category' => 'سایر', 'location' => 'خیابان امام', 'lat' => '35.3242100', 'lng' => '51.6455300', 'locationAccuracy' => '12.5'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`));
+ok('گزارش با مختصات GPS ثبت شد', geo?.success === true && Math.abs(Number(geo?.lat) - 35.32421) < 0.0000001,
+  JSON.stringify(geo).slice(0, 160));
+
+const geoRow = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+$row = $pdo->query('SELECT lat, lng, location_accuracy FROM reports ORDER BY id DESC LIMIT 1')->fetch();
+echo json_encode(['lat' => $row['lat'], 'lng' => $row['lng'], 'acc' => $row['location_accuracy']]);`));
+ok('مختصات در دیتابیس ذخیره شد',
+  Math.abs(Number(geoRow?.lat) - 35.32421) < 0.0000001 && Math.abs(Number(geoRow?.lng) - 51.64553) < 0.0000001,
+  JSON.stringify(geoRow));
+ok('دقت موقعیت (متر) هم ذخیره می‌شود', Math.abs(Number(geoRow?.acc) - 12.5) < 0.01, String(geoRow?.acc));
+
+const geoList = pickJson(await run(`
+$_GET = ['phone' => '09121112233'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/reports.php';`));
+const geoItem = (geoList?.reports || []).find((r) => Math.abs(Number(r.lat) - 35.32421) < 0.0000001);
+ok('API فهرست گزارش‌ها، مختصات را برمی‌گرداند', !!geoItem, JSON.stringify(geoList).slice(0, 160));
+
+const geoBad = pickJson(await run(`
+$_POST = ['phone' => '09121112233', 'title' => 'موقعیت خراب', 'description' => 'توضیح', 'category' => 'سایر', 'lat' => 'abc', 'lng' => '999'];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`));
+ok('مختصات نامعتبر باعث خطا نمی‌شود (فقط نادیده گرفته می‌شود)',
+  geoBad?.success === true && geoBad?.lat === null, JSON.stringify(geoBad).slice(0, 160));
+
+const geoPanel = pickJson(await run(`
+require '${APP}/admin/includes/db.php';
+require '${APP}/admin/includes/functions.php';
+$rid = (int) $pdo->query('SELECT id FROM reports WHERE lat IS NOT NULL ORDER BY id DESC LIMIT 1')->fetchColumn();
+$r = getReportById($pdo, $rid);
+echo json_encode(['lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has' => ($r['lat'] !== null && $r['lng'] !== null)]);`));
+ok('پنل ادمین به مختصات همان گزارش دسترسی دارد', geoPanel?.has === true, JSON.stringify(geoPanel));
+
 console.log('\n=== ساختار خودترمیم روی دیتابیس قدیمی ===');
 const legacy = pickJson(await run(`
 $legacy = '/tmp/eplak-regression-legacy.sqlite';
@@ -117,6 +158,21 @@ echo json_encode(['has_send_id' => in_array('send_id', $cols, true), 'send_ok' =
 ok('ستون send_id خودکار به دیتابیس قدیمی اضافه شد', legacy?.has_send_id === true, JSON.stringify(legacy));
 ok('ارسال اعلان روی دیتابیس قدیمی کار می‌کند (خطای قبلی)', legacy?.send_ok === true, JSON.stringify(legacy));
 ok('داده‌های قبلی حفظ شدند', legacy?.old_rows === 1, JSON.stringify(legacy));
+
+/* دیتابیس قدیمیِ همین سایت، جدول reports را بدون ستون‌های lat/lng دارد؛
+   همگام‌سازی خودکار باید آن‌ها را اضافه کند تا موقعیت دقیق ذخیره شود. */
+const legacyGeo = pickJson(await run(`
+$legacy = '/tmp/eplak-regression-legacy-geo.sqlite';
+@unlink($legacy);
+$old = new PDO('sqlite:' . $legacy);
+$old->exec("CREATE TABLE reports (id INTEGER PRIMARY KEY AUTOINCREMENT, user_phone VARCHAR(20) NOT NULL, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, category VARCHAR(100) NOT NULL, department VARCHAR(255) DEFAULT '', sub_department VARCHAR(255) DEFAULT '', location VARCHAR(500) DEFAULT '', status VARCHAR(50) DEFAULT 'pending', reply TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+$old = null;
+putenv('DB_SQLITE_PATH=' . $legacy);
+require '${APP}/admin/includes/db.php';
+$cols = array_column($pdo->query('PRAGMA table_info(reports)')->fetchAll(), 'name');
+echo json_encode(['lat' => in_array('lat', $cols, true), 'lng' => in_array('lng', $cols, true), 'acc' => in_array('location_accuracy', $cols, true)]);`));
+ok('ستون‌های موقعیت خودکار به جدول reports قدیمی اضافه شدند',
+  legacyGeo?.lat === true && legacyGeo?.lng === true && legacyGeo?.acc === true, JSON.stringify(legacyGeo));
 
 console.log('\n=== صفحه‌ی «بررسی نسخه» در پنل ادمین ===');
 const ver = pickJson(await run(`

@@ -458,6 +458,9 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         department VARCHAR(255) DEFAULT '',
         sub_department VARCHAR(255) DEFAULT '',
         location VARCHAR(500) DEFAULT '',
+        lat DOUBLE NULL,
+        lng DOUBLE NULL,
+        location_accuracy DOUBLE NULL,
         status VARCHAR(50) DEFAULT 'pending',
         reply TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -645,7 +648,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-09-30.1');
+    define('EPLAK_SCHEMA_VERSION', '2026-09-30.2');
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -781,6 +784,34 @@ function eplakSchemaSyncReport(?array $report = null): array {
         $last = $report;
     }
     return $last;
+}
+
+/* آیا جدول ستون خواسته‌شده را دارد؟
+   روی هاست‌هایی که کاربر دیتابیس اجازه‌ی ALTER ندارد، همگام‌سازی اسکیما ممکن
+   است ناقص بماند؛ با این بررسی، کد به‌جای خطای «Unknown column» مسیر
+   سازگار (بدون آن ستون) را انتخاب می‌کند. */
+function eplakTableHasColumn(PDO $pdo, string $table, string $column): bool {
+    static $cache = [];
+    $key = $table . '.' . $column;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    try {
+        if (eplakIsSqlite($pdo)) {
+            $stmt = $pdo->query('PRAGMA table_info(' . $pdo->quote($table) . ')');
+            foreach ($stmt->fetchAll() as $row) {
+                if (strcasecmp((string) ($row['name'] ?? ''), $column) === 0) {
+                    return $cache[$key] = true;
+                }
+            }
+            return $cache[$key] = false;
+        }
+        $stmt = $pdo->prepare('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '` LIKE :col');
+        $stmt->execute([':col' => $column]);
+        return $cache[$key] = (bool) $stmt->fetch();
+    } catch (\Throwable $e) {
+        return $cache[$key] = false;
+    }
 }
 
 /* اجرای همگام‌سازی کامل؛ $force برای دکمه‌ی «ترمیم اسکیما» در پنل تنظیمات */
@@ -1075,6 +1106,9 @@ function eplakGetPdo(): PDO {
         department VARCHAR(255) DEFAULT '',
         sub_department VARCHAR(255) DEFAULT '',
         location VARCHAR(500) DEFAULT '',
+        lat DECIMAL(10,7) NULL,
+        lng DECIMAL(10,7) NULL,
+        location_accuracy DECIMAL(8,2) NULL,
         status VARCHAR(50) DEFAULT 'pending',
         reply TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -408,6 +408,31 @@ else
   ISSUES+=("index.html روی هاست قدیمی است؛ بسته‌ی تازه را Extract کنید")
 fi
 
+# نشانه‌های «موقعیت دقیق روی نقشه» و «ارسال عکس/فیلم» روی فایل‌های واقعی سرور
+CODE_MAP=$(grab "$BASE/assets/js/ep-map.js" "$TMP/map.out")
+if [ "$CODE_MAP" = "200" ] && has "$TMP/map.out" "tile.openstreetmap.org"; then
+  say "| موتور نقشه‌ی موقعیت (\`assets/js/ep-map.js\`) | $CODE_MAP | ✅ نصب است |"
+else
+  say "| موتور نقشه‌ی موقعیت (\`assets/js/ep-map.js\`) | $CODE_MAP | ⏳ نیست |"
+  ISSUES+=("assets/js/ep-map.js روی هاست نیست؛ بسته‌ی تازه را Extract کنید")
+fi
+CODE_REPORTS=$(grab "$BASE/modules/reports.js" "$TMP/reportsjs.out")
+if [ "$CODE_REPORTS" = "200" ] && has "$TMP/reportsjs.out" "getCurrentPosition"; then
+  say "| GPS واقعی گوشی در فرم ثبت درخواست | $CODE_REPORTS | ✅ هست |"
+else
+  say "| GPS واقعی گوشی در فرم ثبت درخواست | $CODE_REPORTS | ⏳ کد قدیمی است |"
+fi
+if [ "$CODE_INDEX" = "200" ] && has "$TMP/index2.out" "reportMapPicker"; then
+  say "| نقشه‌ی واقعی در مرحله‌ی «موقعیت» صفحه‌ی اپ | $CODE_INDEX | ✅ هست |"
+else
+  say "| نقشه‌ی واقعی در مرحله‌ی «موقعیت» صفحه‌ی اپ | $CODE_INDEX | ⏳ کد قدیمی است |"
+fi
+if [ "$CODE_STORAGE" = "200" ] && has "$TMP/storage.out" "syncFormDataToBackendWithProgress"; then
+  say "| آپلود عکس/فیلم با نمایش درصد پیشرفت | $CODE_STORAGE | ✅ هست |"
+else
+  say "| آپلود عکس/فیلم با نمایش درصد پیشرفت | $CODE_STORAGE | ⏳ کد قدیمی است |"
+fi
+
 # نشانه‌های سرور تازه: اعلان رویدادی و تاریخ شمسی
 CODE_PUSH2=$(grab "$BASE/api/push.php?action=config" "$TMP/push2.out")
 if [ "$CODE_PUSH2" = "200" ] && has "$TMP/push2.out" "fcm_ready"; then
@@ -551,6 +576,116 @@ PYEOF
     fi
   fi
 
+  # ۹-۵) آزمون واقعی «ارسال عکس + موقعیت GPS» (همان مسیر اپ)
+  # یک تصویر واقعی ۱×۱ پیکسلی ساخته می‌شود و با FormData به سرور می‌رود؛
+  # سپس بررسی می‌کنیم که فایل ذخیره شده باشد و مختصات هم برگردد.
+  PNG="$TMP/smoke-photo.png"
+  printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > "$PNG" 2>/dev/null || true
+  MRI=""; MSG_CODE=""; MEDIA_COUNT=""; MEDIA_URL=""; GEO_LAT=""
+  if [ -s "$PNG" ]; then
+    MSG_CODE=$(curl -sS -L --max-time 60 -A "$UA" -o "$J" -w '%{http_code}' \
+      -F "phone=$TEST_PHONE" \
+      -F "name=آزمون خودکار سامانه" \
+      -F "title=آزمون خودکار پیوست — قابل حذف" \
+      -F "description=بررسی خودکار آپلود عکس و موقعیت GPS" \
+      -F "category=سایر" \
+      -F "location=آزمون موقعیت ۳۵٫۳۲۴۲ / ۵۱٫۶۴۵۵" \
+      -F "lat=35.3242100" \
+      -F "lng=51.6455300" \
+      -F "media[]=@$PNG;type=image/png;filename=smoke.png" \
+      "$BASE/api/reports.php" 2>/dev/null) || MSG_CODE="000"
+    MRI=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("id", "") if d.get("success") else "")
+except Exception:
+    print("")
+PYEOF
+)
+    MEDIA_COUNT=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("media_count", ""))
+except Exception:
+    print("")
+PYEOF
+)
+    MEDIA_URL=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    m = (d.get("media") or [])
+    print(m[0].get("url", "") if m else "")
+except Exception:
+    print("")
+PYEOF
+)
+    GEO_LAT=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("lat", "") if d.get("lat") is not None else "")
+except Exception:
+    print("")
+PYEOF
+)
+  fi
+
+  if [ "$MEDIA_COUNT" = "1" ] && [ -n "$MEDIA_URL" ]; then
+    say "| ۹-۵ | ✅ عکس آپلود شد و سرور تأیید کرد (شناسه $MRI، تعداد پیوست: $MEDIA_COUNT) |"
+  else
+    say "| ۹-۵ | ❌ آپلود عکس روی سرور ناموفق بود (کد پاسخ $MSG_CODE، تعداد پیوست: ${MEDIA_COUNT:-—}) |"
+    SMOKE_OK="no"
+    ISSUES+=("آزمون واقعی: آپلود عکس روی هاست کار نکرد")
+  fi
+
+  # ۹-۶) همان عکس باید از روی هاست قابل نمایش باشد (پنل ادمین همین آدرس را نشان می‌دهد)
+  if [ -n "$MEDIA_URL" ]; then
+    case "$MEDIA_URL" in
+      http*) MU="$MEDIA_URL" ;;
+      /*)    MU="$BASE$MEDIA_URL" ;;
+      *)     MU="$BASE/${MEDIA_URL#./}" ;;
+    esac
+    CODE_IMG=$(grab "$MU" "$TMP/smoke-get.png")
+    if [ "$CODE_IMG" = "200" ] && [ "$(wc -c < "$TMP/smoke-get.png" 2>/dev/null | tr -d ' ')" -gt 0 ]; then
+      say "| ۹-۶ | ✅ عکس از روی هاست نمایش داده می‌شود (کد $CODE_IMG) — همین آدرس در پنل ادمین دیده می‌شود |"
+    else
+      say "| ۹-۶ | ⚠️ عکس ذخیره شد ولی از روی هاست خوانده نشد (کد $CODE_IMG) — دسترسی پوشه‌ی \`uploads\` را بررسی کنید |"
+      ISSUES+=("فایل آپلودشده از روی هاست خوانده نشد (دسترسی uploads)")
+    fi
+  fi
+
+  # ۹-۷) سایت باید مختصات GPS را هم ذخیره کرده باشد
+  #     (اگر ستون‌های lat/lng ساخته نشده باشند، پاسخ سرور null می‌دهد)
+  if [ -n "$GEO_LAT" ]; then
+    say "| ۹-۷ | ✅ موقعیت GPS روی سرور ذخیره شد (عرض جغرافیایی: $GEO_LAT) |"
+  else
+    say "| ۹-۷ | ❌ مختصات GPS ذخیره نشد — ستون‌های موقعیت در دیتابیس ساخته نشده‌اند |"
+    SMOKE_OK="no"
+    ISSUES+=("ستون‌های lat/lng در دیتابیس ساخته نشد؛ یک‌بار پنل ادمین ← تنظیمات ← «ترمیم اسکیمای دیتابیس» را بزنید")
+  fi
+
+  # ۹-۸) پاک‌سازی گزارش و فایل آزمایشی
+  if [ -n "$MRI" ]; then
+    code=$(curl -sS -L --max-time 60 -A "$UA" -X DELETE -o "$J" -w '%{http_code}' \
+      "$BASE/api/reports.php?id=$MRI&phone=$TEST_PHONE" 2>/dev/null) || code="000"
+    CLEAN2=$(python3 - "$J" <<'PYEOF' 2>/dev/null || echo "no"
+import json, sys
+try:
+    print("yes" if json.load(open(sys.argv[1])).get("success") else "no")
+except Exception:
+    print("no")
+PYEOF
+)
+    if [ "$CLEAN2" = "yes" ]; then
+      say "| ۹-۸ | ✅ گزارش آزمایشی پیوست‌دار و فایلش پاک شد (کد پاسخ $code) |"
+    else
+      say "| ۹-۸ | ⚠️ گزارش آزمایشی پیوست‌دار پاک نشد (کد پاسخ $code) — در پنل ادمین حذفش کنید |"
+    fi
+  fi
+
   rm -f "$J"
   say ""
 fi
@@ -613,6 +748,16 @@ if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
   else
     say "- ⚠️ آزمون واقعی سرتاسری کامل سبز نشد — بخش ۹ را ببینید"
   fi
+fi
+if [ "$CODE_MAP" = "200" ] && has "$TMP/map.out" "tile.openstreetmap.org"; then
+  say "- ✅ نقشه‌ی موقعیت و GPS در فرم ثبت درخواست روی سایت نصب شده (مرحله‌ی «موقعیت» واقعی است)"
+else
+  say "- ⏳ نقشه‌ی موقعیت روی سایت نصب نشده — بسته‌ی تازه را Extract کنید"
+fi
+if [ "$CODE_STORAGE" = "200" ] && has "$TMP/storage.out" "syncFormDataToBackendWithProgress"; then
+  say "- ✅ ارسال عکس/فیلم با نمایش درصد پیشرفت روی سایت نصب شده"
+else
+  say "- ⏳ ارسال عکس/فیلم نسخه‌ی تازه روی سایت نصب نشده — بسته‌ی تازه را Extract کنید"
 fi
 if [ "$NEW_ONLINE" = "yes" ]; then
   say "- ✅ نقطه‌ی بررسی اتصال (\`api/ping.php\`) و پرده‌ی «بدون اینترنت اتصال ممکن نیست» نصب شده‌اند"

@@ -114,6 +114,12 @@
     } catch (e) {}
 
     onScreenShow(id);
+
+    /* اطلاع به ماژول‌ها که کدام صفحه باز شد (مثلاً برای ساخت نقشه‌ی موقعیت
+       فقط وقتی همان صفحه دیده می‌شود، تا اینترنت/داده هدر نرود). */
+    try {
+      window.dispatchEvent(new CustomEvent('eplak-screen-shown', { detail: { id: id } }));
+    } catch (e) {}
   }
 
   function onScreenShow(id) {
