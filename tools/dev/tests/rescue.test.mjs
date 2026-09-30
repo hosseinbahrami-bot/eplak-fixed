@@ -84,6 +84,31 @@ ok('می‌گوید اتصال سالم است', g.says_ok === true, good.slice(
 ok('وقتی همه‌چیز خوب است فرم نشان نمی‌دهد', g.no_form === true);
 ok('لینک ورود به پنل را می‌دهد', g.has_login_link === true);
 
+/* برای سناریوی واقعی، ابتدا اتصال را خراب می‌کنیم (مثل وقتی فایل config.php روی هاست نیست) */
+fs.rmSync(`${SANDBOX}/shared/config.php`, { force: true });
+fs.rmSync(`${SANDBOX}/shared/config.rescue-done`, { force: true });
+console.log('\n=== ۵) جست‌وجوی خودکار نام دیتابیس ===');
+const disc = await run(`
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['SCRIPT_NAME'] = '/rescue-db.php';
+$_POST = ['action' => 'discover', 'host' => '127.0.0.1', 'user' => 'wigitali_root', 'pass' => 'x', 'name' => 'wigitali_eplak-db'];
+ob_start(); include '${SANDBOX}/rescue-db.php'; $html = ob_get_clean();
+echo json_encode([
+  'len' => strlen($html),
+  'fatal' => preg_match('/(Fatal error|Parse error)/', $html) === 1,
+  'has_table' => strpos($html, 'نتیجه‌ی جست‌وجوی نام دیتابیس') !== false,
+  'candidate_prefixed' => strpos($html, 'wigitali_eplak') !== false,
+  'candidate_dash' => strpos($html, 'wigitali_eplak-db') !== false,
+  'candidate_fixed' => strpos($html, 'wigitali_eplakfixed') !== false,
+  'no_crash' => strpos($html, 'هیچ‌کدام از نام‌های محتمل') !== false || strpos($html, 'اتصال برقرار شد') !== false,
+]);`);
+const d = JSON.parse(disc);
+ok('جست‌وجو بدون خطا اجرا می‌شود', (d.len || 0) > 1500 && d.fatal === false, disc.slice(0, 200));
+ok('جدول نتیجه‌ی جست‌وجو نمایش داده می‌شود', d.has_table === true);
+ok('نام‌های محتمل از پیشوند کاربر ساخته می‌شوند', d.candidate_prefixed === true);
+ok('نام پیش‌فرض پروژه هم آزمایش می‌شود', d.candidate_dash === true && d.candidate_fixed === true);
+ok('در صورت ناموفق بودن همه، پیام راهنما می‌دهد', d.no_crash === true);
+
 console.log('\n' + '='.repeat(52));
 console.log(`RESCUE: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));
