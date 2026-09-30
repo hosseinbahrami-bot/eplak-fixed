@@ -203,8 +203,11 @@ say "|---|---|---|---|"
 for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$APK_URL"; do
   label="${pair%%|*}"; url="${pair#*|}"
   # فقط هدرها را می‌خوانیم (سرور گیت‌هاب ۳۰۲ می‌دهد و برای بررسی همین کافی است)
-  code=$(curl -s -o /dev/null -L --max-time 40 -w '%{http_code}' -I "$url" 2>/dev/null || echo 000)
-  size=$(curl -s -o /dev/null -L --max-time 40 -w '%{size_download}' -r 0-0 "$url" 2>/dev/null || echo 0)
+  headers=$(curl -sIL --max-time 40 "$url" 2>/dev/null || echo '')
+  code=$(printf '%s' "$headers" | grep -oE '^HTTP/[0-9.]+ [0-9]+' | tail -1 | awk '{print $2}')
+  code="${code:-000}"
+  size=$(printf '%s' "$headers" | grep -i '^content-length:' | tail -1 | tr -dc '0-9')
+  size="${size:-0}"
   case "$code" in
     200|206|302) note="✅ قابل دانلود" ;;
     404) note="❌ پیدا نشد"; STATUS="fail"; ISSUES+=("لینک دانلود «$label» کار نمی‌کند") ;;

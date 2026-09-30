@@ -70,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
         <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+        <a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
         <a href="logout.php"><i class="fas fa-sign-out-alt"></i> <span>خروج</span></a>
       </nav>
     </aside>

@@ -138,6 +138,21 @@ ok('هم‌خوانی نسخه‌ی دیتابیس تأیید می‌شود', ve
 ok('فایل‌های نسخه‌ی جدید «هست» علامت خورده‌اند', (ver?.badge_ok || 0) >= 5, JSON.stringify({ ok: ver?.badge_ok, bad: ver?.badge_bad }));
 ok('وضعیت فایربیس و اعلان مرورگر نمایش داده می‌شود', ver?.fcm_hint === true);
 
+console.log('\n=== هم‌خوانی منوی پنل ===');
+const fsx = await import('fs');
+const adminDir = `${APP}/admin`;
+const navPages = fsx.readdirSync(adminDir).filter((f) => f.endsWith('.php'));
+let navCount = 0, missingLink = [];
+for (const f of navPages) {
+  const html = fsx.readFileSync(`${adminDir}/${f}`, 'utf8');
+  const hasSidebar = /href="settings\.php"><i class="fas fa-cog"><\/i> <span>تنظیمات<\/span>/.test(html);
+  if (!hasSidebar) continue;
+  navCount++;
+  if (!html.includes('href="version.php"')) missingLink.push(f);
+}
+ok('صفحات پنل با منوی کنار، لینک «بررسی نسخه» دارند', navCount >= 20 && missingLink.length === 0,
+   `صفحات دارای منو: ${navCount} • بدون لینک: ${missingLink.join(', ') || 'هیچ'}`);
+
 console.log('\n' + '='.repeat(52));
 console.log(`BACKEND: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));
