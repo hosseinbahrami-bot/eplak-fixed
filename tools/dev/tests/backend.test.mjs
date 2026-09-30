@@ -26,8 +26,8 @@ const pickJson = (t) => { const m = String(t).match(/\{[\s\S]*\}/g); if (!m) ret
 
 console.log('\n=== دیتابیس، جدول‌ها و بذرها ===');
 const db = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 require_once '${APP}/shared/media.php';
 require_once '${APP}/shared/webpush.php';
 require_once '${APP}/shared/fcm.php';
@@ -47,7 +47,7 @@ ok('بذرها اجرا شدند (۶ خبر/دانستنی + ۶۵ واحد)', db
 const wanted = ['notifications', 'notification_reads', 'notification_deletes', 'device_tokens', 'push_subscriptions', 'report_media', 'app_settings'];
 const missing = wanted.filter((t) => !(db?.tables || []).includes(t));
 ok('همه‌ی جدول‌های لازم ساخته شدند', missing.length === 0, 'گم‌شده: ' + missing.join(', '));
-ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-09-30\./.test(String(db?.schema)), String(db?.schema));
+ok('نسخه‌ی ساختار دیتابیس تازه ثبت شد', /^2026-(09-30|10-01)\./.test(String(db?.schema)), String(db?.schema));
 ok('ستون‌های شمارش فایربیس ساخته شدند', (db?.send_cols || []).includes('fcm_sent') && (db?.send_cols || []).includes('fcm_failed'), JSON.stringify(db?.send_cols));
 ok('ارسال اعلان کار می‌کند (عمومی + کاربر)', db?.sent === 2 && db?.recipients === 2, JSON.stringify({ sent: db?.sent, recipients: db?.recipients }));
 
@@ -66,7 +66,7 @@ ok('آدرس عکس نسبی است', !/^https?:/i.test(String(stored?.url || ''
 
 /* اعلان فوری بعد از ثبت گزارش از مسیر واقعی API (بدون هیچ تنظیم اضافه) */
 const notifyAfter = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/db.php';
 $row = $pdo->query("SELECT title, body FROM notifications WHERE user_phone = '09121112233' ORDER BY id DESC LIMIT 1")->fetch();
 echo json_encode(['title' => $row['title'] ?? '', 'body' => $row['body'] ?? '']);`));
 ok('ثبت گزارش از مسیر API، اعلان فوری برای همان کاربر می‌سازد',
@@ -89,8 +89,8 @@ console.log('\n=== پنل ادمین روی همان گزارش ===');
    «فایل غیرمجاز» یک گزارش بدون عکس دیگر هم می‌سازد). */
 const goodReportId = Number(upload?.id || 0);
 const panel = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 $rid = ${goodReportId} > 0 ? ${goodReportId} : (int) $pdo->query('SELECT id FROM reports ORDER BY id DESC LIMIT 1')->fetchColumn();
 $media = getReportMedia($pdo, $rid);
 echo json_encode([
@@ -112,7 +112,7 @@ ok('گزارش با مختصات GPS ثبت شد', geo?.success === true && Math
   JSON.stringify(geo).slice(0, 160));
 
 const geoRow = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/db.php';
 $row = $pdo->query('SELECT lat, lng, location_accuracy FROM reports ORDER BY id DESC LIMIT 1')->fetch();
 echo json_encode(['lat' => $row['lat'], 'lng' => $row['lng'], 'acc' => $row['location_accuracy']]);`));
 ok('مختصات در دیتابیس ذخیره شد',
@@ -136,8 +136,8 @@ ok('مختصات نامعتبر باعث خطا نمی‌شود (فقط نادی
   geoBad?.success === true && geoBad?.lat === null, JSON.stringify(geoBad).slice(0, 160));
 
 const geoPanel = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 $rid = (int) $pdo->query('SELECT id FROM reports WHERE lat IS NOT NULL ORDER BY id DESC LIMIT 1')->fetchColumn();
 $r = getReportById($pdo, $rid);
 echo json_encode(['lat' => $r['lat'] ?? null, 'lng' => $r['lng'] ?? null, 'has' => ($r['lat'] !== null && $r['lng'] !== null)]);`));
@@ -177,7 +177,7 @@ ok('شماره‌ی غیرمالک اجازه‌ی افزودن فایل ندا�
 
 /* ۳) سقف تعداد فایل هر گزارش */
 const cap = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/db.php';
 for ($i = 0; $i < 6; $i++) {
     $pdo->exec("INSERT INTO report_media (report_id, kind, file_path, original_name, mime_type, size_bytes) VALUES (${MRID}, 'image', 'uploads/reports/2026/09/f$_i.png', 'f.png', 'image/png', 100)");
 }
@@ -247,8 +247,8 @@ ok('کنش media_status تعداد پیوست‌ها را برمی‌گردان�
 
 /* ۸) پنل ادمین همان فایل تکه‌تکه‌شده را می‌بیند */
 const panelMedia = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 $media = getReportMedia($pdo, ${CRID});
 echo json_encode([
   'count' => count($media),
@@ -332,8 +332,8 @@ $old->exec("CREATE TABLE notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, us
 $old->exec("INSERT INTO notifications (user_phone, title, body) VALUES ('all','قدیمی','متن قدیمی')");
 $old = null;
 putenv('DB_SQLITE_PATH=' . $legacy);
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 $cols = array_column($pdo->query('PRAGMA table_info(notifications)')->fetchAll(), 'name');
 $sendId = sendNotification($pdo, 'تازه', 'متن', 'all', [], 'admin');
 $kept = (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE title = 'قدیمی'")->fetchColumn();
@@ -351,7 +351,7 @@ $old = new PDO('sqlite:' . $legacy);
 $old->exec("CREATE TABLE reports (id INTEGER PRIMARY KEY AUTOINCREMENT, user_phone VARCHAR(20) NOT NULL, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, category VARCHAR(100) NOT NULL, department VARCHAR(255) DEFAULT '', sub_department VARCHAR(255) DEFAULT '', location VARCHAR(500) DEFAULT '', status VARCHAR(50) DEFAULT 'pending', reply TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
 $old = null;
 putenv('DB_SQLITE_PATH=' . $legacy);
-require '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/db.php';
 $cols = array_column($pdo->query('PRAGMA table_info(reports)')->fetchAll(), 'name');
 echo json_encode(['lat' => in_array('lat', $cols, true), 'lng' => in_array('lng', $cols, true), 'acc' => in_array('location_accuracy', $cols, true)]);`));
 ok('ستون‌های موقعیت خودکار به جدول reports قدیمی اضافه شدند',
@@ -365,7 +365,7 @@ $_SERVER['SCRIPT_NAME'] = '/admin/version.php';
 $_SERVER['PHP_SELF'] = '/admin/login.php';
 require '${APP}/admin/auth.php';
 $_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
 require_once '${APP}/shared/fcm.php';
 require_once '${APP}/shared/webpush.php';
 ob_start(); require '${APP}/admin/version.php'; $html = ob_get_clean();
@@ -414,8 +414,8 @@ ok('گزارش آزمون وضعیت ساخته شد', SRID > 0, JSON.stringify(
 
 /* همان کاری که دکمه‌ی «ثبت پاسخ / تغییر وضعیت» پنل انجام می‌دهد */
 const setStatus = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 saveReportReply($pdo, ${SRID}, 'اکیپ شهرداری اعزام شد', 'done');
 $row = $pdo->query('SELECT status, reply FROM reports WHERE id = ${SRID}')->fetch();
 echo json_encode(['status' => $row['status'], 'reply' => $row['reply'], 'label' => statusLabel($row['status'])]);`));
@@ -433,7 +433,7 @@ ok('پاسخ مدیریت هم به اپ می‌رسد', String(appRow?.reply ||
 
 /* نگاشت مقدارهای قدیمی/فارسی به وضعیت درست (گزارش‌های قدیمی هاست) */
 const legacyStatuses = pickJson(await run(`
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
 echo json_encode([
   'fa_pending' => reportStatusOf(['status' => 'در انتظار', 'department' => '']),
   'fa_progress' => reportStatusOf(['status' => 'در حال بررسی', 'department' => '']),
@@ -453,7 +453,7 @@ $_SERVER['SCRIPT_NAME'] = '/admin/reports.php';
 $_SERVER['PHP_SELF'] = '/admin/login.php';
 require '${APP}/admin/auth.php';
 $_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
 ob_start(); require '${APP}/admin/reports.php'; echo ob_get_clean();`));
 
 ok('فهرست گزارش‌ها بدون خطای PHP رندر می‌شود',
@@ -477,7 +477,7 @@ $_SERVER['PHP_SELF'] = '/admin/login.php';
 $_GET = ['id' => '${editId}'];
 require '${APP}/admin/auth.php';
 $_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
 ob_start(); require '${APP}/admin/report_edit.php'; echo ob_get_clean();`));
 ok('صفحه‌ی ویرایش گزارش بدون خطا باز می‌شود',
   editHtml.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(editHtml), String(editHtml.length));
@@ -486,8 +486,8 @@ ok('فرم ویرایش، فیلدهای گزارش را دارد',
 
 /* ذخیره‌ی ویرایش (همان POST صفحه) و دیدن نتیجه در اپ */
 const edited = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 updateReport($pdo, ${editId}, [
   'user_phone' => '09121112233', 'title' => 'عنوان ویرایش‌شده', 'description' => 'توضیح ویرایش‌شده',
   'category' => 'سایر', 'department' => 'آموزش و پرورش', 'sub_department' => 'ابتدایی',
@@ -516,7 +516,7 @@ $_SERVER['PHP_SELF'] = '/admin/login.php';
 $_GET = ['id' => '${CRID}'];
 require '${APP}/admin/auth.php';
 $_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
 ob_start(); require '${APP}/admin/report_detail.php'; echo ob_get_clean();`));
 ok('صفحه‌ی جزئیات گزارش بدون خطا رندر می‌شود',
   detailHtml.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(detailHtml), String(detailHtml.length));
@@ -538,7 +538,7 @@ $_SERVER['SCRIPT_NAME'] = '/admin/reports.php';
 $_SERVER['PHP_SELF'] = '/admin/login.php';
 require '${APP}/admin/auth.php';
 $_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['SCRIPT_NAME'] = '/admin/reports.php';
 $_SERVER['PHP_SELF'] = '/admin/reports.php';
@@ -549,8 +549,8 @@ echo ob_get_clean();`);
 
 /* نتیجه‌ی همان درخواست را از دیتابیس می‌خوانیم */
 const quickSwitch = pickJson(await run(`
-require '${APP}/admin/includes/db.php';
-require '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
 $row = $pdo->query('SELECT status, reply FROM reports WHERE id = ${editId}')->fetch();
 echo json_encode(['status' => $row['status'] ?? '', 'reply' => $row['reply'] ?? '']);`));
 ok('تغییر وضعیت از خود فهرست (کشوی وضعیت) ذخیره می‌شود',
@@ -562,6 +562,112 @@ $_GET = ['phone' => '09121112233'];
 require '${APP}/api/reports.php';`));
 const afterQuickRow = (afterQuick?.reports || []).find((r) => Number(r.id) === editId);
 ok('وضعیت تغییر‌یافته از فهرست هم بلافاصله در اپ دیده می‌شود', afterQuickRow?.status === 'done', String(afterQuickRow?.status));
+
+console.log('\n=== روند رسیدگی: یکسان در اپ و پنل ادمین ===');
+
+const tlSetup = pickJson(await run(`
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+$_POST = ['phone' => '09121112233', 'title' => 'گزارش روند رسیدگی', 'description' => 'توضیح', 'category' => 'سایر',
+          'department' => 'آموزش و پرورش', 'sub_department' => 'ابتدایی'];
+require '${APP}/api/reports.php';`));
+const TLID = Number(tlSetup?.id || 0);
+ok('گزارش تازه برای آزمون روند ساخته شد', TLID > 0, JSON.stringify(tlSetup).slice(0, 140));
+ok('گام‌های آغازین (ثبت + ارجاع) در پاسخ سرور برمی‌گردند',
+  Array.isArray(tlSetup?.timeline) && tlSetup.timeline.length >= 2, JSON.stringify((tlSetup?.timeline || []).map(e => e.type)));
+
+const tlDb = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+$rows = $pdo->query('SELECT type, title, actor FROM report_events WHERE report_id = ${TLID} ORDER BY id ASC')->fetchAll();
+echo json_encode(['count' => count($rows), 'types' => array_column($rows, 'type'), 'actors' => array_column($rows, 'actor')]);`));
+ok('جدول روند رسیدگی واقعاً پر می‌شود', (tlDb?.count || 0) >= 2, JSON.stringify(tlDb));
+ok('گام ثبت گزارش به نام شهروند و گام ارجاع به نام سامانه ثبت می‌شود',
+  (tlDb?.types || []).includes('created') && (tlDb?.types || []).includes('assigned'), JSON.stringify(tlDb?.types));
+
+/* تغییر وضعیت از پنل → باید در روند اپ هم دیده شود */
+const tlSwitch = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+require_once '${APP}/admin/includes/functions.php';
+saveReportReply($pdo, ${TLID}, 'همکاران در محل حاضر شدند', 'in_progress');
+$rows = $pdo->query('SELECT type, title, actor, status FROM report_events WHERE report_id = ${TLID} ORDER BY id ASC')->fetchAll();
+echo json_encode(['types' => array_column($rows, 'type'), 'last' => end($rows)]);`));
+ok('تغییر وضعیت از پنل، یک گام در روند می‌سازد',
+  (tlSwitch?.types || []).includes('status'), JSON.stringify(tlSwitch?.types));
+ok('پاسخ مدیریت هم به‌صورت گام جدا ثبت می‌شود',
+  (tlSwitch?.types || []).includes('reply'), JSON.stringify(tlSwitch?.types));
+ok('گام تغییر وضعیت، کلید انگلیسی وضعیت را نگه می‌دارد (هم‌خوان با اپ)',
+  (tlSwitch?.last?.status || '') === 'in_progress', JSON.stringify(tlSwitch?.last));
+
+/* همان چیزی که اپ می‌گیرد */
+const tlApp = pickJson(await run(`
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_GET = ['phone' => '09121112233'];
+require '${APP}/api/reports.php';`));
+const tlRow = (tlApp?.reports || []).find((r) => Number(r.id) === TLID);
+ok('اپ همان گام‌ها را در فهرست گزارش‌ها می‌گیرد',
+  Array.isArray(tlRow?.timeline) && tlRow.timeline.length >= 3, JSON.stringify((tlRow?.timeline || []).map(e => e.type)));
+ok('هر گام، سازنده و تاریخ دارد (برای نمایش در اپ)',
+  (tlRow?.timeline || []).every((e) => e.actor && e.created_at), JSON.stringify((tlRow?.timeline || []).slice(-1)));
+ok('تعداد گام‌ها هم همراه گزارش می‌آید', Number(tlRow?.timeline_count || 0) >= 3, String(tlRow?.timeline_count));
+
+/* ویرایش گزارش → گام ویرایش */
+const tlEdit = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+updateReport($pdo, ${TLID}, ['user_phone' => '09121112233', 'title' => 'عنوان تازه‌ی گزارش', 'description' => 'توضیح',
+  'category' => 'سایر', 'department' => 'روابط عمومی', 'sub_department' => '', 'location' => 'خیابان تازه', 'status' => 'in_progress']);
+$rows = $pdo->query('SELECT type, title FROM report_events WHERE report_id = ${TLID} ORDER BY id ASC')->fetchAll();
+echo json_encode(['types' => array_column($rows, 'type'), 'titles' => array_column($rows, 'title')]);`));
+ok('ویرایش گزارش هم گام تازه در روند می‌سازد',
+  (tlEdit?.types || []).includes('edit'), JSON.stringify(tlEdit?.types));
+
+/* پنل ادمین: صفحه‌ی جزئیات باید همان گام‌ها و صفحه‌ی فهرست هم ستون وضعیت را نشان دهد */
+const tlDetail = String(await run(`
+$_SESSION = [];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$_SERVER['SCRIPT_NAME'] = '/admin/report_detail.php';
+$_SERVER['PHP_SELF'] = '/admin/login.php';
+$_GET = ['id' => '${TLID}'];
+require '${APP}/admin/auth.php';
+$_SESSION['admin_logged_in'] = true; $_SESSION['admin_id'] = 1; $_SESSION['admin_username'] = 'admin';
+require_once '${APP}/admin/includes/functions.php';
+ob_start(); require '${APP}/admin/report_detail.php'; echo ob_get_clean();`));
+ok('پنل، بخش «روند رسیدگی» را نشان می‌دهد',
+  /روند رسیدگی/.test(tlDetail) && /class="event-timeline"/.test(tlDetail), String(tlDetail.length));
+ok('گام‌ها در پنل با سازنده (شهرداری/شهروند/سامانه) دیده می‌شوند',
+  /event-actor/.test(tlDetail) && /(شهرداری|شهروند|سامانه)/.test(tlDetail));
+ok('صفحه‌ی جزئیات پنل بدون خطای PHP رندر می‌شود',
+  tlDetail.length > 3000 && !/Fatal error|Parse error|Warning:|Notice:/.test(tlDetail));
+
+/* افزودن پیوست از دروازه‌ی گزارش‌ها (مسیر پشتیبان اپ) */
+const addMedia = pickJson(await run(`
+$rawPng = @file_get_contents('${FX}/photo.png');
+if ($rawPng === false || $rawPng === '') { $rawPng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='); }
+$png = base64_encode($rawPng);
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+$_POST = ['action' => 'add_media', 'phone' => '09121112233', 'reportId' => ${TLID},
+          'name' => 'backup.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,' . $png];
+require '${APP}/api/reports.php';`));
+ok('مسیر پشتیبان افزودن پیوست (add_media) کار می‌کند',
+  addMedia?.success === true && Number(addMedia?.media_count) >= 1, JSON.stringify(addMedia).slice(0, 160));
+ok('پیوست افزوده‌شده از مسیر پشتیبان هم در پنل دیده می‌شود',
+  String(addMedia?.media?.path || '').startsWith('uploads/reports/'), String(addMedia?.media?.path));
+ok('افزودن پیوست، گام تازه در روند ثبت می‌کند',
+  (pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/admin/includes/functions.php';
+$c = $pdo->query("SELECT COUNT(*) FROM report_events WHERE report_id = ${TLID} AND type = 'media'")->fetchColumn();
+echo json_encode(['media_events' => (int) $c]);`))?.media_events || 0) >= 1);
+const foreignAdd = String(await run(`
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'text/plain;charset=UTF-8';
+$_POST = ['action' => 'add_media', 'phone' => '09129999999', 'reportId' => ${TLID}, 'name' => 'x.png', 'mime' => 'image/png', 'data' => 'data:image/png;base64,iVBORw0KGgo='];
+require '${APP}/api/reports.php';`));
+ok('افزودن پیوست به گزارش دیگری (شماره‌ی نامربوط) مسدود است',
+  /"success":false/.test(foreignAdd), foreignAdd.slice(0, 160));
 
 console.log('\n' + '='.repeat(52));
 console.log(`BACKEND: ${pass} passed, ${fail} failed`);

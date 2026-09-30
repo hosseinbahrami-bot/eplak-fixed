@@ -240,7 +240,7 @@ const appCss = fs.readFileSync(path.join(ROOT, 'assets/css/style.css'), 'utf8');
 ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=20/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  /modules\/reports\.js\?v=21/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -287,7 +287,7 @@ ok('ارسال دوباره‌ی صف با گروه‌بندی بر اساس گ�
 ok('فایل‌های موفق از صف حذف می‌شوند و ناموفق‌ها می‌مانند',
   /store\.clear\(\);/.test(storageSrc) && /leftovers\.forEach/.test(storageSrc));
 ok('اگر مرورگر IndexedDB نداشت، رفتار قبلی حفظ می‌شود (بدون خطا)',
-  /if \(!window\.indexedDB\) return resolve\(null\)/.test(storageSrc));
+  /if \(!window\.indexedDB\) \{/.test(storageSrc) && /resolve\(null\)/.test(storageSrc));
 ok('صف در دسترس لایه‌ی اپ قرار می‌گیرد',
   /window\.eplakQueuePendingMedia/.test(storageSrc) && /window\.eplakFlushPendingMedia/.test(storageSrc)
   && /window\.eplakCountPendingMedia/.test(storageSrc));
@@ -298,6 +298,42 @@ ok('صف هنگام باز شدن اپ و برگشتن اینترنت خودکا
   && /setTimeout\(flushPendingUploads, 2500\)/.test(reportsJs));
 ok('پس از ارسال خودکار، وضعیت گزارش‌ها هم تازه می‌شود',
   /پیوست جامانده خودکار ارسال شد/.test(reportsJs));
+
+console.log('\n=== روند رسیدگی داخل اپ (هم‌خوان با پنل ادمین) ===');
+ok('گام‌های واقعی سرور در جزئیات گزارش رندر می‌شوند',
+  /r\.timeline\.forEach/.test(reportsJs) && /eventIcon\[step\.type\]/.test(reportsJs));
+ok('هر گام: آیکن، سازنده (شهرداری/شهروند/سامانه)، توضیح و تاریخ دارد',
+  /const actorLabel = \{ admin: 'شهرداری'/.test(reportsJs) && /timeline-actor/.test(reportsJs)
+  && /timeline-body/.test(reportsJs) && /timeline-date/.test(reportsJs));
+ok('روند پایه برای گزارش‌های بدون گام ساخته می‌شود (بدون صفحه‌ی خالی)',
+  /روند پایه وقتی گزارش هنوز در سرور گامی ندارد/.test(reportsJs) && /در انتظار اقدام شهرداری/.test(reportsJs));
+ok('گام جاری با انیمیشن نشان داده می‌شود (کار در جریان است)',
+  /classList\.add\('pulse'\)/.test(reportsJs) && /@keyframes timelinePulse/.test(appCss));
+ok('کارت خلاصه‌ی وضعیت بالای صفحه‌ی جزئیات هست',
+  /detailStatusSummary/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))
+  && /status-summary-box/.test(reportsJs) && /\.status-summary-box/.test(appCss));
+ok('کارت خلاصه، تعداد گام‌های ثبت‌شده را نشان می‌دهد',
+  /گام ثبت شده/.test(reportsJs) && /گام‌های رسیدگی/.test(reportsJs));
+ok('پیوست‌های ناخوانا (حجم صفر) همان لحظه‌ی انتخاب تشخیص داده می‌شوند',
+  /if \(!file\.size\) \{/.test(reportsJs) && /ناخوانا/.test(reportsJs));
+ok('نتیجه‌ی انتخاب فایل از اندروید در گزارش فنی ثبت می‌شود',
+  /window\.eplakNativeFilesPicked = function/.test(reportsJs));
+ok('فشرده‌سازی عکس چندمرحله‌ای است (تا رسیدن به حجم کم)',
+  /for \(const scale of scales\)/.test(reportsJs) && /for \(const quality of qualities\)/.test(reportsJs));
+
+const kt = fs.readFileSync(path.join(ROOT, 'android-app/app/src/main/java/com/example/eplakfixed/MainActivity.kt'), 'utf8');
+ok('اپ اندروید: فایل انتخاب‌شده داخل حافظه‌ی خود اپ کپی می‌شود (خوانا بودن تضمینی)',
+  /private fun copyPickedFileToCache/.test(kt) && /Uri\.fromFile\(dest\)/.test(kt));
+ok('اپ اندروید: دسترسی خواندن file:// روشن است (ریشه‌ی خرابی بارگذاری عکس)',
+  /webSettings\.allowFileAccess = true/.test(kt));
+ok('اپ اندروید: دسترسی content:// گالری هم روشن است',
+  /webSettings\.allowContentAccess = true/.test(kt));
+ok('اپ اندروید: اگر کپی فایل ممکن نشد، Uri اصلی هم تحویل داده می‌شود (شانس دوم)',
+  /out\.add\(uri\)/.test(kt));
+ok('اپ اندروید: فایل‌های کش قدیمی پاک می‌شوند تا حافظه‌ی گوشی پر نشود',
+  /cleanOldPickedFiles/.test(kt) && /files\.drop\(12\)/.test(kt));
+ok('اپ اندروید: نتیجه‌ی انتخاب فایل به لایه‌ی وب خبر داده می‌شود',
+  /notifyWebFilePick/.test(kt) && /eplakNativeFilesPicked/.test(kt));
 
 console.log('\n' + '='.repeat(52));
 console.log(`APP: ${pass} passed, ${fail} failed`);

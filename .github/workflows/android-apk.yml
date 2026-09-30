@@ -192,6 +192,8 @@ jobs:
               'geocoder': ['Geocoder'],
               'webviewNetwork': ['allowUniversalAccessFromFileURLs', 'UniversalAccessFromFileURLs',
                                  'UniversalAccess', 'FileURLs'],
+              'fileAccessOn': ['setAllowFileAccess', 'allowFileAccess'],
+              'pickedFileCache': ['copyPickedFileToCache', 'picked'],
           }
           try:
               with zipfile.ZipFile(sys.argv[1]) as z:
@@ -222,6 +224,8 @@ jobs:
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|ACCESS_FINE_LOCATION'; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|addressBridge' && printf '%s\n' "$DEX_REPORT" | grep -q 'YES|geocoder'; then ADDR_KOTLIN="✅"; else ADDR_KOTLIN="❌ (پل آدرس‌یاب گوشی داخل اپ کامپایل نشده)"; DEX_BAD=$((DEX_BAD+1)); fi
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|webviewNetwork'; then NET_KOTLIN="✅"; else NET_KOTLIN="❌ (اجازه‌ی درخواست شبکه از صفحه‌ی اپ دیده نشد)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|fileAccessOn'; then FILE_ACCESS="✅"; else FILE_ACCESS="❌ (دسترسی خواندن فایل انتخابی روشن نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|pickedFileCache'; then PICKED_CACHE="✅"; else PICKED_CACHE="⚠️ (در dex دیده نشد)"; fi
           DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | sed -n 's/^DEXFILES=\([^ ]*\).*/\1/p')"
           echo "بررسی کد داخل APK: $(printf '%s\n' "$DEX_REPORT" | tr '\n' ' ')"
 
@@ -317,6 +321,8 @@ jobs:
             echo "APK_LOC_PERM=$LOC_PERM"
             echo "APK_ADDR_KOTLIN=$ADDR_KOTLIN"
             echo "APK_NET_KOTLIN=$NET_KOTLIN"
+            echo "APK_FILE_ACCESS=$FILE_ACCESS"
+            echo "APK_PICKED_CACHE=$PICKED_CACHE"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
 
@@ -372,6 +378,8 @@ jobs:
             echo "| کد انتخاب عکس/فیلم در اندروید | $APK_FILEPICK_KOTLIN |"
             echo "| آدرس‌یاب گوشی (آدرس نوشتاری دقیق) | $APK_ADDR_KOTLIN |"
             echo "| ارسال پیوست از داخل اپ (اجازه‌ی شبکه‌ی file://) | $APK_NET_KOTLIN |"
+            echo "| خواندن فایل انتخاب‌شده از گالری | $FILE_ACCESS |"
+            echo "| کپی فایل انتخابی در حافظه‌ی اپ | $PICKED_CACHE |"
             echo "| مجوز موقعیت مکانی در مانیفست | $APK_LOC_PERM |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."

@@ -202,7 +202,10 @@ ok('وضعیت ارسال پیوست در صفحه‌ی موفقیت هست', /i
 /* ══════════ ۳) آپلود عکس/فیلم: فشرده‌سازی و پیشرفت ══════════ */
 console.log('\n=== آپلود عکس و فیلم از اپ ===');
 ok('عکس‌ها پیش از ارسال فشرده می‌شوند (کاهش حجم برای اینترنت موبایل)', /compressReportImage/.test(reportsJs) && /toBlob/.test(reportsJs));
-ok('فایل عکس فشرده با نام و نوع درست ساخته می‌شود', /new File\(\[blob\]/.test(reportsJs));
+ok('فایل عکس فشرده با نام و نوع درست ساخته می‌شود', /new File\(\[best\.blob\]/.test(reportsJs));
+ok('فشرده‌سازی چندمرحله‌ای است و عکس را زیر ~۲۲۰ کیلوبایت می‌آورد',
+  /REPORT_IMAGE_TARGET_BYTES = 220 \* 1024/.test(reportsJs) && /const scales = \[/.test(reportsJs)
+  && /const qualities = \[/.test(reportsJs));
 ok('فیلم‌های حجیم هشدار می‌گیرند', /ارسالش کمی طول می‌کشد/.test(reportsJs));
 ok('درصد پیشرفت آپلود به کاربر نشان داده می‌شود', /setUploadStatus/.test(reportsJs) && /reportUploadStatus/.test(reportsJs));
 
@@ -273,7 +276,10 @@ const reportsDdl = bootstrap.match(/CREATE TABLE IF NOT EXISTS reports \([\s\S]*
 ok('هر دو نسخه‌ی اسکیما (SQLite و MySQL) ستون مختصات دارند',
   reportsDdl.length === 2 && reportsDdl.every((d) => /\blat\b/.test(d) && /\blng\b/.test(d) && /location_accuracy/.test(d)),
   `تعداد DDL=${reportsDdl.length}`);
-ok('نسخه‌ی اسکیما برای افزودن خودکار ستون‌ها بالا رفته است', /EPLAK_SCHEMA_VERSION', '2026-09-30\.2'/.test(bootstrap));
+ok('نسخه‌ی اسکیما برای افزودن خودکار جدول‌ها/ستون‌ها بالا رفته است',
+  /EPLAK_SCHEMA_VERSION', '2026-10-01\.1'/.test(bootstrap));
+ok('جدول روند رسیدگی (report_events) در هر دو درایور ساخته می‌شود',
+  (bootstrap.match(/CREATE TABLE IF NOT EXISTS report_events/g) || []).length === 2);
 ok('کمکی بررسی وجود ستون در هسته تعریف شده است', /function eplakTableHasColumn/.test(bootstrap));
 
 const detail = read('admin/report_detail.php');
@@ -329,8 +335,14 @@ ok('JSON با نوع محتوای ساده فرستاده می‌شود (بدو�
   /JSON_CONTENT_TYPE = 'text\/plain;charset=UTF-8'/.test(storageJs) && /setRequestHeader\('Content-Type', JSON_CONTENT_TYPE\)/.test(storageJs));
 ok('نوع محتوای JSON دیگر application/json نیست (علت پیش‌پرواز بود)',
   !/setRequestHeader\('Content-Type', 'application\/json'\)/.test(storageJs));
-ok('هر تکه‌ی فایل ۵۱۲ کیلوبایت است (زیر سقف فایروال هاست)',
-  /MEDIA_CHUNK_DEFAULT = 512 \* 1024/.test(storageJs));
+ok('تکه‌های فایل کوچک‌اند (۲۰۰ کیلوبایت) تا فایروال هاست آن‌ها را نپذیرد',
+  /MEDIA_CHUNK_DEFAULT = 200 \* 1024/.test(storageJs) && /MEDIA_CHUNK_STEPS = \[200/.test(storageJs));
+ok('اگر هاست تکه را رد کند، اپ خودکار تکه را کوچک‌تر می‌کند (۲۰۰→۱۰۰→۵۰→۲۵)',
+  /MEDIA_CHUNK_STEPS = \[200 \* 1024, 100 \* 1024, 50 \* 1024, 25 \* 1024\]/.test(storageJs));
+ok('مسیر پشتیبان «افزودن پیوست از دروازه‌ی گزارش‌ها» در اپ هست',
+  /action=add_media/.test(storageJs) && /reports\.php\?action=add_media/.test(storageJs));
+ok('سرور هم کنش add_media را می‌شناسد',
+  /add_media/.test(read('api/reports.php')) && /eplakMediaStoreBinary/.test(read('api/reports.php')));
 ok('هر تکه در صورت خطای شبکه تا ۳ بار تکرار می‌شود',
   /async function sendMediaChunk/.test(storageJs) && /attempt < 3/.test(storageJs));
 ok('وضعیت پیوست‌ها از سرور پرسیده می‌شود (تأیید واقعی ذخیره شدن)',
@@ -356,9 +368,9 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=16/.test(indexHtml) && /modules\/reports\.js\?v=20/.test(indexHtml)
+  /core\/storage\.js\?v=17/.test(indexHtml) && /modules\/reports\.js\?v=21/.test(indexHtml)
   && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
-  && /assets\/css\/style\.css\?v=86/.test(indexHtml));
+  && /assets\/css\/style\.css\?v=87/.test(indexHtml));
 
 /* ══════════ ۸) پایش زنده: پیش‌پرواز و سقف حجم بدنه ══════════ */
 console.log('\n=== پایش زنده (live-check) ===');

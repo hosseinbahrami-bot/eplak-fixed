@@ -28,6 +28,11 @@ $reportLng = ($report && isset($report['lng']) && $report['lng'] !== null && $re
 $reportAcc = ($report && isset($report['location_accuracy']) && $report['location_accuracy'] !== null && $report['location_accuracy'] !== '') ? (float) $report['location_accuracy'] : null;
 $hasGeo    = $reportLat !== null && $reportLng !== null;
 
+/* روند رسیدگی — همان گام‌هایی که شهروند در اپ می‌بیند */
+require_once __DIR__ . '/../shared/media.php';
+require_once __DIR__ . '/../shared/fa_datetime.php';
+$reportEvents = $report ? eplakReportEvents($pdo, (int) $report['id']) : [];
+
 $reportMedia  = $report ? getReportMedia($pdo, (int) $report['id']) : [];
 $mediaImages  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') !== 'video'));
 $mediaVideos  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') === 'video'));
@@ -44,7 +49,7 @@ if ($report && !empty($report['user_phone'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات گزارش</title>
-  <link rel="stylesheet" href="assets/style.css?v=7">
+  <link rel="stylesheet" href="assets/style.css?v=8">
   <script src="../assets/js/ep-map.js?v=1"></script>
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
@@ -356,6 +361,73 @@ if ($report && !empty($report['user_phone'])) {
         <?php endif; ?>
       </section>
 
+      <!-- ===== روند رسیدگی (همان گام‌های اپ) ===== -->
+      <section class="panel timeline-panel">
+        <h2>
+          <i class="fas fa-stream" style="color: var(--primary-500); margin-left: 10px;"></i>
+          روند رسیدگی
+          <span class="event-count"><?= htmlspecialchars(eplakFaDigits((string) count($reportEvents))) ?> گام ثبت‌شده</span>
+        </h2>
+
+        <?php
+        /* اگر گزارش قدیمی هنوز گامی ندارد، روند پایه از روی وضعیت ساخته
+           می‌شود تا پنل و اپ همیشه یک تصویر واحد نشان دهند. */
+        $events = $reportEvents;
+        if (!$events) {
+            $events = [[
+                'type'       => 'created',
+                'title'      => 'گزارش ثبت شد',
+                'body'       => 'این گزارش پیش از فعال شدن روند رسیدگی ثبت شده است؛ وضعیت فعلی در ستون وضعیت دیده می‌شود.',
+                'actor'      => 'system',
+                'status'     => (string) ($report['status'] ?? ''),
+                'created_at' => (string) ($report['created_at'] ?? ''),
+            ]];
+        }
+        $eventTone = [
+            'created'  => 'tone-created',
+            'assigned' => 'tone-assigned',
+            'status'   => 'tone-status',
+            'reply'    => 'tone-reply',
+            'edit'     => 'tone-edit',
+            'media'    => 'tone-media',
+        ];
+        $eventIcon = [
+            'created'  => 'fa-file-signature',
+            'assigned' => 'fa-sitemap',
+            'status'   => 'fa-arrows-rotate',
+            'reply'    => 'fa-comment-dots',
+            'edit'     => 'fa-pen',
+            'media'    => 'fa-paperclip',
+        ];
+        ?>
+        <div class="event-timeline">
+          <?php foreach ($events as $ev): ?>
+            <?php
+              $type = (string) ($ev['type'] ?? 'note');
+              $tone = $eventTone[$type] ?? 'tone-note';
+              $icon = $eventIcon[$type] ?? 'fa-circle-dot';
+              $actorLabel = eplakReportEventActorLabel((string) ($ev['actor'] ?? 'system'));
+            ?>
+            <div class="event-row <?= $tone ?>">
+              <div class="event-marker"><i class="fas <?= $icon ?>"></i></div>
+              <div class="event-body">
+                <div class="event-head">
+                  <strong><?= htmlspecialchars((string) ($ev['title'] ?? 'گام رسیدگی')) ?></strong>
+                  <span class="event-actor actor-<?= htmlspecialchars((string) ($ev['actor'] ?? 'system')) ?>"><?= htmlspecialchars($actorLabel) ?></span>
+                </div>
+                <?php if (trim((string) ($ev['body'] ?? '')) !== ''): ?>
+                  <p><?= nl2br(htmlspecialchars((string) $ev['body'])) ?></p>
+                <?php endif; ?>
+                <span class="event-date"><i class="far fa-clock"></i> <?= htmlspecialchars(eplakFaDateTime(null, strtotime((string) ($ev['created_at'] ?? '')) ?: null)) ?></span>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <p class="help-text" style="margin-top:10px;">
+          هر تغییری که اینجا ثبت کنید (وضعیت، پاسخ، ویرایش) بی‌درنگ در اپ شهروند هم دیده می‌شود.
+        </p>
+      </section>
+
       <!-- ===== فرم ثبت پاسخ ===== -->
       <section class="panel reply-form-panel">
         <h2>
@@ -372,13 +444,13 @@ if ($report && !empty($report['user_phone'])) {
             <div class="input-icon-wrapper">
               <i class="fas fa-flag input-icon"></i>
               <select name="status" id="status" class="form-control">
-                <option value="pending" <?= $report['status'] === 'pending' ? 'selected' : '' ?>>
+                <option value="pending" <?= reportStatusOf($report) === 'pending' ? 'selected' : '' ?>>
                   در انتظار
                 </option>
-                <option value="in_progress" <?= $report['status'] === 'in_progress' ? 'selected' : '' ?>>
+                <option value="in_progress" <?= reportStatusOf($report) === 'in_progress' ? 'selected' : '' ?>>
                   در حال بررسی
                 </option>
-                <option value="done" <?= $report['status'] === 'done' ? 'selected' : '' ?>>
+                <option value="done" <?= reportStatusOf($report) === 'done' ? 'selected' : '' ?>>
                   انجام‌شده
                 </option>
               </select>

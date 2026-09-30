@@ -235,3 +235,42 @@ Note: photos are compressed inside the app, so an 8 MB phone photo becomes rough
 1. Download the fresh `eplak-fixed-update.zip` from the Releases page.
 2. In your host's File Manager, upload it into the `eplak-fixed` folder and **Extract** (overwrite).
 3. Fully close and reopen the app (or press `Ctrl+F5` in a browser).
+
+---
+
+## 21) Definitive photo/video upload fix + unified processing flow
+
+### 1. Real root cause of the upload failure (Android app)
+The app targets `targetSdk 36`, and since Android 11 `WebSettings.allowFileAccess`
+defaults to **false** (the previous code also set it to false explicitly). Result:
+picked files were handed to the page as `file://` URIs the WebView was not allowed to
+read, so the file arrived as "zero bytes / unreadable" and the upload failed silently.
+
+**Fixes:** `allowFileAccess = true` (+ `allowContentAccess = true` for gallery picks);
+the picked file is copied into the app's own cache while the read permission is live and
+a readable `file://…/cache/picked/…` URI is handed to the page; the original URI is used
+as a second chance if copying fails; and zero-byte files are detected right at pick time
+with a clear user message instead of a silent failure.
+
+### 2. Multi-layer upload path
+Photos are compressed in stages to ~220 KB; small files travel inside the report request;
+the rest go in 200 KB chunks to `api/media.php?action=chunk`; if the host rejects a chunk
+the app steps down automatically (200→100→50→25 KB); if chunking is unavailable entirely,
+files are sent whole through the report gateway (`api/reports.php` action `add_media`);
+and any file that still fails is queued on the phone and retried automatically.
+
+### 3. Unified processing flow (app ↔ admin panel)
+A new `report_events` table feeds both sides: report created, department assignment, status
+changes, admin replies, report edits and attachments. The app shows a status card plus a
+step-by-step timeline (icon, title, actor, text, date, animated current step); the admin
+panel's report page shows the same steps, so both sides always tell the same story.
+
+### 4. New live check
+The GitHub live check now builds a real few-hundred-KB photo and pushes it through all
+three upload paths, reporting the exact server status code for each.
+
+### Deploy steps
+1. Extract the fresh `eplak-fixed-update.zip` over the `eplak-fixed` folder (the DB schema
+   auto-upgrades to `2026-10-01.1` and creates the processing-flow table).
+2. Install the new APK (`2.0.24` or higher) — the upload fix lives in the Android code,
+   so the app must be updated for it to take effect.

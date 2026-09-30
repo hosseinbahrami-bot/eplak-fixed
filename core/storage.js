@@ -243,16 +243,23 @@
      خروجی:
        { ok, media:[...], failed:[نام فایل‌ها], error, unsupported, blocked, status }
      unsupported=true یعنی نسخه‌ی هاست قدیمی است (کنش تکه‌تکه را ندارد). */
-  const MEDIA_CHUNK_DEFAULT = 512 * 1024;
-  const MEDIA_CHUNK_MIN = 64 * 1024;
+  /* ── چرا تکه‌ها کوچک شدند؟ ────────────────────────────────────────────
+     آزمون‌های میدانی نشان داد درخواست‌های کوچک همیشه عبور می‌کنند، ولی بدنه‌ی
+     چند صد کیلوبایتیِ حاوی base64 ممکن است در فایروال هاست بسته شود. پس هر
+     تکه ۲۰۰ کیلوبایت خام (≈۲۷۰ کیلوبایت بدنه) است و اگر هاست رد کرد، اپ
+     خودکار تکه را نصف می‌کند (۲۰۰→۱۰۰→۵۰→۲۵ کیلوبایت) و همان فایل را از
+     ابتدا می‌فرستد تا هیچ‌وقت ارسال نیمه‌کاره نماند. */
+  const MEDIA_CHUNK_DEFAULT = 200 * 1024;
+  const MEDIA_CHUNK_MIN = 24 * 1024;
+  const MEDIA_CHUNK_STEPS = [200 * 1024, 100 * 1024, 50 * 1024, 25 * 1024];
 
   function mediaChunkSize() {
     const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
     return (isFinite(custom) && custom >= MEDIA_CHUNK_MIN) ? custom : MEDIA_CHUNK_DEFAULT;
   }
 
-  async function sendMediaChunk(payload) {
-    const url = BACKEND_BASE_URL + '/media.php?action=chunk';
+  async function sendMediaChunk(payload, urlOverride) {
+    const url = urlOverride || (BACKEND_BASE_URL + '/media.php?action=chunk');
     let last = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       last = await postJson(url, payload, 120000);
@@ -267,95 +274,191 @@
     return last;
   }
 
-  async function uploadReportMediaChunked(reportId, phone, files, onProgress) {
-    const size = mediaChunkSize();
-    const media = [];
-    const failed = [];
-    let error = '';
-    let unsupported = false;
-    let blocked = false;
-    let status = 0;
-    const list = Array.from(files || []);
-    if (!reportId || !list.length) {
-      return { ok: true, media: media, failed: failed, error: '', unsupported: false, blocked: false, status: 0 };
+  /* ارسال یک فایل با اندازه‌ی تکه‌ی مشخص.
+     خروجی: { ok, media, error, status, unsupported, blocked } */
+  async function uploadSingleMediaFile(file, size, reportId, phone, onProgress, useFallbackEndpoint) {
+    const fileName = file.name || 'attachment';
+    const total = Math.max(1, Math.ceil(file.size / size));
+    const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
+    const chunkUrl = BACKEND_BASE_URL + '/media.php?action=chunk';
+    const wholeUrl = BACKEND_BASE_URL + '/reports.php?action=add_media';
+
+    /* ── مسیر پایانی: یک فایل کامل از دروازه‌ی گزارش‌ها ─────────────────
+       اگر مسیر تکه‌تکه روی هاست بسته باشد (فایروال یا نسخه‌ی قدیمی)، همین
+       گزارش‌ها که همیشه باز است، فایل را یک‌جا می‌پذیرد. */
+    if (useFallbackEndpoint) {
+      if (file.size > 12 * 1024 * 1024) {
+        return { ok: false, media: null, error: 'فایل «' + fileName + '» برای مسیر پشتیبان بزرگ است', status: 0, unsupported: false, blocked: false };
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      if (!dataUrl) {
+        return { ok: false, media: null, error: 'خواندن فایل «' + fileName + '» روی گوشی ممکن نشد.', status: 0, unsupported: false, blocked: false };
+      }
+      const res = await postJson(wholeUrl, {
+        action: 'add_media',
+        phone: phone,
+        reportId: reportId,
+        name: fileName,
+        mime: file.type || '',
+        data: dataUrl
+      }, 180000);
+      if (!res) return { ok: false, media: null, error: 'ارتباط با سرور برقرار نشد.', status: 0, unsupported: false, blocked: false };
+      if (res.__transport) {
+        const code = res.status || 0;
+        return {
+          ok: false, media: null,
+          error: res.error || 'ارسال فایل ناموفق بود.',
+          status: code,
+          unsupported: (code === 404 || code === 405),
+          blocked: (code === 403 || code === 413)
+        };
+      }
+      if (res.success !== true) {
+        return { ok: false, media: null, error: String(res.error || 'ارسال فایل ناموفق بود.'), status: 0, unsupported: false, blocked: false };
+      }
+      if (typeof onProgress === 'function') onProgress(100);
+      return { ok: true, media: res.media || null, error: '', status: 200, unsupported: false, blocked: false };
     }
 
-    for (let fileIndex = 0; fileIndex < list.length; fileIndex++) {
-      const file = list[fileIndex];
-      const fileName = file.name || ('attachment-' + (fileIndex + 1));
-      const total = Math.max(1, Math.ceil(file.size / size));
-      const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
-      let fileError = '';
-      let fileOk = false;
+    /* ── مسیر عادی: تکه‌تکه ───────────────────────────────────────────── */
+    for (let index = 0; index < total; index++) {
+      const start = index * size;
+      const chunk = file.slice(start, Math.min(file.size, start + size));
+      const data = await readFileAsDataUrl(chunk);
+      if (!data) {
+        return { ok: false, media: null, error: 'خواندن فایل «' + fileName + '» روی گوشی ممکن نشد.', status: 0, unsupported: false, blocked: false };
+      }
 
-      for (let index = 0; index < total; index++) {
-        const start = index * size;
-        const chunk = file.slice(start, Math.min(file.size, start + size));
-        const data = await readFileAsDataUrl(chunk);
-        if (!data) {
-          fileError = 'خواندن فایل «' + fileName + '» روی گوشی ممکن نشد.';
-          break;
-        }
+      const res = await sendMediaChunk({
+        phone: phone,
+        reportId: reportId,
+        uploadId: uploadId,
+        index: index,
+        total: total,
+        name: fileName,
+        mime: file.type || '',
+        data: data
+      }, chunkUrl);
 
-        const res = await sendMediaChunk({
-          phone: phone,
-          reportId: reportId,
-          uploadId: uploadId,
-          index: index,
-          total: total,
-          name: fileName,
-          mime: file.type || '',
-          data: data
-        });
+      if (!res) return { ok: false, media: null, error: 'ارتباط با سرور برقرار نشد.', status: 0, unsupported: false, blocked: false };
+      if (res.__transport) {
+        const code = res.status || 0;
+        return {
+          ok: false, media: null,
+          error: res.error || 'ارسال فایل ناموفق بود.',
+          status: code,
+          unsupported: (code === 404 || code === 405),
+          blocked: (code === 403 || code === 413)
+        };
+      }
+      if (res.success !== true) {
+        const message = String(res.error || 'ارسال فایل ناموفق بود.');
+        return {
+          ok: false, media: null, error: message, status: 0,
+          unsupported: (message.indexOf('گزارش یافت نشد') > -1 || message.indexOf('کنش نامعتبر') > -1),
+          blocked: false
+        };
+      }
+      if (typeof onProgress === 'function') {
+        onProgress(Math.min(99, Math.round(((index + 1) / total) * 100)));
+      }
+      if (index === total - 1) {
+        return { ok: true, media: res.media || null, error: '', status: 200, unsupported: false, blocked: false };
+      }
+    }
+    return { ok: false, media: null, error: 'ارسال فایل کامل نشد.', status: 0, unsupported: false, blocked: false };
+  }
 
-        if (!res) {
-          fileError = 'ارتباط با سرور برقرار نشد.';
-          break;
-        }
-        if (res.__transport) {
-          status = res.status || 0;
-          unsupported = (status === 404 || status === 405);
-          blocked = (status === 403 || status === 413);
-          fileError = res.error || 'ارسال فایل ناموفق بود.';
-          break;
-        }
-        if (res.success !== true) {
-          status = 0;
-          fileError = String(res.error || 'ارسال فایل ناموفق بود.');
-          if (fileError.indexOf('گزارش یافت نشد') > -1 || fileError.indexOf('کنش نامعتبر') > -1) {
-            unsupported = true;
+  /* ── ارسال پیوست‌ها با نقشه‌ی پشتیبان چندمرحله‌ای ─────────────────────
+     مرحله ۱: تکه‌های ۲۰۰ کیلوبایتی.
+     مرحله ۲ و ۳: اگر هاست بدنه را رد کرد، همان فایل‌ها با تکه‌های کوچک‌تر
+                  (۱۰۰ و ۵۰ و ۲۵ کیلوبایت) از ابتدا فرستاده می‌شوند.
+     مرحله ۴: اگر مسیر تکه‌تکه اصلاً بسته بود، هر فایل یک‌جا از دروازه‌ی
+              api/reports.php?action=add_media (که همیشه باز است) می‌رود.
+     در هر مرحله، فایل‌های موفق کنار گذاشته می‌شوند تا دوباره فرستاده نشوند. */
+  async function uploadReportMediaChunked(reportId, phone, files, onProgress) {
+    const list = Array.from(files || []);
+    const empty = { ok: true, media: [], failed: [], error: '', unsupported: false, blocked: false, status: 0 };
+    if (!reportId || !list.length) return empty;
+
+    const savedMedia = [];
+    let remaining = list.slice();
+    let hardFailed = [];       /* خطای منطقی (حجم/نوع) — تکرار با تکه‌ی کوچک‌تر بی‌فایده است */
+    let lastError = '';
+    let lastStatus = 0;
+    let unsupported = false;
+    let blocked = false;
+
+    const reportProgress = () => {
+      if (typeof onProgress === 'function' && list.length) {
+        const done = list.length - remaining.length;
+        onProgress(Math.min(99, Math.round((done / list.length) * 100)));
+      }
+    };
+
+    const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
+    const sizes = (isFinite(custom) && custom >= MEDIA_CHUNK_MIN)
+      ? [custom].concat(MEDIA_CHUNK_STEPS.filter(s => s < custom))
+      : MEDIA_CHUNK_STEPS.slice();
+
+    for (let stage = 0; stage < sizes.length && remaining.length; stage++) {
+      const size = sizes[stage];
+      const stillFailed = [];
+      for (const file of remaining) {
+        const res = await uploadSingleMediaFile(file, size, reportId, phone, () => {}, false);
+        if (res.ok) {
+          if (res.media) savedMedia.push(res.media);
+          reportProgress();
+        } else {
+          lastError = res.error || lastError;
+          lastStatus = res.status || lastStatus;
+          if (res.unsupported) unsupported = true;
+          if (res.blocked) blocked = true;
+          /* خطای منطقی (مثلاً حجم زیاد یا نوع نامجاز) با کوچک‌تر کردن تکه حل
+             نمی‌شود؛ آن فایل کنار گذاشته می‌شود تا وقت کاربر تلف نشود. */
+          if (!res.blocked && !res.unsupported && res.status === 0) {
+            hardFailed.push(file);
+          } else {
+            stillFailed.push(file);
           }
-          break;
-        }
-        if (index === total - 1 && res.media) {
-          media.push(res.media);
-          fileOk = true;
-        }
-        if (typeof onProgress === 'function') {
-          const overall = ((fileIndex + (index + 1) / total) / list.length) * 100;
-          onProgress(Math.min(99, Math.round(overall)));
         }
       }
+      remaining = stillFailed;
+    }
 
-      if (!fileOk) {
-        failed.push(fileName);
-        if (!error) error = fileError;
-        /* اگر سرویس تکه‌تکه روی هاست نیست، ادامه دادن بی‌فایده است */
-        if (unsupported || blocked) break;
+    /* مرحله‌ی پشتیبان: دروازه‌ی گزارش‌ها (بدون تکه‌تکه) */
+    if (remaining.length) {
+      const stillFailed = [];
+      for (const file of remaining) {
+        const res = await uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true);
+        if (res.ok) {
+          if (res.media) savedMedia.push(res.media);
+          reportProgress();
+        } else {
+          stillFailed.push(file);
+          lastError = res.error || lastError;
+          lastStatus = res.status || lastStatus;
+          if (res.unsupported) unsupported = true;
+          if (res.blocked) blocked = true;
+        }
       }
+      remaining = stillFailed;
     }
 
     if (typeof onProgress === 'function') onProgress(100);
+
+    const failedFiles = remaining.concat(hardFailed);
     return {
-      ok: failed.length === 0 && media.length > 0,
-      media: media,
-      failed: failed,
-      error: error,
+      ok: failedFiles.length === 0 && savedMedia.length > 0,
+      media: savedMedia,
+      failed: failedFiles.map(f => f.name || 'attachment'),
+      error: lastError,
       unsupported: unsupported,
       blocked: blocked,
-      status: status
+      status: lastStatus
     };
   }
+
 
   /* ── صف پیوست‌های ناموفق (نگه‌داشتن فایل در گوشی تا ارسال موفق) ──────────
      اگر هنگام ثبت گزارش، اینترنت ضعیف باشد یا سرور فایل را نپذیرد، فایل در
@@ -370,7 +473,10 @@
   function openPendingDb() {
     return new Promise(resolve => {
       try {
-        if (!window.indexedDB) return resolve(null);
+        if (!window.indexedDB) {
+          resolve(null);
+          return;
+        }
         const req = window.indexedDB.open(PENDING_DB, 1);
         req.onupgradeneeded = function () {
           const db = req.result;
@@ -425,7 +531,7 @@
       try {
         const req = pendingTx(db, 'readonly').count();
         req.onsuccess = function () { resolve(Number(req.result) || 0); };
-        req.onerror = function () { return resolve(0); };
+        req.onerror = function () { resolve(0); };
       } catch (e) { resolve(0); }
     });
   }
@@ -438,7 +544,7 @@
       try {
         const req = pendingTx(db, 'readonly').getAll();
         req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
-        req.onerror = function () { return resolve([]); };
+        req.onerror = function () { resolve([]); };
       } catch (e) { resolve([]); }
     });
     if (!rows.length) return { sent: 0, left: 0 };
@@ -453,8 +559,8 @@
     });
 
     let sent = 0;
-    const leftovers = [];
     const failedGroups = new Set();
+    const leftovers = [];
     for (const [key, group] of groups.entries()) {
       const res = await uploadReportMediaChunked(group.reportId, group.phone, group.items.map(i => i.blob), null);
       const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;

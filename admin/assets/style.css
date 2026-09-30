@@ -3485,3 +3485,66 @@ body.admin-media-locked { overflow: hidden; }
   color: #e2e8f0;
   font-size: 12.5px;
 }
+
+/* ============================================================
+   روند رسیدگی در پنل ادمین (همان گام‌های اپ شهروند)
+   ============================================================ */
+.timeline-panel .event-count {
+  margin-right: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-500);
+  background: var(--primary-50, rgba(14, 165, 233, 0.1));
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.event-timeline { margin-top: 8px; }
+
+.event-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--dark-100, #e2e8f0);
+}
+.event-row:last-child { border-bottom: 0; }
+
+.event-marker {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  background: var(--dark-50, #f8fafc);
+  color: var(--dark-500, #64748b);
+}
+.event-row.tone-created .event-marker  { background: rgba(14, 165, 233, 0.14); color: #0ea5e9; }
+.event-row.tone-assigned .event-marker { background: rgba(99, 102, 241, 0.14); color: #6366f1; }
+.event-row.tone-status .event-marker   { background: rgba(245, 158, 11, 0.16); color: #d97706; }
+.event-row.tone-reply .event-marker    { background: rgba(16, 185, 129, 0.15); color: #059669; }
+.event-row.tone-edit .event-marker     { background: rgba(168, 85, 247, 0.14); color: #9333ea; }
+.event-row.tone-media .event-marker    { background: rgba(59, 130, 246, 0.14); color: #2563eb; }
+
+.event-body { flex: 1; min-width: 0; }
+.event-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.event-head strong { font-size: 13.5px; }
+.event-actor {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--dark-50, #f1f5f9);
+  color: var(--dark-500, #64748b);
+}
+.event-actor.actor-admin   { background: rgba(0, 201, 167, 0.14); color: #0f766e; }
+.event-actor.actor-citizen { background: rgba(59, 130, 246, 0.14); color: #2563eb; }
+.event-body p {
+  margin: 5px 0 0;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--dark-600, #475569);
+}
+.event-date { display: inline-block; margin-top: 5px; font-size: 11px; color: var(--dark-400, #94a3b8); }

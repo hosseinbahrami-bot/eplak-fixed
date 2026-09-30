@@ -554,6 +554,22 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
+    /* روند رسیدگی به گزارش — همان چیزی که هم در اپ و هم در پنل ادمین
+       نشان داده می‌شود. هر ردیف یک گام است: ثبت، ارجاع، تغییر وضعیت،
+       پاسخ مدیریت، افزودن پیوست و … */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INT NOT NULL,
+        type VARCHAR(40) NOT NULL DEFAULT 'note',
+        title VARCHAR(200) NOT NULL DEFAULT '',
+        body TEXT DEFAULT '',
+        actor VARCHAR(40) NOT NULL DEFAULT 'system',
+        status VARCHAR(30) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_events_report ON report_events(report_id)');
+
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_media_report ON report_media(report_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_subs_phone ON push_subscriptions(user_phone)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_notif_reads_notification ON notification_reads(notification_id)');
@@ -648,7 +664,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
    یک پله بالا ببرید؛ بقیه‌اش خودکار انجام می‌شود.
    ============================================================================ */
 if (!defined('EPLAK_SCHEMA_VERSION')) {
-    define('EPLAK_SCHEMA_VERSION', '2026-09-30.2');
+    define('EPLAK_SCHEMA_VERSION', '2026-10-01.1');   /* + جدول روند رسیدگی (report_events) */
 }
 
 /* تعریف جداول (همان متن CREATE TABLE) برای مقایسه با دیتابیس.
@@ -1088,6 +1104,18 @@ function eplakGetPdo(): PDO {
         size_bytes INT NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         KEY idx_report_media_report (report_id)
+    )");
+
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_events (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        report_id INT NOT NULL,
+        type VARCHAR(40) NOT NULL DEFAULT 'note',
+        title VARCHAR(200) NOT NULL DEFAULT '',
+        body TEXT DEFAULT '',
+        actor VARCHAR(40) NOT NULL DEFAULT 'system',
+        status VARCHAR(30) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_report_events_report (report_id)
     )");
 
     /* تنظیمات کلید/مقدار برنامه (کلیدهای VAPID و …) */

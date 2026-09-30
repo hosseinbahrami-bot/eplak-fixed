@@ -776,6 +776,158 @@ PROBE_PY
   fi
   media_body_size="$BODY_OK_MAX"
 
+  # ۹-۱۰) آزمون «فایلِ واقعی»: عکسی با محتوای تصادفی (مثل عکس گوشی) از همان
+  #       مسیری که اپ استفاده می‌کند فرستاده می‌شود. آزمون‌های قبلی با PNG
+  #       کوچک و کم‌حجم انجام می‌شد و همین باعث می‌شد فایروال هاست (که به
+  #       محتوای فایل و حجم واقعی حساس است) هرگز آزموده نشود. اینجا:
+  #       گزارش ساخته می‌شود → عکس واقعی داخل همان درخواست → سپس همان عکس از
+  #       مسیر تکه‌تکه (۲۰۰ کیلوبایتی، دقیقاً مثل اپ) → و در پایان با کنش
+  #       پشتیبانِ add_media. نتیجه‌ی هر سه مسیر جداگانه گزارش می‌شود.
+  REAL_IMG="$TMP/real-photo.jpg"
+  python3 - "$REAL_IMG" <<'REALPY' 2>/dev/null || true
+import io, sys, zlib, struct, random
+# ساخت JPEG واقعی ۶۴۰×۴۸۰ با نویز تصادفی (ساختار سالم + حجم واقعی ~۴۰۰KB)
+w, h = 640, 480
+random.seed(7)
+pixels = bytes(random.getrandbits(8) for _ in range(w * h * 3))
+def seg(marker, data):
+    return b'\xff' + marker + struct.pack('>H', len(data) + 2) + data
+out = io.BytesIO()
+out.write(b'\xff\xd8')
+out.write(seg(b'\xe0', b'JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00'))
+qt = bytes([16] * 64)
+out.write(seg(b'\xdb', b'\x00' + qt))
+out.write(seg(b'\xdb', b'\x01' + qt))
+out.write(seg(b'\xc0', struct.pack('>BHHB', 8, h, w, 3) + bytes([1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0])))
+def huff(bits):
+    return bytes([0] * 16) + bytes(bits)
+out.write(seg(b'\xc4', b'\x00' + huff([])))
+out.write(seg(b'\xda', b'\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00'))
+out.write(pixels)
+out.write(b'\xff\xd9')
+open(sys.argv[1], 'wb').write(out.getvalue())
+REALPY
+  if [ -s "$REAL_IMG" ]; then
+    REAL_KB=$(( $(wc -c < "$REAL_IMG") / 1024 ))
+    REAL_BODY="$TMP/real-inline.json"
+    python3 - "$REAL_IMG" "$REAL_BODY" "$TEST_PHONE" <<'REALJSON' 2>/dev/null || true
+import base64, json, sys
+img, out, phone = sys.argv[1], sys.argv[2], sys.argv[3]
+b64 = base64.b64encode(open(img, 'rb').read()).decode('ascii')
+body = {
+    "phone": phone, "title": "آزمون عکس واقعی", "description": "بررسی مسیر فایل واقعی",
+    "category": "سایر",
+    "media": [{"name": "real-photo.jpg", "mime": "image/jpeg", "data": "data:image/jpeg;base64," + b64}],
+}
+open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
+REALJSON
+    REAL_CODE=$(curl -sS -L --max-time 120 -A "$UA" -o "$TMP/real.out" -w '%{http_code}' \
+      -H 'Content-Type: text/plain;charset=UTF-8' --data-binary "@$REAL_BODY" \
+      "$BASE/api/reports.php" 2>/dev/null) || REAL_CODE="000"
+    REAL_ID=$(python3 - "$TMP/real.out" <<'REALID' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get('id', '') if d.get('success') else '')
+except Exception:
+    print('')
+REALID
+)
+    REAL_MEDIA=$(python3 - "$TMP/real.out" <<'REALCNT' 2>/dev/null || echo ""
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get('media_count', 0))
+except Exception:
+    print('')
+REALCNT
+)
+    if [ -n "$REAL_ID" ] && [ "${REAL_MEDIA:-0}" -ge 1 ] 2>/dev/null; then
+      say "| ۹-۱۰ | ✅ عکس واقعی ${REAL_KB} کیلوبایتی همراه گزارش ذخیره شد (گزارش $REAL_ID) |"
+      REAL_OK="yes"
+    else
+      SNIP2=$(head -c 300 "$TMP/real.out" 2>/dev/null | tr '\n\r\t' '   ' | tr -d '|' | cut -c1-200)
+      say "| ۹-۱۰ | ❌ ارسال عکس واقعی ${REAL_KB} کیلوبایتی ناموفق بود (کد $REAL_CODE) |"
+      say "| ۹-۱۰-ب | پاسخ سرور: \`${SNIP2:-—}\` |"
+      ISSUES+=("آزمون فایل واقعی: عکس ${REAL_KB} کیلوبایتی همراه گزارش ذخیره نشد (کد $REAL_CODE)")
+      REAL_OK="no"
+    fi
+
+    # ۹-۱۱) همان عکس از مسیر تکه‌تکه‌ی اپ (تکه‌های ۲۰۰ کیلوبایتی)
+    if [ -n "$REAL_ID" ]; then
+      REAL_MEDIA2="$TMP/real-media2.json"
+      python3 - "$REAL_IMG" "$REAL_MEDIA2" "$TEST_PHONE" "$REAL_ID" <<'REALCHUNK' 2>/dev/null || true
+import base64, json, sys
+img, out, phone, rid = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+b64 = base64.b64encode(open(img, 'rb').read()).decode('ascii')
+body = {
+    "phone": phone, "reportId": int(rid), "uploadId": "realchunk0000001",
+    "index": 0, "total": 1, "name": "real-photo-2.jpg", "mime": "image/jpeg",
+    "data": "data:image/jpeg;base64," + b64,
+}
+open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
+REALCHUNK
+      C2_CODE=$(curl -sS -L --max-time 120 -A "$UA" -o "$TMP/real2.out" -w '%{http_code}' \
+        -H 'Content-Type: text/plain;charset=UTF-8' --data-binary "@$REAL_MEDIA2" \
+        "$BASE/api/media.php?action=chunk" 2>/dev/null) || C2_CODE="000"
+      C2_OK=$(python3 - "$TMP/real2.out" <<'C2PY' 2>/dev/null || echo no
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print('yes' if (d.get('success') and d.get('media')) else 'no')
+except Exception:
+    print('no')
+C2PY
+)
+      if [ "$C2_OK" = "yes" ]; then
+        say "| ۹-۱۱ | ✅ همان عکس از مسیر تکه‌تکه‌ی اپ هم ذخیره شد |"
+      else
+        say "| ۹-۱۱ | ⚠️ مسیر تکه‌تکه عکس واقعی را نپذیرفت (کد $C2_CODE) — اپ از مسیر پشتیبان استفاده می‌کند |"
+      fi
+
+      # ۹-۱۲) مسیر پشتیبان: افزودن پیوست از دروازه‌ی گزارش‌ها (add_media)
+      REAL_MEDIA3="$TMP/real-media3.json"
+      python3 - "$REAL_IMG" "$REAL_MEDIA3" "$TEST_PHONE" "$REAL_ID" <<'REALADD' 2>/dev/null || true
+import base64, json, sys
+img, out, phone, rid = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+b64 = base64.b64encode(open(img, 'rb').read()).decode('ascii')
+body = {
+    "action": "add_media", "phone": phone, "reportId": int(rid),
+    "name": "real-photo-3.jpg", "mime": "image/jpeg",
+    "data": "data:image/jpeg;base64," + b64,
+}
+open(out, 'w', encoding='utf-8').write(json.dumps(body, ensure_ascii=False))
+REALADD
+      C3_CODE=$(curl -sS -L --max-time 120 -A "$UA" -o "$TMP/real3.out" -w '%{http_code}' \
+        -H 'Content-Type: text/plain;charset=UTF-8' --data-binary "@$REAL_MEDIA3" \
+        "$BASE/api/reports.php" 2>/dev/null) || C3_CODE="000"
+      C3_OK=$(python3 - "$TMP/real3.out" <<'C3PY' 2>/dev/null || echo no
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print('yes' if (d.get('success') and d.get('media')) else 'no')
+except Exception:
+    print('no')
+C3PY
+)
+      if [ "$C3_OK" = "yes" ]; then
+        say "| ۹-۱۲ | ✅ مسیر پشتیبان (افزودن پیوست از دروازه‌ی گزارش‌ها) هم کار می‌کند |"
+        if [ "${REAL_OK:-yes}" = "no" ]; then
+          REAL_OK="fallback"
+        fi
+      else
+        say "| ۹-۱۲ | ⚠️ مسیر پشتیبان پاسخ نداد (کد $C3_CODE) — ممکن است هاست هنوز نسخه‌ی تازه را نداشته باشد |"
+      fi
+
+      # پاک‌سازی گزارش آزمون
+      cleanup_code=$(curl -sS -L --max-time 30 -A "$UA" -o /dev/null -w '%{http_code}' \
+        "$BASE/api/reports.php?action=delete&id=$REAL_ID&phone=$TEST_PHONE" 2>/dev/null) || cleanup_code="000"
+      say "| ۹-۱۳ | پاک‌سازی گزارش آزمون فایل واقعی (کد $cleanup_code) |"
+    fi
+  else
+    say "| ۹-۱۰ | ⚠️ ساخت عکس آزمون ممکن نشد (python3 در دسترس نبود) |"
+  fi
+
   rm -f "$J"
   say ""
 fi
@@ -839,6 +991,14 @@ if [ "${EPLAK_SMOKE:-0}" = "1" ]; then
     say "- ⚠️ آزمون واقعی سرتاسری کامل سبز نشد — بخش ۹ را ببینید"
   fi
 fi
+if [ "${REAL_OK:-yes}" = "no" ]; then
+  STATUS="fail"
+  ISSUES+=("مسیر فایل واقعی (عکس چند صد کیلوبایتی) روی هاست کار نکرد — این همان چیزی است که کاربر در اپ می‌بیند")
+fi
+if [ "${REAL_OK:-yes}" = "fallback" ]; then
+  ISSUES+=("مسیر «عکس همراه گزارش» روی این هاست بسته است؛ اپ به‌طور خودکار از مسیر پشتیبان استفاده می‌کند (بررسی شود)")
+fi
+
 if [ "${media_chunk_old:-no}" = "yes" ]; then
   say "- ⏳ ارسال فیلم‌های حجیم (تکه‌تکه) روی هاست فعال نشده — بسته‌ی تازه را Extract کنید (عکس‌ها همین حالا کار می‌کنند)"
 fi

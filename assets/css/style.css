@@ -7103,3 +7103,66 @@ body.media-viewer-locked { overflow: hidden; }
   color: #e5e7eb;
   font-size: 12.5px;
 }
+
+/* ============================================================
+   روند رسیدگی در جزئیات گزارش (هم‌خوان با پنل ادمین)
+   ------------------------------------------------------------
+   هر گام: آیکن، عنوان، سازنده (شهرداری/شهروند/سامانه)، توضیح و تاریخ.
+   گام در جریان با یک هاله‌ی متحرک نشان داده می‌شود.
+   ============================================================ */
+.status-summary-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+.status-summary-main { display: flex; align-items: center; gap: 10px; }
+.status-summary-icon { font-size: 22px; line-height: 1; }
+.status-summary-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+.status-summary-value { font-size: 13.5px; font-weight: 800; }
+.status-summary-side { text-align: left; }
+.status-summary-box.status-done { border-color: rgba(22, 163, 74, 0.35); }
+.status-summary-box.status-done .status-summary-value { color: #16a34a; }
+.status-summary-box.status-pending { border-color: rgba(217, 119, 6, 0.32); }
+.status-summary-box.status-pending .status-summary-value { color: #d97706; }
+.status-summary-box.status-progress { border-color: rgba(59, 130, 246, 0.32); }
+.status-summary-box.status-progress .status-summary-value { color: #3b82f6; }
+
+.timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.timeline-icon { font-size: 14px; line-height: 1; }
+.timeline-head h5 { font-size: 13px; font-weight: 700; }
+.timeline-actor {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.timeline-actor.actor-admin { background: rgba(0, 201, 167, 0.14); color: var(--teal); }
+.timeline-actor.actor-citizen { background: rgba(59, 130, 246, 0.14); color: #3b82f6; }
+.timeline-actor.actor-system { background: rgba(100, 116, 139, 0.14); color: #64748b; }
+.timeline-body {
+  margin-top: 5px;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--text-primary);
+  background: rgba(15, 23, 42, 0.035);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.timeline-date { margin-top: 5px; font-size: 11.5px; color: var(--text-muted); }
+.timeline-dot.current.pulse { animation: timelinePulse 1.6s ease-in-out infinite; }
+@keyframes timelinePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+  50% { box-shadow: 0 0 0 7px rgba(59, 130, 246, 0); }
+}
+.timeline-row.is-waiting .timeline-content h5 { color: var(--text-muted); }

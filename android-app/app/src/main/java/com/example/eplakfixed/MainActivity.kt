@@ -181,22 +181,115 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    /* Uriهای انتخاب‌شده (یک فایل یا چند فایل) از نتیجه‌ی گالری */
+    /* Uriهای انتخاب‌شده (یک فایل یا چند فایل) از نتیجه‌ی گالری.
+       ─ هر Uri پیش از تحویل به WebView، داخل حافظه‌ی خود اپ کپی می‌شود ─
+       چرا؟ گالری‌ها و برنامه‌های «فایل» روی گوشی‌های مختلف، Uri را از
+       سرویس‌دهنده‌های گوناگون (content://) می‌دهند و دسترسی خواندن آن‌ها
+       همیشه به WebView منتقل نمی‌شود؛ نتیجه این بود که فایل انتخاب‌شده
+       «خالی/ناخوانا» به صفحه می‌رسید و آپلود بی‌صدا شکست می‌خورد. حالا بایت‌های
+       فایل همان لحظه (که مجوز خواندن فعال است) داخل پوشه‌ی کشِ خود اپ نوشته
+       می‌شود و آدرس file:// تحویل WebView می‌گردد؛ این آدرس همیشه خواناست. */
     private fun collectChosenUris(resultCode: Int, data: Intent?): Array<Uri>? {
         if (resultCode != android.app.Activity.RESULT_OK || data == null) return null
 
+        val raw = ArrayList<Uri>()
+
         /* انتخاب چندتایی */
         data.clipData?.let { clip ->
-            val uris = ArrayList<Uri>(clip.itemCount)
             for (i in 0 until clip.itemCount) {
-                clip.getItemAt(i)?.uri?.let { uris.add(it) }
+                clip.getItemAt(i)?.uri?.let { raw.add(it) }
             }
-            if (uris.isNotEmpty()) return uris.toTypedArray()
         }
 
         /* انتخاب تک‌فایل */
-        data.data?.let { return arrayOf(it) }
-        return null
+        if (raw.isEmpty()) {
+            data.data?.let { raw.add(it) }
+        }
+        if (raw.isEmpty()) return null
+
+        val out = ArrayList<Uri>(raw.size)
+        var copied = 0
+        raw.forEach { uri ->
+            val local = copyPickedFileToCache(uri)
+            if (local != null) {
+                out.add(local)
+                copied++
+            } else {
+                /* اگر کپی ممکن نشد، همان Uri اصلی را می‌دهیم تا شانس دوم از دست نرود */
+                out.add(uri)
+            }
+        }
+        notifyWebFilePick(copied, out.size)
+        return out.toTypedArray()
+    }
+
+    /* کپی فایل انتخاب‌شده در پوشه‌ی کش اپ و برگرداندن آدرس file:// آن */
+    private fun copyPickedFileToCache(uri: Uri): Uri? {
+        return try {
+            val resolver = contentResolver
+            val mime = resolver.getType(uri) ?: ""
+            val display = queryDisplayName(uri) ?: ""
+            val extension = when {
+                display.contains('.') -> display.substringAfterLast('.').take(8)
+                mime.startsWith("image/") -> mime.removePrefix("image/").take(5)
+                mime.startsWith("video/") -> mime.removePrefix("video/").take(5)
+                else -> "bin"
+            }
+            val dir = java.io.File(cacheDir, "picked").apply { mkdirs() }
+            val dest = java.io.File(dir, "pick-" + System.currentTimeMillis() + "-" + (0..9999).random() + "." + extension)
+
+            resolver.openInputStream(uri)?.use { input ->
+                java.io.FileOutputStream(dest).use { output ->
+                    input.copyTo(output, 256 * 1024)
+                }
+            } ?: return null
+
+            if (dest.length() <= 0L) {
+                dest.delete()
+                return null
+            }
+            /* کش قدیمی پاک می‌شود تا حافظه‌ی گوشی پر نشود */
+            cleanOldPickedFiles(dir, dest)
+            Uri.fromFile(dest)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /* نام نمایشی فایل از سرویس‌دهنده (برای پسوند درست) */
+    private fun queryDisplayName(uri: Uri): String? {
+        return try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /* نگه‌داشتن حداکثر ۱۲ فایل تازه در کش انتخاب‌ها */
+    private fun cleanOldPickedFiles(dir: java.io.File, keep: java.io.File) {
+        try {
+            val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
+            files.drop(12).forEach { if (it.absolutePath != keep.absolutePath) it.delete() }
+        } catch (e: Exception) {
+            /* بی‌اهمیت */
+        }
+    }
+
+    /* خبر دادن نتیجه‌ی انتخاب فایل به لایه‌ی وب (برای پیام‌های دقیق‌تر) */
+    private fun notifyWebFilePick(copied: Int, total: Int) {
+        try {
+            webView.post {
+                webView.evaluateJavascript(
+                    "window.eplakNativeFilesPicked && window.eplakNativeFilesPicked($copied, $total);",
+                    null
+                )
+            }
+        } catch (e: Exception) {
+            /* بی‌اهمیت */
+        }
     }
 
     /* ساخت Intent گالری: هم عکس، هم فیلم و (اگر صفحه چند انتخاب بخواهد) چندتایی */
@@ -255,9 +348,17 @@ class MainActivity : AppCompatActivity() {
               شبکه‌ای (fetch/XHR) از این صفحه به دامنه‌ی سرور را بی‌صدا رد
               می‌کند — یعنی گزارش/عکس/فیلم هرگز به سرور نمی‌رسید در حالی که
               صفحه‌ی «ثبت شد» نمایش داده می‌شد. پس این گزینه باید روشن باشد.
-           ــ برای کاهش ریسک، دسترسی مستقیم به فایل‌های سیستم (file://) لازم
-              نیست؛ Assets و content://ها مستقل از آن کار می‌کنند. */
-        webSettings.allowFileAccess = false
+           ــ ریشه‌ی باگ «عکس/فیلم بارگذاری نمی‌شود»: تا پیش از این،
+              allowFileAccess خاموش بود. از اندروید ۱۱ (API ۳۰) به بعد، اگر
+              اپ با targetSdk ≥ ۳۰ ساخته شود، پیش‌فرض این گزینه «خاموش» است؛
+              یعنی هر فایلی که با آدرس file:// به صفحه داده شود (همان چیزی که
+              پنجره‌ی انتخاب فایل تحویل می‌دهد و همان چیزی که ما فایل انتخابی
+              کاربر را داخل آن کپی می‌کنیم) برای WebView ناخوانا بود. نتیجه:
+              فایل انتخاب می‌شد ولی هنگام ارسال، خالی/ناخوانا به‌نظر می‌رسید و
+              ارسال بی‌صدا شکست می‌خورد. اکنون هر دو دسترسی روشن است:
+                • allowFileAccess   → خواندن فایل‌های کش خودِ اپ (کپی انتخابی‌ها)
+                • allowContentAccess → خواندن فایل‌های گالری با content:// */
+        webSettings.allowFileAccess = true
         webSettings.allowContentAccess = true
         @Suppress("DEPRECATION")
         webSettings.allowFileAccessFromFileURLs = true

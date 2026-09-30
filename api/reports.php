@@ -69,6 +69,7 @@ if ($method === 'GET') {
 
         $ids = array_map(static fn($r) => (int) $r['id'], $rows);
         $mediaMap = eplakMediaGroupedByReport($pdo, $ids);
+        $eventMap = eplakReportEventsGrouped($pdo, $ids);
 
         $out = [];
         foreach ($rows as $row) {
@@ -77,6 +78,8 @@ if ($method === 'GET') {
             $row['code'] = 'EP-1403-' . str_pad((string) ($id + 1000), 4, '0', STR_PAD_LEFT);
             $row['media'] = $mediaMap[$id] ?? [];
             $row['media_count'] = count($row['media']);
+            $row['timeline'] = $eventMap[$id] ?? [];
+            $row['timeline_count'] = count($row['timeline']);
             if ($hasGeo) {
                 $row['lat'] = isset($row['lat']) && $row['lat'] !== null ? (float) $row['lat'] : null;
                 $row['lng'] = isset($row['lng']) && $row['lng'] !== null ? (float) $row['lng'] : null;
@@ -114,6 +117,57 @@ if (!$input && !$isMultipart && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
         'حجم درخواست بیش از حد مجاز سرور است (post_max_size = ' . ($limit ? $limit : 'نامشخص') . '). فایل‌های سبک‌تری انتخاب کنید.',
         413
     );
+}
+
+/* ── افزودن پیوست به گزارش موجود ─────────────────────────────────────
+   POST {action:'add_media', phone, reportId, name, mime, data(base64)}
+   این کنش همان کار api/media.php?action=upload را انجام می‌دهد ولی از
+   دروازه‌ی گزارش‌ها می‌گذرد؛ چون app از همین مسیر (ثبت گزارش) همیشه پاسخ
+   می‌گیرد، اگر مسیر تکه‌تکه روی هاست بسته باشد، پیوست‌ها از اینجا می‌روند. */
+if ((($input['action'] ?? ($query['action'] ?? '')) === 'add_media')) {
+    $reportId = (int) ($input['reportId'] ?? ($input['report_id'] ?? 0));
+    $owner    = eplakNormalizePhone($input['phone'] ?? '');
+    if ($reportId <= 0 || $owner === '') {
+        eplakJsonError('شناسه‌ی گزارش و شماره‌ی مالک الزامی است', 400);
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT id FROM reports WHERE id = :id AND user_phone = :phone');
+        $stmt->execute([':id' => $reportId, ':phone' => $owner]);
+        if (!$stmt->fetch()) {
+            eplakJson(['success' => false, 'error' => 'گزارش یافت نشد'], 404);
+        }
+        $existing = eplakMediaForReport($pdo, $reportId);
+        if (count($existing) >= EPLAK_MEDIA_MAX_PER_REPORT) {
+            eplakJson(['success' => false, 'error' => 'حداکثر ' . EPLAK_MEDIA_MAX_PER_REPORT . ' فایل برای هر گزارش پذیرفته می‌شود.'], 400);
+        }
+
+        $data = (string) ($input['data'] ?? ($input['base64'] ?? ''));
+        $declaredMime = (string) ($input['mime'] ?? ($input['type'] ?? ''));
+        if (strpos($data, 'data:') === 0 && strpos($data, 'base64,') !== false) {
+            [$meta, $data] = explode('base64,', $data, 2);
+            if (preg_match('#data:([^;]+)#', $meta, $m)) {
+                $declaredMime = $m[1];
+            }
+        }
+        $binary = base64_decode(preg_replace('/\s+/', '', $data) ?? '', true);
+        if ($binary === false || $binary === '') {
+            eplakJsonError('محتوای فایل قابل خواندن نبود.', 400);
+        }
+
+        $result = eplakMediaStoreBinary($pdo, $reportId, $binary, (string) ($input['name'] ?? 'file'), $declaredMime);
+        if (!$result['ok']) {
+            eplakJson(['success' => false, 'error' => $result['error']], 400);
+        }
+        eplakReportEventAdd($pdo, $reportId, 'media', 'پیوست تازه', 'فایل «' . eplakStr($input['name'] ?? 'پیوست', 120) . '» به گزارش افزوده شد.', 'شهروند');
+        $files = eplakMediaForReport($pdo, $reportId);
+        eplakJson([
+            'success'     => true,
+            'media'       => $result['media'],
+            'media_count' => count($files),
+        ]);
+    } catch (Throwable $e) {
+        eplakServerError($e, 'reports.add_media');
+    }
 }
 
 /* ── حذف (DELETE یا POST با action=delete) ─────────────────────────── */
@@ -319,6 +373,30 @@ try {
    این اعلان هم در فهرست اعلان‌های اپ/سایت دیده می‌شود و هم (اگر فایربیس فعال
    باشد) بلافاصله روی گوشی می‌رسد؛ حتی وقتی برنامه بسته است. */
 $trackingCode = 'EP-1403-' . str_pad((string) $insertId, 4, '0', STR_PAD_LEFT);
+
+/* گام‌های آغازین روند رسیدگی: «ثبت شد» و «ارجاع به واحد» */
+try {
+    eplakReportTimelineBootstrap($pdo, $insertId, [
+        'department'     => $department,
+        'sub_department' => $subDepartment,
+    ]);
+} catch (Throwable $e) {
+    error_log('[eplak-api:reports.timeline] ' . $e->getMessage());
+}
+
+/* اگر پیوست‌ها همین حالا ذخیره شده‌اند، گام آن هم ثبت می‌شود */
+if ($savedMedia) {
+    eplakReportEventAdd(
+        $pdo,
+        $insertId,
+        'media',
+        'پیوست‌ها ثبت شد',
+        'تعداد ' . count($savedMedia) . ' فایل (عکس/فیلم) به گزارش پیوست شد.',
+        'citizen',
+        ''
+    );
+}
+
 try {
     require_once __DIR__ . '/../shared/notify_events.php';
     eplakNotifyRequestCreated($pdo, $phone, 'درخواست', $trackingCode);
@@ -328,6 +406,7 @@ try {
 
 eplakJson([
     'success'       => true,
+    'timeline'      => eplakReportEvents($pdo, $insertId),
     'id'            => $insertId,
     'tracking_code' => $trackingCode,
     'lat'           => $hasGeo ? $lat : null,

@@ -505,3 +505,206 @@ function eplakMediaNormalizeFiles(?array $files): array {
     }
     return $normalized;
 }
+
+/* ============================================================================
+   روند رسیدگی به گزارش (report_events)
+   ----------------------------------------------------------------------------
+   هر گام رسیدگی یک ردیف است و همان ردیف‌ها هم در اپ شهروند و هم در پنل ادمین
+   نمایش داده می‌شوند؛ پس کاربر دقیقاً همان چیزی را می‌بیند که مدیر شهرداری
+   ثبت کرده است. مسیر ثبت گام‌ها:
+     • ثبت گزارش            → eplakReportTimelineBootstrap
+     • تغییر وضعیت/پاسخ     → eplakReportEventStatus  (پنل ادمین)
+     • ویرایش گزارش         → eplakReportEventEdit
+     • افزودن پیوست         → eplakReportEventAdd
+   ========================================================================== */
+
+/** ثبت یک گام تازه در روند رسیدگی (در صورت نبود جدول، بی‌صدا رد می‌شود) */
+function eplakReportEventAdd(PDO $pdo, int $reportId, string $type, string $title, string $body = '', string $actor = 'system', string $status = ''): bool {
+    if ($reportId <= 0) {
+        return false;
+    }
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO report_events (report_id, type, title, body, actor, status)
+             VALUES (:report_id, :type, :title, :body, :actor, :status)'
+        );
+        $stmt->execute([
+            ':report_id' => $reportId,
+            ':type'      => mb_substr($type, 0, 40),
+            ':title'     => mb_substr($title, 0, 200),
+            ':body'      => mb_substr($body, 0, 2000),
+            ':actor'     => mb_substr($actor, 0, 40),
+            ':status'    => mb_substr($status, 0, 30),
+        ]);
+        return true;
+    } catch (\Throwable $e) {
+        /* جدول ممکن است روی دیتابیس قدیمی هنوز ساخته نشده باشد؛ رسیدگی اصلی
+           هرگز نباید به‌خاطر این جدول شکست بخورد. */
+        return false;
+    }
+}
+
+/** گام‌های رسیدگی یک گزارش (قدیمی‌ترین → تازه‌ترین) */
+function eplakReportEvents(PDO $pdo, int $reportId): array {
+    if ($reportId <= 0) {
+        return [];
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT id, type, title, body, actor, status, created_at
+                                 FROM report_events WHERE report_id = :id
+                                ORDER BY created_at ASC, id ASC');
+        $stmt->execute([':id' => $reportId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {
+        return [];
+    }
+    $out = [];
+    foreach ($rows as $row) {
+        $out[] = [
+            'id'         => (int) $row['id'],
+            'type'       => (string) $row['type'],
+            'title'      => (string) $row['title'],
+            'body'       => (string) ($row['body'] ?? ''),
+            'actor'      => (string) ($row['actor'] ?? 'system'),
+            'status'     => (string) ($row['status'] ?? ''),
+            'created_at' => (string) ($row['created_at'] ?? ''),
+        ];
+    }
+    return $out;
+}
+
+/** تعداد گام‌های ثبت‌شده (برای پرچم‌های پنل) */
+function eplakReportEventCount(PDO $pdo, int $reportId): int {
+    try {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM report_events WHERE report_id = :id');
+        $stmt->execute([':id' => $reportId]);
+        return (int) $stmt->fetchColumn();
+    } catch (\Throwable $e) {
+        return 0;
+    }
+}
+
+/** گام «ثبت گزارش» — فقط یک بار برای هر گزارش ساخته می‌شود */
+function eplakReportTimelineBootstrap(PDO $pdo, int $reportId, array $report = []): void {
+    if (eplakReportEventCount($pdo, $reportId) > 0) {
+        return;
+    }
+    eplakReportEventAdd(
+        $pdo,
+        $reportId,
+        'created',
+        'گزارش ثبت شد',
+        'درخواست شهروند با کد پیگیری ثبت و برای بررسی به واحد مربوطه ارجاع شد.',
+        'citizen',
+        'pending'
+    );
+    $department = trim((string) ($report['department'] ?? ''));
+    $sub        = trim((string) ($report['sub_department'] ?? ''));
+    if ($department !== '') {
+        $to = $department . ($sub !== '' ? (' / ' . $sub) : '');
+        eplakReportEventAdd($pdo, $reportId, 'assigned', 'ارجاع به واحد', 'گزارش به «' . $to . '» ارجاع شد.', 'system', '');
+    }
+}
+
+/**
+ * ثبت گام «تغییر وضعیت/پاسخ مدیریت».
+ * برچسب‌های فارسی‌شان همان برچسب‌هایی است که شهروند در اپ می‌بیند.
+ */
+function eplakReportEventStatus(PDO $pdo, int $reportId, string $statusKey, string $reply = ''): void {
+    $labels = [
+        'pending'     => 'در انتظار بررسی',
+        'in_progress' => 'در حال بررسی',
+        'done'        => 'انجام‌شده',
+    ];
+    $label = $labels[$statusKey] ?? $statusKey;
+    eplakReportEventAdd(
+        $pdo,
+        $reportId,
+        'status',
+        'تغییر وضعیت: ' . $label,
+        'وضعیت درخواست توسط کارشناس شهرداری به «' . $label . '» تغییر کرد.',
+        'admin',
+        $statusKey
+    );
+    $reply = trim($reply);
+    if ($reply !== '') {
+        eplakReportEventAdd($pdo, $reportId, 'reply', 'پاسخ مدیریت', $reply, 'admin', $statusKey);
+    }
+}
+
+/** گام «ویرایش اطلاعات گزارش» — خلاصه‌ی تغییرات مهم ثبت می‌شود */
+function eplakReportEventEdit(PDO $pdo, int $reportId, array $before, array $after): void {
+    $fields = [
+        'title'          => 'عنوان',
+        'department'     => 'واحد',
+        'sub_department' => 'زیرواحد',
+        'location'       => 'موقعیت',
+        'category'       => 'دسته',
+    ];
+    $changes = [];
+    foreach ($fields as $key => $label) {
+        $oldValue = trim((string) ($before[$key] ?? ''));
+        $newValue = trim((string) ($after[$key] ?? ''));
+        if ($oldValue !== $newValue) {
+            $changes[] = $label . ': «' . ($oldValue === '' ? '—' : $oldValue) . '» ← «' . ($newValue === '' ? '—' : $newValue) . '»';
+        }
+    }
+    if (!$changes) {
+        return;
+    }
+    eplakReportEventAdd(
+        $pdo,
+        $reportId,
+        'edit',
+        'ویرایش اطلاعات گزارش',
+        implode(' • ', $changes),
+        'admin',
+        ''
+    );
+}
+
+/** ترجمه‌ی کلید گام به متن فارسی برای نمایش در اپ/پنل */
+function eplakReportEventActorLabel(string $actor): string {
+    return $actor === 'admin' ? 'شهرداری' : ($actor === 'citizen' ? 'شهروند' : 'سامانه');
+}
+
+/** گام‌های رسیدگی چند گزارش به‌صورت گروهی (برای فهرست اپ) */
+function eplakReportEventsGrouped(PDO $pdo, array $reportIds = []): array {
+    $ids = [];
+    foreach ($reportIds as $id) {
+        $id = (int) $id;
+        if ($id > 0) {
+            $ids[] = $id;
+        }
+    }
+    if (!$ids) {
+        return [];
+    }
+    try {
+        $stmt = $pdo->query(
+            'SELECT id, report_id, type, title, body, actor, status, created_at
+               FROM report_events WHERE report_id IN (' . implode(',', $ids) . ')
+              ORDER BY created_at ASC, id ASC'
+        );
+        $rows = $stmt ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
+    } catch (\Throwable $e) {
+        return [];
+    }
+    $out = [];
+    foreach ($rows as $row) {
+        $rid = (int) $row['report_id'];
+        if (!isset($out[$rid])) {
+            $out[$rid] = [];
+        }
+        $out[$rid][] = [
+            'id'         => (int) $row['id'],
+            'type'       => (string) $row['type'],
+            'title'      => (string) $row['title'],
+            'body'       => (string) ($row['body'] ?? ''),
+            'actor'      => (string) ($row['actor'] ?? 'system'),
+            'status'     => (string) ($row['status'] ?? ''),
+            'created_at' => (string) ($row['created_at'] ?? ''),
+        ];
+    }
+    return $out;
+}

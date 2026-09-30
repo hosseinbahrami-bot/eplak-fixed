@@ -366,6 +366,7 @@ function createReport(PDO $pdo, array $data): int {
 }
 
 function updateReport(PDO $pdo, int $id, array $data): void {
+    $before = getReportById($pdo, $id);
     $stmt = $pdo->prepare('UPDATE reports SET user_phone = :user_phone, title = :title, description = :description, category = :category, department = :department, sub_department = :sub_department, location = :location, status = :status WHERE id = :id');
     $stmt->execute([
         ':user_phone' => trim((string)($data['user_phone'] ?? '')),
@@ -378,6 +379,17 @@ function updateReport(PDO $pdo, int $id, array $data): void {
         ':status' => normalizeStatusValue((string)($data['status'] ?? 'pending')),
         ':id' => $id,
     ]);
+
+    /* روند رسیدگی: تغییرات مهم ویرایش، به زبان شهروند ثبت می‌شود */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/media.php';
+        eplakReportTimelineBootstrap($pdo, $id, is_array($before) ? $before : []);
+        if (is_array($before)) {
+            eplakReportEventEdit($pdo, $id, $before, $data);
+        }
+    } catch (Throwable $e) {
+        /* بی‌اهمیت */
+    }
 }
 
 function getReportById(PDO $pdo, int $id): ?array {
@@ -390,11 +402,30 @@ function getReportById(PDO $pdo, int $id): ?array {
 
 function saveReportReply(PDO $pdo, int $id, string $reply, string $status): void {
     $normStatus = normalizeStatusValue($status);
+
+    /* وضعیت پیشین برای ثبت گام «تغییر وضعیت» در روند رسیدگی */
+    $previous = getReportById($pdo, $id);
+    $previousStatus = $previous ? normalizeStatusValue((string) ($previous['status'] ?? '')) : '';
+
     $stmt = $pdo->prepare('UPDATE reports SET reply = :reply, status = :status WHERE id = :id');
     $stmt->bindValue(':reply', $reply);
     $stmt->bindValue(':status', $normStatus);
     $stmt->bindValue(':id', $id, PDO::PARAM_INT);
     $stmt->execute();
+
+    /* ── روند رسیدگی: همان گام‌هایی که شهروند در اپ می‌بیند ─────────────
+       گام شروع برای گزارش‌های قدیمی هم ساخته می‌شود و گام تغییر وضعیت
+       تنها وقتی ثبت می‌شود که وضعیت واقعاً عوض شده یا پاسخ تازه‌ای آمده
+       باشد؛ پس با هر بار ذخیره، روند شلوغ نمی‌شود. */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/media.php';
+        eplakReportTimelineBootstrap($pdo, $id, is_array($previous) ? $previous : []);
+        if ($previousStatus !== $normStatus || trim($reply) !== '') {
+            eplakReportEventStatus($pdo, $id, $normStatus, $reply);
+        }
+    } catch (Throwable $e) {
+        /* روند رسیدگی هرگز نباید ذخیره‌ی وضعیت را متوقف کند */
+    }
 
     // ارسال خودکار اعلان به شهروند ثبت‌کننده در صورت پاسخ یا تغییر وضعیت
     try {

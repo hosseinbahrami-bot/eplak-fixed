@@ -846,6 +846,13 @@
   const REPORT_IMAGE_MAX_SIDE = 1600;
   const REPORT_IMAGE_QUALITY = 0.82;
   const REPORT_IMAGE_SKIP_BELOW = 400 * 1024;
+  /* ── سقف حجم عکسِ آماده‌ی ارسال ─────────────────────────────────────
+     تجربه‌ی میدانی روی همین هاست: درخواست‌های کوچک همیشه عبور می‌کنند ولی
+     درخواست‌های چند صد کیلوبایتی حاوی base64 ممکن است وسط راه بسته شوند.
+     پس عکس پیش از ارسال تا حد امکان سبک می‌شود (کمتر از ~۲۲۰ کیلوبایت) تا
+     در همان درخواست کوچکِ گزارش جا بگیرد و هیچ‌وقت به مسیر تکه‌تکه نیفتد. */
+  const REPORT_IMAGE_TARGET_BYTES = 220 * 1024;
+  const REPORT_IMAGE_MIN_SIDE = 720;
 
   function loadImageElement(file) {
     return new Promise(function (resolve, reject) {
@@ -884,30 +891,51 @@
     const h = img.naturalHeight || img.height;
     if (!w || !h) return file;
 
-    const scale = Math.min(1, REPORT_IMAGE_MAX_SIDE / Math.max(w, h));
-    const targetW = Math.max(1, Math.round(w * scale));
-    const targetH = Math.max(1, Math.round(h * scale));
+    const maxSide = Math.max(w, h);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return file;
-    /* پس‌زمینه‌ی سفید برای عکس‌های شفاف (PNG) تا تبدیل به JPEG سیاه نشود */
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, targetW, targetH);
-    ctx.drawImage(img, 0, 0, targetW, targetH);
+    /* چند مرحله‌ی کاهش حجم؛ اولین نتیجه‌ی زیر سقف برنده است. اگر هیچ‌کدام
+       زیر سقف نرفت، سبک‌ترین نتیجه‌ی ساخته‌شده برگردانده می‌شود. */
+    const scales = [1, 0.85, 0.7, 0.55, 0.42];
+    const qualities = [0.82, 0.7, 0.6, 0.5];
+    let best = null;
 
-    const blob = await canvasToBlob(canvas, 'image/jpeg', REPORT_IMAGE_QUALITY);
-    if (!blob || blob.size >= file.size) return file;
+    for (const scale of scales) {
+      const side = Math.min(REPORT_IMAGE_MAX_SIDE, Math.round(maxSide * scale));
+      if (side < REPORT_IMAGE_MIN_SIDE && best) break;
+      const targetW = Math.max(1, Math.round(w * (side / maxSide)));
+      const targetH = Math.max(1, Math.round(h * (side / maxSide)));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return best ? best.blob : file;
+      /* پس‌زمینه‌ی سفید برای عکس‌های شفاف (PNG) تا تبدیل به JPEG سیاه نشود */
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+
+      for (const quality of qualities) {
+        const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+        if (!blob || blob.size === 0) continue;
+        if (!best || blob.size < best.blob.size) best = { blob: blob };
+        if (blob.size <= REPORT_IMAGE_TARGET_BYTES) {
+          best = { blob: blob };
+          break;
+        }
+      }
+      if (best && best.blob.size <= REPORT_IMAGE_TARGET_BYTES) break;
+    }
+
+    if (!best || !best.blob || best.blob.size >= file.size) return file;
 
     const newName = (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg';
     try {
-      return new File([blob], newName, { type: 'image/jpeg', lastModified: Date.now() });
+      return new File([best.blob], newName, { type: 'image/jpeg', lastModified: Date.now() });
     } catch (e) {
       /* مرورگرهای قدیمی که سازنده‌ی File را پشتیبانی نمی‌کنند */
-      blob.name = newName;
-      return blob;
+      best.blob.name = newName;
+      return best.blob;
     }
   }
 
@@ -933,10 +961,17 @@
 
     /* حجم‌های غیرمجاز همان‌جا رد می‌شوند تا کاربر بعد از ثبت گزارش غافلگیر نشود */
     let rejected = 0;
+    let unreadable = 0;
     const accepted = [];
     chosen.forEach(file => {
       const kind = detectMediaKind(file);
       const maxMb = kind === 'video' ? REPORT_MEDIA_MAX_VIDEO_MB : REPORT_MEDIA_MAX_IMAGE_MB;
+      if (!file.size) {
+        /* فایل با حجم صفر یعنی سیستم دسترسی خواندن آن را به اپ نداده است
+           (همان چیزی که در نسخه‌های قبلی اپ رخ می‌داد). */
+        unreadable++;
+        return;
+      }
       if (file.size > maxMb * 1024 * 1024) {
         rejected++;
         showToast('حجم ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' «' + file.name + '» بیش از ' + maxMb + ' مگابایت است؛ فایل سبک‌تری انتخاب کنید');
@@ -944,6 +979,15 @@
       }
       accepted.push({ file: file, kind: kind });
     });
+
+    if (unreadable > 0) {
+      saveUploadLog({
+        time: (new Date()).toLocaleString('fa-IR'),
+        text: 'انتخاب فایل — ' + toPersianDigits(unreadable) + ' فایل با حجم صفر (ناخوانا) دریافت شد؛ '
+          + 'دسترسی خواندن فایل به اپ داده نشده است.'
+      });
+      showToast('فایل انتخاب‌شده خوانده نشد؛ اپ را به نسخه‌ی تازه (۲.۰.۲۴) به‌روز کنید یا فایل را از گالری انتخاب کنید');
+    }
 
     if (accepted.some(item => item.kind === 'image')) {
       showToast('در حال آماده‌سازی عکس‌ها…');
@@ -1587,6 +1631,15 @@
   }
   window.flushPendingUploads = flushPendingUploads;
 
+  /* گزارش نتیجه‌ی انتخاب فایل از سمت اندروید (اگر اندروید فایلی را کپی کرده
+     باشد) — برای عیب‌یابی سریع روشن می‌کند که فایل به‌دست صفحه رسیده یا نه. */
+  window.eplakNativeFilesPicked = function (copied, total) {
+    saveUploadLog({
+      time: (new Date()).toLocaleString('fa-IR'),
+      text: 'انتخاب فایل از گالری — ' + toPersianDigits(total) + ' فایل • آماده‌سازی موفق: ' + toPersianDigits(copied)
+    });
+  };
+
   window.addEventListener('online', function () { flushPendingUploads(); });
   setTimeout(flushPendingUploads, 2500);
 
@@ -1859,21 +1912,59 @@
     // قالب‌بندی کامل تاریخ همراه با ساعت برای بخش روند رسیدگی زیر ثبت گزارش
     const submitDateTime = formatReportDateTime(r.rawDate || r.created_at || r.dateTime || r.date);
 
-    let timelineBase;
+    /* ── روند رسیدگی ────────────────────────────────────────────────────
+       گام‌های واقعی از سرور می‌آیند (همان‌هایی که مدیر شهرداری در پنل ثبت
+       می‌کند) و اگر گزارش هنوز گامی نداشته باشد، روند پایه از روی وضعیت
+       فعلی ساخته می‌شود تا کاربر همیشه تصویر کامل را ببیند. */
+    const TIMELINE_STEPS = [
+      { key: 'created',  icon: '📝', label: 'ثبت گزارش توسط شهروند' },
+      { key: 'assigned', icon: '🏢', label: 'ارجاع به واحد مربوطه' },
+      { key: 'progress', icon: '🔎', label: 'بررسی کارشناس' },
+      { key: 'reply',    icon: '💬', label: 'پاسخ مدیریت' },
+      { key: 'done',     icon: '✅', label: 'پایان رسیدگی' }
+    ];
+    const eventIcon = {
+      created: '📝', assigned: '🏢', status: '🔄', reply: '💬',
+      edit: '✏️', media: '📎', note: '•', progress: '🔎', done: '✅'
+    };
+    const actorLabel = { admin: 'شهرداری', citizen: 'شهروند', system: 'سامانه' };
+
+    const timelineBase = [];
+    const pushStep = (step) => {
+      if (!step || !step.label) return;
+      timelineBase.push({
+        icon: step.icon || '•',
+        label: step.label,
+        body: step.body || '',
+        date: step.date || '—',
+        actor: actorLabel[step.actor] || step.actor || '',
+        done: step.done !== false
+      });
+    };
+
     if (Array.isArray(r.timeline) && r.timeline.length) {
-      timelineBase = r.timeline.map((step, idx) => {
-        if (idx === 0 && (!step.date || step.date === '—' || !step.date.includes(':'))) {
-          return { ...step, date: submitDateTime };
-        }
-        return step;
+      r.timeline.forEach(step => {
+        const when = formatReportDateTime(step.created_at || step.date || '');
+        pushStep({
+          icon: eventIcon[step.type] || '•',
+          label: step.title || step.label || 'گام رسیدگی',
+          body: step.body || '',
+          date: when,
+          actor: step.actor || 'system',
+          done: true
+        });
       });
     } else {
-      timelineBase = [
-        { label: translateText('ثبت گزارش'), date: submitDateTime, done: true },
-        { label: translateText('بررسی اولیه'), date: (safeStatus === 'in_progress' || safeStatus === 'done') ? submitDateTime : '—', done: safeStatus === 'in_progress' || safeStatus === 'done' },
-        { label: translateText('ارجاع به واحد مربوطه'), date: safeStatus === 'done' ? '—' : '—', done: safeStatus === 'done' },
-        { label: translateText('پاسخ مدیریت'), date: replyText ? '—' : '—', done: !!replyText }
-      ];
+      /* روند پایه وقتی گزارش هنوز در سرور گامی ندارد */
+      pushStep({ icon: '📝', label: 'ثبت گزارش توسط شهروند', date: submitDateTime, actor: 'citizen', done: true });
+      const progressed = safeStatus === 'in_progress' || safeStatus === 'done';
+      if (progressed) pushStep({ icon: '🏢', label: 'ارجاع به واحد مربوطه', date: submitDateTime, actor: 'system', done: true });
+      if (safeStatus === 'in_progress') pushStep({ icon: '🔎', label: 'بررسی کارشناس', date: 'در حال انجام', actor: 'admin', done: true });
+      if (replyText) pushStep({ icon: '💬', label: 'پاسخ مدیریت', body: replyText, date: '—', actor: 'admin', done: true });
+      if (safeStatus === 'done') pushStep({ icon: '✅', label: 'پایان رسیدگی', date: '—', actor: 'admin', done: true });
+      if (safeStatus !== 'done') {
+        pushStep({ icon: '⏳', label: 'در انتظار اقدام شهرداری', date: 'گام بعدی', actor: 'system', done: false });
+      }
     }
 
     activeReportId = id;
@@ -1963,21 +2054,59 @@
       }
     }
 
-    document.getElementById('detailTimeline').innerHTML = timelineBase.map((step, idx) => {
+    const timelineHtml = timelineBase.map((step, idx) => {
       const isLast = idx === timelineBase.length - 1;
       const dotClass = step.done ? 'done' : (idx > 0 && timelineBase[idx - 1].done && !step.done ? 'current' : '');
       return `
-        <div class="timeline-row">
+        <div class="timeline-row ${step.done ? 'is-done' : 'is-waiting'}">
           <div class="timeline-marker">
-            <div class="timeline-dot ${dotClass}"></div>
+            <div class="timeline-dot ${dotClass}">${step.done ? '✓' : ''}</div>
             ${!isLast ? `<div class="timeline-line ${step.done ? 'done' : ''}"></div>` : ''}
           </div>
           <div class="timeline-content">
-            <h5>${escapeHtml(step.label)}</h5>
-            <p>${step.date || '—'}</p>
+            <div class="timeline-head">
+              <span class="timeline-icon">${step.icon || '•'}</span>
+              <h5>${escapeHtml(step.label)}</h5>
+              ${step.actor ? `<span class="timeline-actor actor-${step.actor === 'شهرداری' ? 'admin' : (step.actor === 'شهروند' ? 'citizen' : 'system')}">${escapeHtml(step.actor)}</span>` : ''}
+            </div>
+            ${step.body ? `<p class="timeline-body">${escapeHtml(step.body)}</p>` : ''}
+            <p class="timeline-date">${escapeHtml(step.date || '—')}</p>
           </div>
         </div>`;
     }).join('');
+
+    const timelineEl = document.getElementById('detailTimeline');
+    if (timelineEl) {
+      timelineEl.innerHTML = timelineHtml;
+      /* گام جاری با یک نوار متحرک نشان داده می‌شود تا کاربر بفهمد کار در
+         جریان است (هم‌خوان با روند پنل ادمین). */
+      const currentRow = timelineEl.querySelector('.timeline-row.is-waiting .timeline-dot.current');
+      if (currentRow) currentRow.classList.add('pulse');
+    }
+
+    /* ── کارت وضعیت: همان گام‌ها به‌صورت خلاصه (بالای صفحه) ─────────────
+       نظیر همان ستون «وضعیت» در پنل ادمین؛ تعداد گام‌های ثبت‌شده هم نمایش
+       داده می‌شود تا کاربر ببیند درخواستش در جریان است. */
+    const summaryEl = document.getElementById('detailStatusSummary');
+    if (summaryEl) {
+      const doneCount = timelineBase.filter(x => x.done).length;
+      const waiting = safeStatus !== 'done';
+      summaryEl.innerHTML = `
+        <div class="status-summary-box ${statusMeta.className}">
+          <div class="status-summary-main">
+            <span class="status-summary-icon">${waiting ? '⏳' : '✅'}</span>
+            <div>
+              <p class="status-summary-label">وضعیت فعلی</p>
+              <p class="status-summary-value">${escapeHtml(statusMeta.label)}</p>
+            </div>
+          </div>
+          <div class="status-summary-side">
+            <p class="status-summary-label">گام‌های رسیدگی</p>
+            <p class="status-summary-value">${toPersianDigits(doneCount)} گام ثبت شده</p>
+          </div>
+        </div>`;
+    }
+
     showScreen('screen-report-detail');
   }
 
