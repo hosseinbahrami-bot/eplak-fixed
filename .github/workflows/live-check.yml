@@ -46,7 +46,7 @@ jobs:
           # آزمون واقعی سرتاسری: با اجرای دستی و تیک «smoke» یا با متغیر مخزن
           # EPLAK_RUN_SMOKE=1 فعال می‌شود (به‌صورت پیش‌فرض خاموش است تا روی
           # سایت داده‌ی آزمایشی ساخته نشود).
-          EPLAK_SMOKE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.smoke) || vars.EPLAK_RUN_SMOKE == '1') && '1' || '0' }}
+          EPLAK_SMOKE: '1'   # موقتی: اجرای آزمون واقعی سرتاسری برای همین کامیت
         run: |
           URL="${SITE_URL:-https://eplak.ir/eplak-fixed}"
           echo "آدرس بررسی‌شده: $URL"
