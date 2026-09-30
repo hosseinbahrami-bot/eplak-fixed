@@ -3387,6 +3387,10 @@ html[data-theme="dark"] .empty-note { color: var(--dark-400); }
 .media-chip:hover .media-chip-dl { opacity: 1; }
 .media-chip-dl:hover { color: var(--primary-500); }
 
+/* فیلم‌ها پس‌زمینه‌ی تیره‌ی ملایم دارند تا پیش‌نمایش بهتر دیده شود */
+.media-strip-video { margin-top: 8px; }
+.media-chip-video { background: #0b1220; }
+
 .media-chip-play {
   position: absolute;
   inset: 0;
