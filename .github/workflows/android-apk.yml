@@ -202,7 +202,7 @@ jobs:
           except Exception as e:
               print('ERR ' + str(e))
               sys.exit(0)
-          print('DEXFILES=' + ','.join(dex))
+          print('DEXFILES=' + ','.join(dex), end=' ')
           for label, options in probes.items():
               hit = ''
               for needle in options:
@@ -222,7 +222,7 @@ jobs:
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|ACCESS_FINE_LOCATION'; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|addressBridge' && printf '%s\n' "$DEX_REPORT" | grep -q 'YES|geocoder'; then ADDR_KOTLIN="✅"; else ADDR_KOTLIN="❌ (پل آدرس‌یاب گوشی داخل اپ کامپایل نشده)"; DEX_BAD=$((DEX_BAD+1)); fi
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|webviewNetwork'; then NET_KOTLIN="✅"; else NET_KOTLIN="❌ (اجازه‌ی درخواست شبکه از صفحه‌ی اپ دیده نشد)"; DEX_BAD=$((DEX_BAD+1)); fi
-          DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | grep '^DEXFILES=' | cut -d= -f2)"
+          DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | sed -n 's/^DEXFILES=\([^ ]*\).*/\1/p')"
           echo "بررسی کد داخل APK: $(printf '%s\n' "$DEX_REPORT" | tr '\n' ' ')"
 
           {
@@ -303,7 +303,6 @@ jobs:
             echo "APK_FCM_WIRED=$FCM_WIRED"
             echo "APK_VERIFY=$VERIFY_SUMMARY"
             echo "APK_DEX_SUMMARY=$DEX_SUMMARY"
-            echo "APK_DEX_REPORT=$DEX_REPORT"
             echo "APK_ONLINE_CODE=$ONLINE_CODE"
             echo "APK_OFFLINE_UI=$OFFLINE_UI"
             echo "APK_DELETE_CODE=$DELETE_CODE"
