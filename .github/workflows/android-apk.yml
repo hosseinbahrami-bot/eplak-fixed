@@ -69,6 +69,14 @@ jobs:
             echo "::warning title=فایربیس تنظیم نشده::فایل android-app/app/google-services.json وجود ندارد؛ APK ساخته می‌شود ولی اعلان در حالت بسته بودن اپ کار نمی‌کند (راهنما: docs/DEPLOY_UPDATE_FA.md بخش ۶)."
           fi
 
+      - name: درج شماره‌ی ساخت در نسخه‌ی اپ
+        run: |
+          RUN="${{ github.run_number }}"
+          sed -i "s/versionCode [0-9]\+/versionCode $RUN/" android-app/app/build.gradle
+          sed -i "s/versionName '[^']*'/versionName '2.0.$RUN'/" android-app/app/build.gradle
+          echo "نسخه‌ی این ساخت:"
+          grep -nE "versionCode|versionName" android-app/app/build.gradle
+
       - name: ساخت APK
         working-directory: android-app
         run: |
