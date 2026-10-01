@@ -127,7 +127,7 @@
 ### راه اول: از خود سایت گیت‌هاب (پیشنهادی — بدون نصب برنامه)
 
 1. به این آدرس بروید:
-   👉 **<https://github.com/hosseinbahrami-bot/eplak-fixed/tree/arena/01a0f647-eplak-fixed/android-app/app>**
+   👉 **<https://github.com/hosseinbahrami-bot/eplak-fixed/tree/main/android-app/app>**
 2. بالای لیست فایل‌ها روی **Add file** → **Upload files** کلیک کنید.
 3. فایل `google-services.json` را از پوشه‌ی Downloads بکشید و در همان کادر رها کنید.
 4. پایین صفحه در کادر توضیح بنویسید: `افزودن google-services.json فایربیس`

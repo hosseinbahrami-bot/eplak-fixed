@@ -383,7 +383,7 @@ say ""
 
 # ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
 hdr "۶) لینک‌های دانلود (گیت‌هاب)"
-ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip"
+ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/main/eplak-fixed-update.zip"
 REL_BASE="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update"
 APK_URL="$REL_BASE/eplak-app.apk"
 IPA_URL="$REL_BASE/eplak-app-unsigned.ipa"
