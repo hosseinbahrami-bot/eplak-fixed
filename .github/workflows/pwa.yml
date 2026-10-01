@@ -1,0 +1,109 @@
+# ============================================================================
+#  ساخت و آزمون «PWA مستقل» (بسته‌ی ایستا برای میزبان‌های بدون PHP)
+#
+#  PWA همان سایت است؛ وقتی بسته‌ی هاست را Extract می‌کنید، خودِ https://eplak.ir/eplak-fixed/ یک
+#  PWA کامل است. این ورک‌فلو یک نسخه‌ی «ایستا» هم می‌سازد (tools/build-pwa.sh) که آدرس API را
+#  روی سرور اصلی می‌گذارد و می‌توان آن را روی GitHub Pages / Netlify / هر پوشه‌ی دیگر گذاشت.
+#
+#  چه می‌شود؟
+#   ۱) بسته ساخته می‌شود (eplak-pwa.zip)
+#   ۲) در Chrome واقعی و روی یک origin جدا (مثل میزبان ایستا) باز می‌شود و با سرور واقعی ای‌پلاک
+#      حرف می‌زند: پینگ/CORS، قابلیت نصب (Page.getInstallabilityErrors)، سرویس‌ورکر، manifest،
+#      نقشه‌ی اماکن (tools/pwa-smoke.mjs) + عکس از صفحه
+#   ۳) فقط اگر آزمون گذشت، zip به همان صفحه‌ی Releases پیوست می‌شود
+# ============================================================================
+name: Build PWA package
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+    paths:
+      - 'index.html'
+      - 'app.js'
+      - 'manifest.json'
+      - 'sw.js'
+      - 'core/**'
+      - 'modules/**'
+      - 'views/**'
+      - 'assets/**'
+      - 'tools/build-pwa.sh'
+      - 'tools/pwa-smoke.mjs'
+      - '.github/workflows/pwa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pwa-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v2.0-eplak-update
+
+jobs:
+  pwa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v5
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: ساخت بسته‌ی PWA
+        run: bash tools/build-pwa.sh pwa-dist eplak-pwa.zip
+
+      - name: نصب puppeteer-core (Chrome خودِ سرور استفاده می‌شود)
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix tools puppeteer-core@23
+          google-chrome --version
+
+      - name: آزمون دودی PWA در Chrome واقعی
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node tools/pwa-smoke.mjs pwa-dist pwa-evidence
+
+      - name: بارگذاری عکس‌ها و گزارش آزمون
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-evidence
+          path: pwa-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: پیوست به Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum eplak-pwa.zip | tee eplak-pwa.zip.sha256
+          gh release upload "$RELEASE_TAG" eplak-pwa.zip eplak-pwa.zip.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+          {
+            echo "## PWA مستقل"
+            echo ""
+            echo "- فایل: \`eplak-pwa.zip\` — $(stat -c%s eplak-pwa.zip) بایت"
+            echo "- SHA-256: \`$(cut -d' ' -f1 eplak-pwa.zip.sha256)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: (موقت) ارسال عکس‌های آزمون PWA به یک برچسب گیت برای بازبینی دستیار
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          [ -d pwa-evidence ] || exit 0
+          D="$RUNNER_TEMP/evidence-repo"; rm -rf "$D"; mkdir -p "$D"; cp -R pwa-evidence/. "$D"/
+          cd "$D" || exit 0
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "pwa smoke evidence (run ${GITHUB_RUN_NUMBER})"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/pwa-evidence-${GITHUB_RUN_NUMBER}"
+          exit 0

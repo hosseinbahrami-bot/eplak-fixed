@@ -1,5 +1,6 @@
 import UIKit
 import WebKit
+import CoreLocation
 
 /// ای‌پلاک — پوسته‌ی iOS.
 ///
@@ -12,6 +13,7 @@ import WebKit
 /// کارهایی که فقط پوسته‌ی نیتیو می‌تواند انجام دهد:
 ///  • باز کردن برنامه‌ی «نشان» (neshan://)، تلفن، پیامک و لینک‌های وب بیرون از اپ
 ///  • اجازه‌ی دوربین/میکروفون برای وب (iOS 15+)، و پنجره‌های alert/confirm/prompt
+///  • موقعیت مکانی (GPS) از CoreLocation — جایگزین navigator.geolocation (پایین، «GeoBridge»)
 ///  • لرزش لمسی (haptic)، اشتراک‌گذاری و دکمه‌ی بازگشت با لبه‌ی صفحه
 ///
 /// آزمون دودی (فقط CI): اگر برنامه با «-eplakSelfTest» اجرا شود، چند مرحله را روی صفحه‌ی واقعی
@@ -25,6 +27,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
     private let selfTestMode = ProcessInfo.processInfo.arguments.contains("-eplakSelfTest")
     private var selfTestStarted = false
     private var externalOpens: [String] = []
+
+    /// موقعیت مکانی برای وب‌اپ (جایگزین navigator.geolocation)؛ پایین‌تر توضیح داده شده
+    private lazy var geo: GeoBridge = GeoBridge(run: { [weak self] js in
+        DispatchQueue.main.async { self?.webView.evaluateJavaScript(js, completionHandler: nil) }
+    })
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
         return .lightContent
@@ -50,6 +57,10 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
         contentController.add(self, name: "iOSApp")
         // به صفحه خبر می‌دهد که داخل پوسته‌ی نیتیو است
         contentController.addUserScript(WKUserScript(source: "window.EPLAK_IOS_APP = true;",
+                                                     injectionTime: .atDocumentStart,
+                                                     forMainFrameOnly: true))
+        // navigator.geolocation را به CoreLocation وصل می‌کند (جلوگیری از پنجره‌ی «مسیر فایل … می‌خواهد موقعیت شما را بداند»)
+        contentController.addUserScript(WKUserScript(source: ViewController.geolocationShim,
                                                      injectionTime: .atDocumentStart,
                                                      forMainFrameOnly: true))
         configuration.userContentController = contentController
@@ -173,6 +184,14 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
         case "openUrl":
             if let text = body["url"] as? String, let url = URL(string: text) {
                 openExternally(url)
+            }
+        case "geoGet":
+            if let id = body["id"] as? Int {
+                geo.request(id: id, high: (body["high"] as? Bool) ?? false)
+            }
+        case "geoStatus":
+            if let id = body["id"] as? Int {
+                geo.status(id: id)
             }
         case "exitApp":
             // طبق رهنمود اپل برنامه نباید خودش را ببندد؛ در صورت درخواست فقط به پس‌زمینه می‌رود
@@ -332,6 +351,125 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
         }
     }
 
+    /// جایگزین navigator.geolocation و navigator.permissions.query({name:'geolocation'}) که به پل نیتیو
+    /// (GeoBridge) وصل است. چرا؟ وقتی صفحه از file:// باز است، WebKit برای هر بار موقعیت‌خواهی پنجره‌ای با
+    /// «مسیر کامل index.html داخل برنامه» نشان می‌دهد (در آزمون شبیه‌ساز دیده شد) و تا پاسخ کاربر هیچ نتیجه‌ای
+    /// نمی‌دهد. با این پل فقط پنجره‌ی اجازه‌ی خودِ iOS (متن فارسی Info.plist) و فقط یک‌بار می‌آید.
+    private static let geolocationShim = #"""
+    (function () {
+      'use strict';
+      if (window.__eplakGeoShim) { return; }
+      var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iOSApp;
+      if (!h) { return; }
+      window.__eplakGeoShim = true;
+
+      var seq = 0, pending = {}, statusWaiters = {}, watches = {}, last = null;
+
+      function GeoError(code, message) { this.code = code; this.message = message || ''; }
+      GeoError.prototype.PERMISSION_DENIED = 1;
+      GeoError.prototype.POSITION_UNAVAILABLE = 2;
+      GeoError.prototype.TIMEOUT = 3;
+
+      function toPosition(r) {
+        return {
+          coords: { latitude: r.lat, longitude: r.lng, accuracy: r.acc || 0, altitude: null, altitudeAccuracy: null, heading: null, speed: null },
+          timestamp: r.ts || Date.now()
+        };
+      }
+
+      function finish(id, fn) {
+        var p = pending[id];
+        if (!p) { return; }
+        delete pending[id];
+        if (p.timer) { clearTimeout(p.timer); }
+        fn(p);
+      }
+
+      function ask(opts, ok, fail) {
+        var id = ++seq;
+        var t = (opts && isFinite(opts.timeout) && opts.timeout >= 0) ? Number(opts.timeout) : 60000;
+        pending[id] = { ok: ok, fail: fail, timeout: t, timer: null };
+        try {
+          h.postMessage({ action: 'geoGet', id: id, high: !!(opts && opts.enableHighAccuracy) });
+        } catch (e) {
+          finish(id, function (p) { if (p.fail) { p.fail(new GeoError(2, 'Position unavailable')); } });
+        }
+      }
+
+      /* مهلت از لحظه‌ای شروع می‌شود که iOS واقعاً دنبال موقعیت رفته (نه وقتی پنجره‌ی اجازه باز است) */
+      window.__eplakGeoStarted = function (id) {
+        var p = pending[id];
+        if (!p || p.timer) { return; }
+        p.timer = setTimeout(function () {
+          finish(id, function (q) { if (q.fail) { q.fail(new GeoError(3, 'Timeout expired')); } });
+        }, p.timeout);
+      };
+
+      window.__eplakGeoResult = function (id, r) {
+        finish(id, function (p) {
+          if (r && r.ok) { last = toPosition(r); if (p.ok) { p.ok(last); } }
+          else if (p.fail) { p.fail(new GeoError((r && r.code) || 2, (r && r.message) || 'Position unavailable')); }
+        });
+      };
+
+      window.__eplakGeoStatus = function (id, state) {
+        var w = statusWaiters[id];
+        if (w) { delete statusWaiters[id]; w(state); }
+      };
+
+      var geo = {
+        getCurrentPosition: function (ok, fail, opts) {
+          var maxAge = (opts && isFinite(opts.maximumAge)) ? Number(opts.maximumAge) : 0;
+          if (last && maxAge > 0 && (Date.now() - last.timestamp) <= maxAge) {
+            var cached = last;
+            setTimeout(function () { if (ok) { ok(cached); } }, 0);
+            return;
+          }
+          ask(opts, ok, fail);
+        },
+        watchPosition: function (ok, fail, opts) {
+          var wid = ++seq, active = true;
+          watches[wid] = function () { active = false; };
+          (function tick() {
+            if (!active) { return; }
+            ask(opts, function (pos) {
+              if (!active) { return; }
+              if (ok) { ok(pos); }
+              setTimeout(tick, 3000);
+            }, function (err) {
+              if (!active) { return; }
+              if (fail) { fail(err); }
+              if (err && err.code !== 1) { setTimeout(tick, 5000); }
+            });
+          })();
+          return wid;
+        },
+        clearWatch: function (wid) {
+          var stop = watches[wid];
+          if (stop) { stop(); delete watches[wid]; }
+        }
+      };
+
+      var realPerms = navigator.permissions;
+      var perms = {
+        query: function (desc) {
+          if (desc && desc.name === 'geolocation') {
+            return new Promise(function (resolve) {
+              var id = ++seq;
+              statusWaiters[id] = function (state) { resolve({ state: state, onchange: null }); };
+              try { h.postMessage({ action: 'geoStatus', id: id }); }
+              catch (e) { delete statusWaiters[id]; resolve({ state: 'prompt', onchange: null }); }
+            });
+          }
+          return (realPerms && typeof realPerms.query === 'function') ? realPerms.query(desc) : Promise.reject(new TypeError('Unsupported permission'));
+        }
+      };
+
+      try { Object.defineProperty(navigator, 'geolocation', { value: geo, configurable: true }); } catch (e) { /* WebKit خودش جواب می‌دهد */ }
+      try { Object.defineProperty(navigator, 'permissions', { value: perms, configurable: true }); } catch (e) { /* WebKit خودش جواب می‌دهد */ }
+    })();
+    """#
+
     /// مرحله ۱: صفحه از file:// بالا آمده؟ ماژول‌ها هستند؟ سرور (api/ping.php) از داخل WKWebView جواب می‌دهد؟
     private static let selfTestStage1 = #"""
     const out = { stage: 1 };
@@ -349,6 +487,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
     out.screen = (document.querySelector('.screen.active') || {}).id || null;
     out.offlineGate = document.documentElement.classList.contains('eplak-offline');
     out.online = navigator.onLine;
+    out.geoShim = window.__eplakGeoShim === true;
+    try { out.geoPermission = (await navigator.permissions.query({ name: 'geolocation' })).state; } catch (e) { out.geoPermission = 'error: ' + String(e); }
     try {
       const r = await fetch((out.apiBase || '') + '/ping.php?_=' + Date.now(), { cache: 'no-store' });
       const t = await r.text();
@@ -397,4 +537,101 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
     await new Promise(function (r) { setTimeout(r, 2500); });
     return JSON.stringify(out);
     """#
+}
+
+/// موقعیت مکانی برای وب‌اپ: درخواست‌های شیمِ جاوااسکریپت (geoGet / geoStatus) را با CoreLocation جواب می‌دهد.
+/// پنجره‌ی اجازه‌ی iOS فقط یک‌بار می‌آید و متنش از Info.plist (NSLocationWhenInUseUsageDescription) است.
+final class GeoBridge: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var waiting: [Int] = []
+    private let run: (String) -> Void
+
+    init(run: @escaping (String) -> Void) {
+        self.run = run
+        super.init()
+        manager.delegate = self
+    }
+
+    /// وضعیت اجازه به شکل Permissions API: granted / denied / prompt
+    func status(id: Int) {
+        let state: String
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            state = "granted"
+        case .denied, .restricted:
+            state = "denied"
+        default:
+            state = "prompt"
+        }
+        run("window.__eplakGeoStatus && window.__eplakGeoStatus(\(id), '\(state)');")
+    }
+
+    func request(id: Int, high: Bool) {
+        manager.desiredAccuracy = high ? kCLLocationAccuracyBest : kCLLocationAccuracyHundredMeters
+        waiting.append(id)
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            begin()
+        case .denied, .restricted:
+            fail(code: 1, message: "Location permission denied")
+        default:
+            // اولین بار: پنجره‌ی اجازه‌ی iOS؛ مهلتِ صفحه تا پاسخ کاربر شروع نمی‌شود
+            manager.requestWhenInUseAuthorization()
+        }
+    }
+
+    private func begin() {
+        for id in waiting {
+            run("window.__eplakGeoStarted && window.__eplakGeoStarted(\(id));")
+        }
+        manager.requestLocation()
+    }
+
+    private func fail(code: Int, message: String) {
+        let ids = waiting
+        waiting = []
+        for id in ids {
+            send(id, ["ok": false, "code": code, "message": message])
+        }
+    }
+
+    private func send(_ id: Int, _ payload: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        run("window.__eplakGeoResult && window.__eplakGeoResult(\(id), \(json));")
+    }
+
+    // MARK: - CLLocationManagerDelegate
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard !waiting.isEmpty else { return }
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            begin()
+        case .denied, .restricted:
+            fail(code: 1, message: "Location permission denied")
+        default:
+            break
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        let ids = waiting
+        waiting = []
+        for id in ids {
+            send(id, [
+                "ok": true,
+                "lat": location.coordinate.latitude,
+                "lng": location.coordinate.longitude,
+                "acc": max(location.horizontalAccuracy, 0),
+                "ts": Int(location.timestamp.timeIntervalSince1970 * 1000)
+            ])
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        let denied = (error as? CLError)?.code == .denied
+        fail(code: denied ? 1 : 2, message: error.localizedDescription)
+    }
 }

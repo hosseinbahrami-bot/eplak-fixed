@@ -90,7 +90,10 @@ jobs:
           echo "SIM_APP=$APP" >> "$GITHUB_ENV"
 
       - name: آزمون دودی روی شبیه‌ساز (اجرای واقعی اپ)
-        run: bash ios-app/ci/simulator-smoke.sh "$SIM_APP" "$GITHUB_WORKSPACE/evidence"
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          bash ios-app/ci/simulator-smoke.sh "$SIM_APP" "$GITHUB_WORKSPACE/evidence" 2>&1 | tee evidence/smoke.log
 
       - name: بارگذاری عکس‌ها و گزارش آزمون دودی
         if: always()

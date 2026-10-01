@@ -32,6 +32,9 @@
 #                 کاربر در اپ اندروید، مرورگر اندروید، iOS و دسکتاپ (jsdom)
 #    placesadmin → «اماکن شهری» از پنل ادمین: افزودن/اصلاح/پنهان/حذف (ورود، CSRF،
 #                 اعتبارسنجی، XSS)، api/places.php، و رسیدن همان JSON به فهرست اپ
+#    ios        → نسخه‌ی iOS (ios-app/): بسته‌ی وبِ داخل اپ همان مجموعه‌ی اندروید است و همه‌ی
+#                 فایل‌های index.html را دارد، Info.plist/پروژه‌ی Xcode/سورس Swift، اسکریپت
+#                 آزمون دودیِ شبیه‌ساز، ورک‌فلوهای CI، و نرفتن ios-app به بسته‌ی هاست
 # ============================================================================
 set -uo pipefail
 
@@ -63,6 +66,13 @@ if [ ! -d node_modules/jsdom ]; then
     echo "❌ نصب jsdom ناموفق بود. اتصال اینترنت را بررسی کنید."; exit 1; }
 fi
 
+# yaml فقط برای آزمون «نسخه iOS و PWA» لازم است (سالم بودن فایل‌های .github/workflows)
+if [ ! -d node_modules/yaml ]; then
+  echo "→ نصب yaml (برای بررسی ورک‌فلوها)…"
+  npm install yaml@2 --no-audit --no-fund >/dev/null 2>&1 || {
+    echo "❌ نصب yaml ناموفق بود. اتصال اینترنت را بررسی کنید."; exit 1; }
+fi
+
 # اسکریپت‌ها داخل پوشه‌ی آزمون کپی می‌شوند تا node_modules همان‌جا پیدا شود
 cp "$DEV/php-run.mjs" "$DEV/php-syntax.mjs" "$DEV/js-syntax.mjs" "$WORK/" 2>/dev/null || true
 cp "$DEV/tests/"*.mjs "$WORK/" 2>/dev/null || true
@@ -84,7 +94,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend security online geo upload tiles push places placesadmin; do
+for t in notify app pushcrypto fcm backend security online geo upload tiles push places placesadmin ios pwa; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

@@ -84,7 +84,7 @@ echo "$NAME" > "$OUT/simulator.txt"
 
 # ── ۲) سنجش ─────────────────────────────────────────────────────────────────
 python3 - "$OUT" <<'PYEOF'
-import json, os, sys
+import json, os, re, sys
 out = sys.argv[1]
 def load(n):
     with open(os.path.join(out, "selftest-%d.json" % n), encoding="utf-8") as f:
@@ -111,6 +111,7 @@ ping = s1.get("ping") or {}
 need(ping.get("status") == 200, "api/ping.php از داخل WKWebView جواب نداد: %r" % ping)
 need(s1.get("offlineGate") is False, "پرده‌ی «بدون اینترنت» آمده است")
 need(s1.get("localStorage") is True, "localStorage در دسترس نیست")
+need(s1.get("geoShim") is True, "پل موقعیت (GeoBridge) نصب نشده؛ WebKit پنجره‌ی «مسیر فایل … موقعیت شما» را نشان می‌دهد")
 # مرحله ۲
 need(s2.get("screen") == "screen-map", "صفحه‌ی نقشه باز نشد: %r" % s2.get("screen"))
 need((s2.get("chips") or 0) >= 9, "چیپ‌های دسته کم است: %r" % s2.get("chips"))
@@ -119,16 +120,26 @@ need((s2.get("rows") or 0) >= 10, "فهرست مکان‌ها کم است: %r" %
 opens = s3.get("externalOpens") or []
 need(s3.get("env") == "ios", "محیط به‌عنوان iOS شناخته نشد: %r" % s3.get("env"))
 need(any(u.startswith("neshan://") for u in opens), "لینک neshan:// به پوسته‌ی نیتیو نرسید: %r" % opens)
+# GPS شبیه‌ساز (ورامین) باید از CoreLocation و پل نیتیو به صفحه برسد؛ بدون پنجره‌ی WebKit
+SIM = (35.3335, 51.6402)
+loc = s3.get("loc")
+near = isinstance(loc, dict) and abs(loc.get("lat", 0) - SIM[0]) < 0.02 and abs(loc.get("lng", 0) - SIM[1]) < 0.02
+need(near, "موقعیت شبیه‌ساز (ورامین) از پل نیتیو به صفحه نرسید: %r" % (loc,))
 
 # فقط گزارش (به شبکه/شبیه‌ساز بستگی دارد)
 notes.append("کاشی‌های نقشه: %s از %s بارگذاری شد؛ نشانگرها: %s" % (s2.get("tilesLoaded"), s2.get("tiles"), s2.get("markers")))
-loc = s3.get("loc")
+notes.append("اجازه‌ی موقعیت (Permissions API): %s" % s1.get("geoPermission"))
 notes.append("موقعیت من (GPS شبیه‌ساز): %s" % (json.dumps(loc, ensure_ascii=False) if loc else "دریافت نشد"))
 neshan = [u for u in opens if u.startswith("neshan://")]
 if neshan:
     notes.append("لینک نشان: " + neshan[0])
-    if loc and isinstance(loc, dict):
-        need("origin=" in neshan[0] and "destination=" in neshan[0], "با داشتن موقعیت، لینک باید origin و destination داشته باشد: %s" % neshan[0])
+    # مبدأ = موقعیت کاربر، مقصد = بیمارستان مفتح (نه برعکس)
+    m = re.search(r"origin=([\d.]+),([\d.]+)&destination=([\d.]+),([\d.]+)", neshan[0])
+    need(bool(m), "لینک نشان origin و destination ندارد: %s" % neshan[0])
+    if m:
+        o = (float(m.group(1)), float(m.group(2))); d = (float(m.group(3)), float(m.group(4)))
+        need(abs(o[0] - SIM[0]) < 0.02 and abs(o[1] - SIM[1]) < 0.02, "مبدأ لینک نشان موقعیت کاربر نیست: %s" % (o,))
+        need(abs(d[0] - 35.3221) < 0.01 and abs(d[1] - 51.6416) < 0.01, "مقصد لینک نشان بیمارستان مفتح نیست: %s" % (d,))
 web = [u for u in opens if u.startswith("https://nshn.ir")]
 notes.append("بازگشتِ نسخه‌ی وب نشان: " + (web[0] if web else "—"))
 notes.append("وضعیت مسیریابی: %r" % s3.get("routeStatus"))
