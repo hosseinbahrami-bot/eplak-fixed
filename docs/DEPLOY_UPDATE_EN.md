@@ -10,9 +10,9 @@ changes **appear on the real site**.
 Download the update package (one file):
 
 - **Direct link:**
-  `https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip`
+  `https://github.com/hosseinbahrami-bot/eplak-fixed/raw/main/eplak-fixed-update.zip`
 - or open the file page and click **Download**:
-  `https://github.com/hosseinbahrami-bot/eplak-fixed/blob/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip`
+  `https://github.com/hosseinbahrami-bot/eplak-fixed/blob/main/eplak-fixed-update.zip`
 - Release page with the same link and notes:
   `https://github.com/hosseinbahrami-bot/eplak-fixed/releases/tag/v2.0-eplak-update`
 
