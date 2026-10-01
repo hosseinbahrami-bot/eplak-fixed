@@ -53,6 +53,11 @@ def main() -> int:
     reg = font_ttf(os.path.join(args.fonts, 'IranianSans-Regular.woff2'), '/tmp/card-reg.ttf')
     bold = font_ttf(os.path.join(args.fonts, 'IranianSans-Bold.woff2'), '/tmp/card-bold.ttf')
 
+    try:
+        size_mb = max(1, round(int(args.kb) / 1024)) if args.kb else 0
+    except ValueError:
+        size_mb = 0
+
     w, h = 1000, 1420
     img = Image.new('RGB', (w, h), 'white')
     d = ImageDraw.Draw(img)
@@ -93,7 +98,7 @@ def main() -> int:
     # راهنمای نصب
     steps = [
         '۱) دوربین گوشی را روی کد بالا بگیرید و لینک را باز کنید',
-        '۲) فایل نصبی اپ را دانلود کنید' + (f' (حدود {args.kb[:3]} مگابایت)' if args.kb else ''),
+        '۲) فایل نصبی اپ را دانلود کنید' + (f' (حدود {size_mb} مگابایت)' if size_mb else ''),
         '۳) اگر گوشی اجازه خواست، نصب از منابع ناشناس را روشن کنید',
         '۴) نصب کنید؛ روی نسخه‌ی قبلی هم به‌عنوان به‌روزرسانی می‌نشیند',
     ]
@@ -121,7 +126,7 @@ def main() -> int:
     info = ' '.join(x for x in [
         f'نسخه {args.version}' if args.version else '',
         f'ساخت {args.build}' if args.build else '',
-        f'{args.kb} مگابایت' if args.kb else '',
+        f'{size_mb} مگابایت' if size_mb else '',
     ] if x)
     info = info.replace('.', '٫').replace(' • ', '  •  ')
     if info:

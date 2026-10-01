@@ -23,6 +23,7 @@ on:
       - 'modules/**'
       - 'views/**'
       - 'assets/**'
+      - 'tools/make-install-card.py'
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 
