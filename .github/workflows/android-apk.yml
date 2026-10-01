@@ -151,3 +151,20 @@ jobs:
             || gh release create apk-latest --title "آخرین APK آزمایشی" --notes "$NOTES" --prerelease
           gh release upload apk-latest eplak-app.apk --clobber
           gh release view apk-latest --json url --jq .url
+
+      # کارت نصب (QR + راهنمای فارسی) — اگر ساخت آن به هر دلیلی ممکن نشد،
+      # خودِ انتشار APK ناموفق به‌حساب نمی‌آید.
+      - name: ساخت و پیوست کارت نصب (QR)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 -m pip install --quiet qrcode pillow arabic-reshaper python-bidi fonttools brotli
+          REF="${{ github.repository }}"
+          python3 tools/make-install-card.py \
+            --url "https://github.com/$REF/releases/download/apk-latest/eplak-app.apk" \
+            --version "${{ steps.apk.outputs.version }}" \
+            --build "${{ github.run_number }}" \
+            --kb "$(( ${{ steps.apk.outputs.size }} / 1024 ))" \
+            --out eplak-apk-install-card.png
+          gh release upload apk-latest eplak-apk-install-card.png --clobber
