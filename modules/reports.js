@@ -251,6 +251,17 @@
      به لیست برنگرداند. */
   const pendingDeleteIds = new Set();
   const PENDING_DELETE_KEY = 'eplak_pending_report_deletes';
+
+  /* ── درخواست‌هایی که «همین حالا» عکس/فیلمشان در حال ارسال است ───────────
+     ریشه‌ی «عکس رسید ولی فیلم نه»: همگام‌سازی دوره‌ای لیست گزارش‌ها (هر ۴۵
+     ثانیه، با باز کردن «گزارش‌های من» و با برگشتن اپ از پس‌زمینه) گزارش‌های
+     «در انتظار» را می‌ساخت؛ و چون فیلم در حال ارسال هنوز در «صف خطا» نبود،
+     فرض می‌کرد پیوستی باقی نمانده → گزارش را همان لحظه با «فقط عکس» روی سرور
+     می‌ساخت و کد پیگیری هم صادر می‌شد، درحالی‌که فیلم هنوز در راه بود. اگر
+     اپ در همان دقایق به پس‌زمینه می‌رفت یا بسته می‌شد، فیلم هرگز به گزارش
+     نمی‌چسبید. تا وقتی ارسالِ فایل‌های یک درخواست در جریان است، آن درخواست
+     نباید ساخته (یا دوباره ارسال) شود. */
+  const uploadsInFlight = new Set();
   let reportsSyncInFlight = null;
 
   function loadPendingDeletes() {
@@ -324,11 +335,13 @@
     if (!phone) return;
     const pending = reports.filter(r => r && r.pendingSync === true && getReportBackendId(r) === null);
     for (const r of pending) {
+      /* فایل‌های این درخواست همین حالا در حال ارسال‌اند → صبر؛ نه ساخت، نه ارسال دوباره */
+      if (r.clientRef && uploadsInFlight.has(String(r.clientRef))) continue;
       /* ۱) فایل‌های صف‌شده‌ی همین درخواست (بر اساس شناسه‌ی یکتا) بارگذاری شوند */
       if (r.clientRef && typeof window.eplakFlushPendingMediaRef === 'function') {
         let ready = false;
         try {
-          ready = await window.eplakFlushPendingMediaRef(r.clientRef, phone);
+          ready = await window.eplakFlushPendingMediaRef(r.clientRef, phone, 0, uploadHooksForRef(r.clientRef));
         } catch (e) {
           ready = false;
         }
@@ -690,7 +703,11 @@
       + '&mlon=' + geo.lng.toFixed(6) + '#map=17/' + geo.lat.toFixed(6) + '/' + geo.lng.toFixed(6);
     try {
       if (window.AndroidApp && typeof window.AndroidApp.openUrl === 'function') {
-        window.AndroidApp.openUrl(url);
+        /* در اپ اندروید: لینک «geo:» → خودِ اندروید فهرست برنامه‌های نقشه‌ی
+           نصب‌شده (نشان، بلد، گوگل‌مپ، …) را نشان می‌دهد و کاربر هرکدام را
+           که دوست دارد انتخاب می‌کند؛ به سایت OpenStreetMap نیازی نیست. */
+        const pin = geo.lat.toFixed(6) + ',' + geo.lng.toFixed(6);
+        window.AndroidApp.openUrl('geo:' + pin + '?q=' + pin + '(' + encodeURIComponent('محل گزارش') + ')');
         return;
       }
     } catch (e) {}
@@ -1303,6 +1320,19 @@
 
   async function retryReportWithMedia(report, files, phone) {
     if (!report) return false;
+    const guardRef = String(report.clientRef || '');
+    if (guardRef) {
+      if (uploadsInFlight.has(guardRef)) return false;   /* ارسال همین درخواست در جریان است */
+      uploadsInFlight.add(guardRef);
+    }
+    try {
+      return await retryReportWithMediaInner(report, files, phone);
+    } finally {
+      if (guardRef) uploadsInFlight.delete(guardRef);
+    }
+  }
+
+  async function retryReportWithMediaInner(report, files, phone) {
     const ref = String(report.clientRef || '');
     let list = (files || []).filter(Boolean);
     if (!list.length && ref && lastMediaAttempt && lastMediaAttempt.ref === ref) {
@@ -1321,7 +1351,9 @@
       /* فایل‌ها در صف پایدار گوشی هستند؛ از همان‌جا دوباره فرستاده می‌شوند */
       setSuccessNote('در حال ارسال دوباره‌ی عکس/فیلم‌های ذخیره‌شده در گوشی…');
       let ready = false;
-      try { ready = await window.eplakFlushPendingMediaRef(ref, phone, 0); } catch (e) { ready = false; }
+      /* نمودار پیشرفت هر فایل هم‌چنان کار می‌کند (فایل‌ها از صف گوشی می‌آیند) */
+      bindSuccessUploadList(ref);
+      try { ready = await window.eplakFlushPendingMediaRef(ref, phone, 0, uploadHooksForRef(ref)); } catch (e) { ready = false; }
       if (!ready) {
         const state = (typeof window.eplakPendingMediaRefState === 'function')
           ? await window.eplakPendingMediaRefState(ref, phone).catch(function () { return { queued: 0, readable: 0 }; })
@@ -1506,6 +1538,67 @@
     el.textContent = text || '';
   }
 
+  /* ── نمودار پیشرفت «هر فایل» (core/upload-progress.js) ───────────────────
+     هر عکس/فیلم یک نوار درصدی دارد؛ پس از آپلود، نوار می‌رود و فقط
+     «فایل آپلود شد» می‌ماند. این نمودار در دو جا دیده می‌شود:
+       ۱) صفحه‌ی «گزارش ثبت شد» (همان لحظه‌ی ارسال)
+       ۲) جزئیات گزارش، زیر «روند رسیدگی» ← گام «ثبت گزارش» */
+  function uploadTracker() {
+    return window.EplakUploadProgress || null;
+  }
+
+  /* قلاب‌های نمودار برای فایل‌هایی که از «صف گوشی» دوباره فرستاده می‌شوند */
+  function uploadHooksForRef(ref) {
+    const tracker = uploadTracker();
+    if (!tracker || !ref) return null;
+    return {
+      begin: (metas) => tracker.begin(ref, metas),
+      onFile: (idx, ev) => tracker.apply(ref, idx, ev)
+    };
+  }
+
+  let successUploadUnbind = null;
+  let detailUploadUnbind = null;
+  let uploadRetryBusy = false;
+
+  function bindSuccessUploadList(ref) {
+    if (successUploadUnbind) { try { successUploadUnbind(); } catch (e) {} successUploadUnbind = null; }
+    const el = document.getElementById('reportUploadList');
+    const tracker = uploadTracker();
+    if (!el || !tracker || !ref) return;
+    /* دکمه‌ی «تلاش دوباره»ی همین صفحه یکی است؛ ردیف‌ها دکمه‌ی جدا نمی‌گیرند */
+    successUploadUnbind = tracker.bind(el, ref, { retry: false });
+  }
+
+  /* نمودار زیر «روند رسیدگی» در جزئیات گزارش */
+  function bindDetailUploads(report) {
+    if (detailUploadUnbind) { try { detailUploadUnbind(); } catch (e) {} detailUploadUnbind = null; }
+    const el = document.getElementById('flowUploads');
+    const tracker = uploadTracker();
+    if (!el || !tracker || !report) return;
+    const ref = String(report.clientRef || '');
+    if (ref && tracker.has(ref)) {
+      detailUploadUnbind = tracker.bind(el, ref, { onRetry: retryUploadByRef });
+      return;
+    }
+    /* گزارش‌های قدیمی‌تر: فایل‌های ذخیره‌شده روی سرور = «فایل آپلود شد» */
+    tracker.renderStatic(el, tracker.itemsFromMedia(report.media));
+  }
+
+  /* «تلاش دوباره» از داخل ردیف ناموفقِ جزئیات گزارش */
+  async function retryUploadByRef(ref) {
+    if (uploadRetryBusy) return;
+    const report = reports.find(r => String(r.clientRef || '') === String(ref));
+    const phone = (typeof getCurrentPhone === 'function') ? getCurrentPhone() : '';
+    if (!report || !phone) return;
+    uploadRetryBusy = true;
+    try {
+      await retryReportWithMedia(report, [], phone);
+    } finally {
+      uploadRetryBusy = false;
+    }
+  }
+
   /* ── ارسال عکس/فیلم پیش از ساخته شدن گزارش («در انتظار اتصال») ───────
      هر فایل با شناسه‌ی یکتای درخواست ذخیره می‌شود و هنگام ساخت گزارش،
      خودکار به آن متصل می‌گردد؛ پس گزارش همیشه «با» پیوست‌هایش ساخته
@@ -1513,8 +1606,16 @@
   async function uploadStagedMedia(report, files, phone) {
     if (!files.length) return { ok: true, media: [], errors: [] };
     const total = files.length;
+    const ref = String(report.clientRef || '');
+    const tracker = uploadTracker();
+    /* نمودار پیشرفت هر فایل: همین حالا (پیش از اولین بایت) ردیف‌ها دیده می‌شوند */
+    if (tracker && ref) {
+      tracker.begin(ref, files);
+      bindSuccessUploadList(ref);
+    }
     setSuccessNote('در حال بارگذاری ' + toPersianDigits(total) + ' عکس/فیلم… تا پایان بارگذاری، کد پیگیری صادر نمی‌شود.');
     if (typeof window.uploadReportMediaChunked !== 'function') {
+      if (tracker && ref) files.forEach((f, i) => tracker.apply(ref, i, { type: 'fail', note: 'ارسال پیوست‌ها روی این نسخه ممکن نیست' }));
       return { ok: false, media: [], errors: ['ارسال پیوست‌ها روی این نسخه ممکن نیست'], note: 'ارسال پیوست‌ها ممکن نشد' };
     }
     let res = null;
@@ -1522,9 +1623,18 @@
       res = await window.uploadReportMediaChunked(0, phone, files, pct => {
         setSuccessCodeState(pct);
         setSuccessNote('در حال بارگذاری ' + toPersianDigits(total) + ' عکس/فیلم… ' + toPersianDigits(Math.max(1, pct)) + '٪');
-      }, { clientRef: report.clientRef });
+      }, {
+        clientRef: report.clientRef,
+        onFile: (idx, ev) => { if (tracker && ref) tracker.apply(ref, idx, ev); }
+      });
     } catch (e) {
       res = { ok: false, media: [], failed: files.map(f => f.name || ''), error: (e && e.message) || 'خطای شبکه', status: 0 };
+      /* استثنای ناگهانی: هر ردیفی که هنوز «در حال ارسال» مانده، ناموفق نشان داده شود */
+      if (tracker && ref) {
+        tracker.items(ref).forEach(it => {
+          if (it.state !== 'done') tracker.apply(ref, it.id, { type: 'fail', note: res.error });
+        });
+      }
     }
     const saved = (res && Array.isArray(res.media)) ? res.media : [];
     const failed = (res && Array.isArray(res.failed)) ? res.failed : [];
@@ -1614,6 +1724,7 @@
 
     /* ۱) ثبت محلی فوری (بدون کد پیگیری نمایشی) و نمایش صفحه‌ی پیشرفت */
     reports.unshift(newReport);
+    uploadsInFlight.add(clientRef);   /* تا پایان ارسال، همگام‌سازی گزارش را نمی‌سازد */
     if (typeof saveReports === 'function') saveReports(currentPhone);
     setSuccessCodeState('loading');
     setSuccessNote('در حال آماده‌سازی ارسال…');
@@ -1656,6 +1767,7 @@
         showToast('گزارش با موفقیت ثبت شد ✅');
       }
     } finally {
+      uploadsInFlight.delete(clientRef);
       clearTimeout(reportSubmitWatchdog);
       reportSubmitInFlight = false;
     }
@@ -1743,6 +1855,12 @@
     if (document.visibilityState === 'hidden') return;
     pendingFlushBusy = true;
     try {
+      const flushTracker = uploadTracker();
+      const flushHooks = {
+        skip: (group) => !!(group.clientRef && uploadsInFlight.has(String(group.clientRef))),
+        begin: (group, metas) => { if (flushTracker && group.clientRef) flushTracker.begin(group.clientRef, metas); },
+        onFile: (group, idx, ev) => { if (flushTracker && group.clientRef) flushTracker.apply(group.clientRef, idx, ev); }
+      };
       const result = await window.eplakFlushPendingMedia(function (reportId, clientRef, count) {
         saveUploadLog({
           time: (new Date()).toLocaleString('fa-IR'),
@@ -1750,7 +1868,7 @@
             + (reportId ? (' برای گزارش شماره ' + toPersianDigits(reportId))
                         : (' برای درخواست ' + String(clientRef || '—')))
         });
-      });
+      }, flushHooks);
       if (result && result.sent > 0) {
         showToast('✅ ' + toPersianDigits(result.sent) + ' پیوست جامانده خودکار ارسال شد');
         /* فایل‌ها که رسیدند، گزارشِ در انتظار ساخته می‌شود و «یک» کد پیگیری
@@ -2117,6 +2235,7 @@
               ${stage.state === 'waiting' ? '<span class="flow-badge waiting">در انتظار</span>' : ''}
             </div>
             ${notesHtml}
+            ${stage.key === 'created' ? '<div class="flow-uploads" id="flowUploads" style="display:none;"></div>' : ''}
             ${dateText ? `<p class="flow-date">${escapeHtml(dateText)}</p>` : ''}
           </div>
         </div>`;
@@ -2125,6 +2244,8 @@
     const timelineEl = document.getElementById('detailTimeline');
     if (timelineEl) {
       timelineEl.innerHTML = flowHtml;
+      /* نمودار درصدی بارگذاری هر عکس/فیلم، زیر گام «ثبت گزارش» */
+      bindDetailUploads(r);
     }
 
     /* ── کارت وضعیت: همان چیزی که در ستون وضعیت پنل ادمین است ─────────── */

@@ -366,8 +366,9 @@ ok('مسیر پشتیبان «افزودن پیوست از دروازه‌ی گ�
   /action=add_media/.test(storageJs) && /reports\.php\?action=add_media/.test(storageJs));
 ok('سرور هم کنش add_media را می‌شناسد',
   /add_media/.test(read('api/reports.php')) && /eplakMediaStoreBinary/.test(read('api/reports.php')));
-ok('هر تکه در صورت خطای شبکه تا ۳ بار تکرار می‌شود',
-  /async function sendMediaChunk/.test(storageJs) && /attempt < 3/.test(storageJs));
+ok('هر تکه در صورت خطای شبکه تا ۶ بار تکرار می‌شود (با مکث فزاینده و انتظار برای برگشت اینترنت)',
+  /async function sendMediaChunk/.test(storageJs) && /MEDIA_CHUNK_ATTEMPTS = 6/.test(storageJs)
+  && /attempt < MEDIA_CHUNK_ATTEMPTS/.test(storageJs) && /waitForOnline/.test(storageJs));
 ok('وضعیت پیوست‌ها از سرور پرسیده می‌شود (تأیید واقعی ذخیره شدن)',
   /async function reportMediaStatus/.test(storageJs) && /action=media_status/.test(storageJs));
 ok('توضیح خطا شامل کد واقعی سرور است (۴۰۳/۴۱۳/۴۰۴)',
@@ -392,12 +393,12 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=20/.test(indexHtml) && /modules\/reports\.js\?v=26/.test(indexHtml)
-  && /assets\/js\/ep-camera\.js\?v=1/.test(indexHtml)
-  && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
-  && /assets\/css\/style\.css\?v=89/.test(indexHtml)
+  /core\/storage\.js\?v=21/.test(indexHtml) && /modules\/reports\.js\?v=27/.test(indexHtml)
+  && /assets\/js\/ep-camera\.js\?v=2/.test(indexHtml)
+  && /ep-map\.js\?v=3/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
+  && /assets\/css\/style\.css\?v=90/.test(indexHtml)
   && /assets\/js\/icons\.js\?v=13/.test(indexHtml)
-  && /core\/state\.js\?v=11/.test(indexHtml) && /core\/i18n\.js\?v=14/.test(indexHtml)
+  && /core\/state\.js\?v=11/.test(indexHtml) && /core\/i18n\.js\?v=15/.test(indexHtml)
   && /modules\/profile\.js\?v=12/.test(indexHtml) && /modules\/services\.js\?v=13/.test(indexHtml)
   && /modules\/live\.js\?v=14/.test(indexHtml) && /modules\/city-live\.js\?v=13/.test(indexHtml));
 

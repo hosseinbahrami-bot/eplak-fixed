@@ -151,8 +151,12 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
 
     $index = (int) ($input['index'] ?? 0);
     $total = (int) ($input['total'] ?? 1);
-    if ($index < 0 || $total < 1 || $total > 500 || $index >= $total) {
-        eplakJson(['success' => false, 'error' => 'شماره‌ی تکه نامعتبر است.'], 400);
+    if ($index < 0 || $total < 1 || $total > EPLAK_MEDIA_MAX_CHUNKS || $index >= $total) {
+        eplakJson([
+            'success'    => false,
+            'error'      => 'شماره‌ی تکه نامعتبر است.',
+            'max_chunks' => EPLAK_MEDIA_MAX_CHUNKS,
+        ], 400);
     }
 
     if (!eplakMediaEnsureDir($tmpDir)) {
@@ -197,6 +201,22 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
         @unlink($partPath);
     }
 
+    /* ── تکه‌ی تکراری ───────────────────────────────────────────────────
+       اگر پاسخِ تکه‌ی قبلی در راه گم شده (شبکه‌ی ضعیف یا مکث فایروال) و اپ
+       همان تکه را دوباره فرستاده، دوباره به فایل چسبانده نمی‌شود؛ همان
+       موفقیتِ قبلی برگردانده می‌شود تا ارسال فیلم از اول شروع نشود. */
+    if ($expected > 0 && $index === $expected - 1 && is_file($partPath)) {
+        eplakJson([
+            'success'    => true,
+            'received'   => $expected,
+            'total'      => $total,
+            'done'       => false,
+            'duplicate'  => true,
+            'max_chunks' => EPLAK_MEDIA_MAX_CHUNKS,
+        ]);
+        exit;
+    }
+
     if ($index !== $expected) {
         eplakJson(['success' => false, 'error' => 'ترتیب تکه‌ها به هم خورده است؛ ارسال را از اول تکرار کنید.', 'expected' => $expected], 409);
     }
@@ -236,7 +256,13 @@ if ($method === 'POST' && in_array($action, ['upload', 'chunk', 'media_status'],
 
     $isLast = ($index + 1) >= $total;
     if (!$isLast) {
-        eplakJson(['success' => true, 'received' => $index + 1, 'total' => $total, 'done' => false]);
+        eplakJson([
+            'success'    => true,
+            'received'   => $index + 1,
+            'total'      => $total,
+            'done'       => false,
+            'max_chunks' => EPLAK_MEDIA_MAX_CHUNKS,
+        ]);
         exit;
     }
 

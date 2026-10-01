@@ -231,15 +231,15 @@
     });
   }
 
-  function postJson(url, payload, timeoutMs) {
-    return postJsonXhr(url, payload, timeoutMs || 60000);
+  function postJson(url, payload, timeoutMs, onProgress) {
+    return postJsonXhr(url, payload, timeoutMs || 60000, onProgress);
   }
 
   /* ── آپلود تکه‌تکه‌ی عکس/فیلم (مسیر JSON) ─────────────────────────────
      هاست فعلی، ارسال multipart/form-data همراه فایل را با کد ۴۰۳ می‌بندد و
-     به حجم درخواست JSON هم حساس است؛ پس هر تکه کوچک (پیش‌فرض ۵۱۲ کیلوبایت
-     خام ≈ ۷۰۰ کیلوبایت base64) و مستقل فرستاده می‌شود، هر تکه در صورت خطای
-     شبکه تا ۳ بار تکرار می‌شود و ترتیب تکه‌ها روی سرور بررسی می‌شود.
+     به حجم درخواست JSON هم حساس است؛ پس هر تکه کوچک (پیش‌فرض ۲۰۰ کیلوبایت
+     خام ≈ ۲۷۰ کیلوبایت base64) و مستقل فرستاده می‌شود، هر تکه در صورت خطای
+     شبکه چند بار تکرار می‌شود و ترتیب تکه‌ها روی سرور بررسی می‌شود.
      خروجی:
        { ok, media:[...], failed:[نام فایل‌ها], error, unsupported, blocked, status }
      unsupported=true یعنی نسخه‌ی هاست قدیمی است (کنش تکه‌تکه را ندارد). */
@@ -252,6 +252,11 @@
   const MEDIA_CHUNK_DEFAULT = 200 * 1024;
   const MEDIA_CHUNK_MIN = 24 * 1024;
   const MEDIA_CHUNK_STEPS = [200 * 1024, 100 * 1024, 50 * 1024, 25 * 1024];
+  /* هر تکه در خطای شبکه/زمان تا این‌قدر تکرار می‌شود (با مکث فزاینده).
+     پیش‌تر ۳ بار بود و فیلم‌های حجیم روی اینترنت ناپایدار نیمه‌کاره می‌ماند. */
+  const MEDIA_CHUNK_ATTEMPTS = 6;
+  /* سرورهای قدیمی (پیش از این نسخه) بیش از ۵۰۰ تکه در یک فایل نمی‌پذیرفتند */
+  const MEDIA_CHUNK_LEGACY_CAP = 480;
 
   /* ── موازی‌سازی ارسال فایل‌ها ─────────────────────────────────────────
      عکس و فیلم باید «با هم» ارسال شوند، نه یکی‌یکی؛ پس چند فایل هم‌زمان
@@ -306,18 +311,50 @@
   function isHardMediaError(message) {
     const text = String(message || '');
     if (!text) return false;
+    /* «شماره‌ی تکه نامعتبر» (سقف تعداد تکه‌ها) خطای حجم نیست؛ با تکه‌ی بزرگ‌تر حل می‌شود */
+    if (/شماره‌ی تکه نامعتبر/.test(text)) return false;
     return /حجم|بزرگ|مجاز نیست|نوع فایل|فرمت|حداکثر|خالی است|post_max_size|upload_max_filesize|413|too large|size/i.test(text);
   }
 
-  async function sendMediaChunk(payload, urlOverride) {
+  /* اگر گوشی آفلاین است، تا برگشتن اینترنت (حداکثر maxMs) صبر می‌کند */
+  function waitForOnline(maxMs) {
+    return new Promise(resolve => {
+      try {
+        if (typeof navigator === 'undefined' || navigator.onLine !== false) { resolve(true); return; }
+        let finished = false;
+        let timer = null;
+        const done = (ok) => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          window.removeEventListener('online', onOnline);
+          resolve(ok);
+        };
+        const onOnline = () => done(true);
+        window.addEventListener('online', onOnline);
+        timer = setTimeout(() => done(false), maxMs || 45000);
+      } catch (e) { resolve(true); }
+    });
+  }
+
+  /* ارسال یک تکه. onFraction(0..1) درصدِ همین درخواست را می‌دهد (برای نمودار
+     پیشرفت). خطای شبکه/زمان/۵xx تکرار می‌شود؛ پاسخ‌های سروری (۴۰۳/۴۱۳/…) خیر. */
+  async function sendMediaChunk(payload, urlOverride, onFraction) {
     const url = urlOverride || (BACKEND_BASE_URL + '/media.php?action=chunk');
+    const progress = (typeof onFraction === 'function')
+      ? (pct) => { if (pct < 100) onFraction(pct / 100); }
+      : null;
     let last = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      last = await postJson(url, payload, 120000);
+    for (let attempt = 0; attempt < MEDIA_CHUNK_ATTEMPTS; attempt++) {
+      last = await postJson(url, payload, 120000, progress);
       if (last && last.success === true) return last;
-      /* فقط خطای شبکه/زمان دوباره تلاش می‌شود؛ پاسخ‌های سرور (۴۰۳/۴۱۳/…) بی‌فایده‌اند */
-      if (last && last.__transport && (last.kind === 'network' || last.kind === 'timeout') && attempt < 2) {
-        await sleep(700 * (attempt + 1));
+      const transient = !!(last && last.__transport && (
+        last.kind === 'network' || last.kind === 'timeout'
+        || (Number(last.status) >= 502 && Number(last.status) <= 504)
+      ));
+      if (transient && attempt < MEDIA_CHUNK_ATTEMPTS - 1) {
+        await waitForOnline(45000);
+        await sleep(Math.min(5000, 700 * (attempt + 1)));
         continue;
       }
       return last;
@@ -326,13 +363,33 @@
   }
 
   /* ارسال یک فایل با اندازه‌ی تکه‌ی مشخص.
-     خروجی: { ok, media, error, status, unsupported, blocked } */
+     onProgress(ارسال‌شده‌ی خام، کل) پس از هر تکه (و حین ارسال هر تکه) صدا زده می‌شود.
+     خروجی: { ok, media, error, status, unsupported, blocked, tooManyChunks, maxChunks } */
   async function uploadSingleMediaFile(file, size, reportId, phone, onProgress, useFallbackEndpoint, clientRef) {
+    const first = await uploadSingleMediaFileOnce(file, size, reportId, phone, onProgress, useFallbackEndpoint, clientRef);
+    /* سرور قدیمی: بیش از ۵۰۰ تکه نمی‌پذیرد → همان فایل با تکه‌ی بزرگ‌تر */
+    if (!first.ok && first.tooManyChunks && !useFallbackEndpoint) {
+      const cap = Number(first.maxChunks) > 0 ? Number(first.maxChunks) : MEDIA_CHUNK_LEGACY_CAP;
+      const safeCap = Math.min(cap, MEDIA_CHUNK_LEGACY_CAP);
+      const bigger = Math.ceil(file.size / safeCap / 1024) * 1024;
+      if (bigger > size) {
+        return uploadSingleMediaFileOnce(file, bigger, reportId, phone, onProgress, false, clientRef);
+      }
+    }
+    return first;
+  }
+
+  async function uploadSingleMediaFileOnce(file, size, reportId, phone, onProgress, useFallbackEndpoint, clientRef) {
     const fileName = file.name || 'attachment';
-    const total = Math.max(1, Math.ceil(file.size / size));
+    const total = size > 0 ? Math.max(1, Math.ceil(file.size / size)) : 1;
     const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
     const chunkUrl = BACKEND_BASE_URL + '/media.php?action=chunk';
     const wholeUrl = BACKEND_BASE_URL + '/reports.php?action=add_media';
+    const report = (loaded) => {
+      if (typeof onProgress === 'function') {
+        try { onProgress(Math.max(0, Math.min(file.size, loaded)), file.size); } catch (e) {}
+      }
+    };
 
     /* ── مسیر پایانی: یک فایل کامل از دروازه‌ی گزارش‌ها ─────────────────
        اگر مسیر تکه‌تکه روی هاست بسته باشد (فایروال یا نسخه‌ی قدیمی)، همین
@@ -353,7 +410,7 @@
         name: fileName,
         mime: file.type || '',
         data: dataUrl
-      }, 180000);
+      }, 180000, (pct) => { if (pct < 100) report(file.size * pct / 100); });
       if (!res) return { ok: false, media: null, error: 'ارتباط با سرور برقرار نشد.', status: 0, unsupported: false, blocked: false };
       if (res.__transport) {
         const code = res.status || 0;
@@ -368,12 +425,15 @@
       if (res.success !== true) {
         return { ok: false, media: null, error: String(res.error || 'ارسال فایل ناموفق بود.'), status: 0, unsupported: false, blocked: false };
       }
-      if (typeof onProgress === 'function') onProgress(100);
+      report(file.size);
       return { ok: true, media: res.media || null, error: '', status: 200, unsupported: false, blocked: false };
     }
 
     /* ── مسیر عادی: تکه‌تکه ───────────────────────────────────────────── */
-    for (let index = 0; index < total; index++) {
+    let index = 0;
+    let resyncs = 0;
+    report(0);
+    while (index < total) {
       const start = index * size;
       const chunk = file.slice(start, Math.min(file.size, start + size));
       const data = await readFileAsDataUrl(chunk);
@@ -393,7 +453,7 @@
            (reportId = 0) را رد می‌کند و عکس/فیلم هرگز بارگذاری نمی‌شود. */
         client_ref: clientRef || '',
         data: data
-      }, chunkUrl);
+      }, chunkUrl, (fraction) => report(start + fraction * chunk.size));
 
       if (!res) return { ok: false, media: null, error: 'ارتباط با سرور برقرار نشد.', status: 0, unsupported: false, blocked: false };
       if (res.__transport) {
@@ -407,19 +467,33 @@
         };
       }
       if (res.success !== true) {
+        /* سرور می‌گوید «تکه‌ی بعدیِ من فلان است» (پاسخ ۴۰۹: ترتیب به‌هم خورده،
+           معمولاً چون پاسخ تکه‌ی قبلی گم شد). به‌جای شروع از صفر، همان‌جا ادامه
+           می‌دهیم. */
+        const expected = Number(res.expected);
+        if (isFinite(expected) && expected >= 0 && expected <= total && expected !== index && resyncs < 8) {
+          resyncs++;
+          index = expected;
+          report(Math.min(file.size, index * size));
+          continue;
+        }
         const message = String(res.error || 'ارسال فایل ناموفق بود.');
+        const tooMany = /شماره‌ی تکه نامعتبر/.test(message) && total > 1;
         return {
           ok: false, media: null, error: message, status: 0,
           unsupported: (message.indexOf('گزارش یافت نشد') > -1 || message.indexOf('کنش نامعتبر') > -1),
-          blocked: false
+          blocked: false,
+          tooManyChunks: tooMany,
+          maxChunks: Number(res.max_chunks) || 0
         };
       }
-      if (typeof onProgress === 'function') {
-        onProgress(Math.min(99, Math.round(((index + 1) / total) * 100)));
-      }
-      if (index === total - 1) {
+      report(Math.min(file.size, (index + 1) * size));
+      if (index === total - 1 || res.done === true) {
         return { ok: true, media: res.media || null, error: '', status: 200, unsupported: false, blocked: false };
       }
+      /* شمارنده‌ی سرور مرجع است (تکه‌ی تکراری هم همین‌جا درست جلو می‌رود) */
+      const received = Number(res.received);
+      index = (isFinite(received) && received > index) ? received : index + 1;
     }
     return { ok: false, media: null, error: 'ارسال فایل کامل نشد.', status: 0, unsupported: false, blocked: false };
   }
@@ -430,7 +504,12 @@
                   (۱۰۰ و ۵۰ و ۲۵ کیلوبایت) از ابتدا فرستاده می‌شوند.
      مرحله ۴: اگر مسیر تکه‌تکه اصلاً بسته بود، هر فایل یک‌جا از دروازه‌ی
               api/reports.php?action=add_media (که همیشه باز است) می‌رود.
-     در هر مرحله، فایل‌های موفق کنار گذاشته می‌شوند تا دوباره فرستاده نشوند. */
+     در هر مرحله، فایل‌های موفق کنار گذاشته می‌شوند تا دوباره فرستاده نشوند.
+
+     پیشرفت «هر فایل»: opts.onFile(index, event) با رویدادهای
+       start | progress{loaded,total} | restart{note} | done | fail{note}
+     صدا زده می‌شود (index = جایگاه فایل در فهرست ورودی). onProgress(درصد کل)
+     هم بر پایه‌ی «بایت» است، نه تعداد فایل. */
   async function uploadReportMediaChunked(reportId, phone, files, onProgress, opts) {
     /* opts.clientRef → ارسال «در انتظار اتصال»: فایل پیش از ساخته شدن گزارش
        ذخیره می‌شود و هنگام ساخت گزارش به آن متصل می‌گردد. */
@@ -439,24 +518,49 @@
     const empty = { ok: true, media: [], failed: [], error: '', unsupported: false, blocked: false, status: 0 };
     if ((!reportId && !clientRef) || !list.length) return empty;
 
+    const emit = (idx, event) => {
+      if (opts && typeof opts.onFile === 'function') {
+        try { opts.onFile(idx, event); } catch (e) { /* خطای نمایش، ارسال را خراب نکند */ }
+      }
+    };
+
     const savedMedia = [];
-    let remaining = list.slice();
-    let hardFailed = [];       /* خطای منطقی (حجم/نوع) — تکرار با تکه‌ی کوچک‌تر بی‌فایده است */
+    let remaining = list.map((file, idx) => ({ file: file, idx: idx }));
+    const hardFailed = [];     /* خطای منطقی (حجم/نوع) — تکرار با تکه‌ی کوچک‌تر بی‌فایده است */
+    const errorBy = {};        /* آخرین دلیل شکست هر فایل (برای نمودار) */
     let lastError = '';
     let lastStatus = 0;
     let unsupported = false;
     let blocked = false;
 
-    let progressDone = 0;          /* تعداد فایل‌های تمام‌شده (برای درصد دقیق) */
-    const reportProgress = () => {
-      if (typeof onProgress === 'function' && list.length) {
-        if (progressDone < list.length - remaining.length) progressDone = list.length - remaining.length;
-        onProgress(Math.min(99, Math.round((progressDone / list.length) * 100)));
-      }
+    /* درصد کل بر پایه‌ی بایت */
+    const sizeOf = (entry) => Number(entry.file.size) || 0;
+    const loadedBy = list.map(() => 0);
+    const totalBytes = list.reduce((sum, f) => sum + (Number(f.size) || 0), 0) || 1;
+    let overall = 0;
+    const reportOverall = () => {
+      if (typeof onProgress !== 'function') return;
+      const sum = loadedBy.reduce((a, b) => a + b, 0);
+      const pct = Math.min(99, Math.floor(sum / totalBytes * 100));
+      if (pct > overall) overall = pct;      /* درصد کل هیچ‌وقت عقب نمی‌رود */
+      onProgress(overall);
     };
-    const markProgressDone = () => {
-      progressDone = Math.min(list.length, progressDone + 1);
-      reportProgress();
+    const fileProgress = (entry) => (loaded, total) => {
+      loadedBy[entry.idx] = Math.max(0, Math.min(sizeOf(entry), Number(loaded) || 0));
+      emit(entry.idx, { type: 'progress', loaded: loadedBy[entry.idx], total: Number(total) || sizeOf(entry) });
+      reportOverall();
+    };
+    const finishEntry = (entry) => {
+      loadedBy[entry.idx] = sizeOf(entry);
+      emit(entry.idx, { type: 'done' });
+      reportOverall();
+    };
+    const noteFailure = (entry, res) => {
+      errorBy[entry.idx] = (res && res.error) || errorBy[entry.idx] || '';
+      lastError = (res && res.error) || lastError;
+      lastStatus = (res && res.status) || lastStatus;
+      if (res && res.unsupported) unsupported = true;
+      if (res && res.blocked) blocked = true;
     };
 
     const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
@@ -468,25 +572,29 @@
       const size = sizes[stage];
       const stillFailed = [];
       let goGateway = false;      /* پاسخ سروری منطقی → مستقیم به دروازه‌ی پشتیبان */
+      remaining.forEach((entry) => {
+        loadedBy[entry.idx] = 0;
+        emit(entry.idx, stage === 0
+          ? { type: 'start' }
+          : { type: 'restart', note: 'ارسال دوباره با بسته‌های کوچک‌تر' });
+      });
       /* چند فایل هم‌زمان فرستاده می‌شوند تا عکس و فیلم با هم بالا بروند */
-      const results = await runMediaPool(remaining, (file) => {
-        return uploadSingleMediaFile(file, size, reportId, phone, () => {}, false, clientRef);
-      }, () => markProgressDone());
-      results.forEach((res, idx) => {
-        const file = remaining[idx];
+      const results = await runMediaPool(remaining, async (entry) => {
+        const res = await uploadSingleMediaFile(entry.file, size, reportId, phone, fileProgress(entry), false, clientRef);
+        if (res && res.ok) finishEntry(entry);
+        return res;
+      }, null);
+      results.forEach((res, i) => {
+        const entry = remaining[i];
         if (res && res.ok) {
           if (res.media) savedMedia.push(res.media);
-          reportProgress();
         } else {
-          lastError = (res && res.error) || lastError;
-          lastStatus = (res && res.status) || lastStatus;
-          if (res && res.unsupported) unsupported = true;
-          if (res && res.blocked) blocked = true;
+          noteFailure(entry, res);
           /* فقط خطای حجم/نوع/سقف «قطعی» است؛ بقیه شانس دوباره می‌گیرند. */
           if (isHardMediaError((res && res.error) || '')) {
-            hardFailed.push(file);
+            hardFailed.push(entry);
           } else {
-            stillFailed.push(file);
+            stillFailed.push(entry);
             if (res && res.status === 0 && !res.blocked && !res.unsupported) goGateway = true;
           }
         }
@@ -499,40 +607,44 @@
 
     /* مرحله‌ی پشتیبان: دروازه‌ی گزارش‌ها (بدون تکه‌تکه) */
     if (remaining.length) {
+      remaining.forEach((entry) => {
+        loadedBy[entry.idx] = 0;
+        emit(entry.idx, { type: 'restart', note: 'ارسال یک‌جا از مسیر پشتیبان' });
+      });
       const stillFailed = [];
-      const results = await runMediaPool(remaining, (file) => {
-        return uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true, clientRef);
-      }, () => markProgressDone());
-      results.forEach((res, idx) => {
-        const file = remaining[idx];
+      const results = await runMediaPool(remaining, async (entry) => {
+        const res = await uploadSingleMediaFile(entry.file, 0, reportId, phone, fileProgress(entry), true, clientRef);
+        if (res && res.ok) finishEntry(entry);
+        return res;
+      }, null);
+      results.forEach((res, i) => {
+        const entry = remaining[i];
         if (res && res.ok) {
           if (res.media) savedMedia.push(res.media);
-          reportProgress();
         } else {
-          stillFailed.push(file);
-          lastError = (res && res.error) || lastError;
-          lastStatus = (res && res.status) || lastStatus;
-          if (res && res.unsupported) unsupported = true;
-          if (res && res.blocked) blocked = true;
+          stillFailed.push(entry);
+          noteFailure(entry, res);
         }
       });
       remaining = stillFailed;
     }
 
-    if (typeof onProgress === 'function') onProgress(100);
+    const failedEntries = remaining.concat(hardFailed);
+    failedEntries.forEach((entry) => {
+      emit(entry.idx, { type: 'fail', note: errorBy[entry.idx] || lastError || 'ارسال فایل ناموفق بود.' });
+    });
+    if (typeof onProgress === 'function' && !failedEntries.length) onProgress(100);
 
-    const failedFiles = remaining.concat(hardFailed);
     return {
-      ok: failedFiles.length === 0 && savedMedia.length > 0,
+      ok: failedEntries.length === 0 && savedMedia.length > 0,
       media: savedMedia,
-      failed: failedFiles.map(f => f.name || 'attachment'),
+      failed: failedEntries.map(entry => entry.file.name || 'attachment'),
       error: lastError,
       unsupported: unsupported,
       blocked: blocked,
       status: lastStatus
     };
   }
-
 
   /* ── صف پیوست‌های ناموفق (نگه‌داشتن فایل در گوشی تا ارسال موفق) ──────────
      اگر هنگام ثبت گزارش، اینترنت ضعیف باشد یا سرور فایل را نپذیرد، فایل در
@@ -662,7 +774,7 @@
   /* ── ارسال فایل‌های صف‌شده‌ی یک «درخواست» (شناسه‌ی یکتا) ────────────────
      برمی‌گرداند true اگر همه‌ی فایل‌های آن درخواست رسیده باشند؛ تا وقتی
      false است، اپ گزارش را نمی‌سازد و کد پیگیری صادر نمی‌شود. */
-  async function flushPendingMediaRef(clientRef, phone, reportId) {
+  async function flushPendingMediaRef(clientRef, phone, reportId, hooks) {
     const ref = clientRef ? String(clientRef) : '';
     if (!ref || !phone) return false;
     const db = await openPendingDb();
@@ -676,7 +788,15 @@
        همان عکس/فیلم را پیوست کند (با همان شناسه، پس کد پیگیری تکراری نمی‌شود). */
     const usable = mine.filter(r => r && r.blob && typeof r.blob === 'object' && (Number(r.blob.size) || 0) > 0);
     if (!usable.length) return false;
-    const res = await uploadReportMediaChunked(Number(reportId) || 0, String(phone), usable.map(i => i.blob), null, { clientRef: ref });
+    /* hooks (اختیاری): { begin(فایل‌ها), onFile, onProgress } برای نمودار پیشرفت هر فایل */
+    if (hooks && typeof hooks.begin === 'function') {
+      try { hooks.begin(usable.map(r => ({ name: r.name, size: Number(r.size) || (r.blob && r.blob.size) || 0, type: r.type || (r.blob && r.blob.type) || '' }))); } catch (e) {}
+    }
+    const res = await uploadReportMediaChunked(
+      Number(reportId) || 0, String(phone), usable.map(i => i.blob),
+      (hooks && hooks.onProgress) || null,
+      { clientRef: ref, onFile: (hooks && hooks.onFile) || null }
+    );
     const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
     if (res && res.ok && okCount > 0) {
       /* فقط ردیف‌هایی پاک می‌شوند که واقعاً به سرور رسیده‌اند */
@@ -686,7 +806,7 @@
     return false;
   }
 
-  async function flushPendingMedia(onReportDone) {
+  async function flushPendingMedia(onReportDone, hooks) {
     const db = await openPendingDb();
     if (!db) return { sent: 0, left: 0 };
     const rows = await pendingDbAll(db);
@@ -706,8 +826,25 @@
     const failedGroups = new Set();
     const leftovers = [];
     for (const [key, group] of groups.entries()) {
+      /* گروهی که همین حالا کاربر دارد دستی دوباره می‌فرستد، رد می‌شود؛ ولی فایل‌هایش
+         از صف پاک نمی‌شوند (جزو «هنوز نرسیده» می‌ماند). */
+      if (hooks && typeof hooks.skip === 'function' && hooks.skip(group)) {
+        failedGroups.add(key);
+        continue;
+      }
+      /* hooks.begin(group, files) / hooks.onFile(group, index, event): نمودار پیشرفت
+         ارسال خودکارِ فایل‌های جامانده (همان نمودار «روند رسیدگی») */
+      if (hooks && typeof hooks.begin === 'function') {
+        try {
+          hooks.begin(group, group.items.map(r => ({ name: r.name, size: Number(r.size) || (r.blob && r.blob.size) || 0, type: r.type || (r.blob && r.blob.type) || '' })));
+        } catch (e) {}
+      }
+      const groupOpts = group.clientRef ? { clientRef: group.clientRef } : {};
+      if (hooks && typeof hooks.onFile === 'function') {
+        groupOpts.onFile = (idx, event) => hooks.onFile(group, idx, event);
+      }
       const res = await uploadReportMediaChunked(group.reportId, group.phone, group.items.map(i => i.blob), null,
-        group.clientRef ? { clientRef: group.clientRef } : null);
+        (group.clientRef || groupOpts.onFile) ? groupOpts : null);
       const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
       if (res && res.ok && okCount > 0) {
         sent += group.items.length;

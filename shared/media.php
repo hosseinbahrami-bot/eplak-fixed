@@ -25,6 +25,15 @@ if (!defined('EPLAK_MEDIA_MAX_VIDEO_MB')) {
 if (!defined('EPLAK_MEDIA_MAX_PER_REPORT')) {
     define('EPLAK_MEDIA_MAX_PER_REPORT', 6);
 }
+/* سقف «تعداد تکه‌های» یک ارسال تکه‌تکه.
+   پیش‌تر ۵۰۰ بود؛ ولی وقتی فایروال هاست بدنه‌های بزرگ را می‌بندد، اپ تکه‌ها را
+   کوچک می‌کند (تا ۲۵ کیلوبایت) و یک فیلم ۳۰ مگابایتی ناچار بیش از ۱۰۰۰ تکه
+   می‌شد؛ سرور آن را «شماره‌ی تکه نامعتبر» رد می‌کرد و فیلم هرگز نمی‌رسید.
+   سقف واقعی حجم، همان EPLAK_MEDIA_MAX_VIDEO_MB است؛ این عدد فقط جلوی
+   درخواست‌های بی‌معنی را می‌گیرد (۸۰ مگابایت ÷ ۱۶ کیلوبایت ≈ ۵۱۲۰). */
+if (!defined('EPLAK_MEDIA_MAX_CHUNKS')) {
+    define('EPLAK_MEDIA_MAX_CHUNKS', 6000);
+}
 
 /* MIME مجاز → [پسوند, نوع] */
 function eplakMediaAllowedTypes(): array {

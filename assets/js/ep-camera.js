@@ -18,6 +18,13 @@
 
   const MAX_VIDEO_SECONDS = 60;      /* سقف فیلم، تا ارسال طولانی نشود */
   const PHOTO_QUALITY = 0.86;
+  /* ── حجم فیلم ضبط‌شده ────────────────────────────────────────────────
+     بدون تنظیم، وب‌ویو فیلم را با ~۲٫۵ مگابیت در ثانیه (و کیفیت ۷۲۰ به بالا)
+     می‌گیرد: یک دقیقه ≈ ۲۰ مگابایت. این فیلم باید از اینترنت موبایل و
+     فایروال هاست عبور کند؛ هرچه سبک‌تر، احتمال رسیدنش بیشتر است. ۱٫۵ مگابیت
+     برای فیلم مستند مشکل شهری کاملاً خوانا است (یک دقیقه ≈ ۱۱ مگابایت). */
+  const VIDEO_BITS_PER_SECOND = 1500000;
+  const AUDIO_BITS_PER_SECOND = 64000;
 
   const state = {
     stream: null,
@@ -221,11 +228,9 @@
       }
       const constraints = {
         audio: mode === 'video',
-        video: {
-          facingMode: { ideal: state.facing },
-          width: { ideal: 1600 },
-          height: { ideal: 1200 }
-        }
+        video: mode === 'video'
+          ? { facingMode: { ideal: state.facing }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: { ideal: state.facing }, width: { ideal: 1600 }, height: { ideal: 1200 } }
       };
       setHint('در حال روشن شدن دوربین…');
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -281,9 +286,19 @@
     try {
       state.mime = pickRecorderMime();
       state.chunks = [];
-      state.recorder = state.mime
-        ? new MediaRecorder(state.stream, { mimeType: state.mime })
-        : new MediaRecorder(state.stream);
+      const recorderOptions = {
+        videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
+        audioBitsPerSecond: AUDIO_BITS_PER_SECOND
+      };
+      if (state.mime) recorderOptions.mimeType = state.mime;
+      try {
+        state.recorder = new MediaRecorder(state.stream, recorderOptions);
+      } catch (optionError) {
+        /* بعضی وب‌ویوها گزینه‌ی نرخ بیت را نمی‌شناسند → همان روش قبلی */
+        state.recorder = state.mime
+          ? new MediaRecorder(state.stream, { mimeType: state.mime })
+          : new MediaRecorder(state.stream);
+      }
       state.recorder.ondataavailable = ev => { if (ev && ev.data && ev.data.size) state.chunks.push(ev.data); };
       state.recorder.onerror = () => { setHint('ضبط فیلم با خطا مواجه شد', true); };
       state.recorder.onstop = () => {

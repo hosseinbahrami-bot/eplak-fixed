@@ -433,6 +433,26 @@ else
   say "| آپلود عکس/فیلم با نمایش درصد پیشرفت | $CODE_STORAGE | ⏳ کد قدیمی است |"
 fi
 
+# نمودار درصدیِ «هر فایل» + کاشی‌های نقشه از سرور خودِ ای‌پلاک
+CODE_UPP=$(grab "$BASE/core/upload-progress.js" "$TMP/upp.out")
+if [ "$CODE_UPP" = "200" ] && has "$TMP/upp.out" "EplakUploadProgress"; then
+  say "| نمودار درصدیِ بارگذاری هر فایل (\`core/upload-progress.js\`) | $CODE_UPP | ✅ نصب است |"
+else
+  say "| نمودار درصدیِ بارگذاری هر فایل (\`core/upload-progress.js\`) | $CODE_UPP | ⏳ نیست |"
+  ISSUES+=("core/upload-progress.js روی هاست نیست؛ بسته‌ی تازه را Extract کنید")
+fi
+# z=5 در محدوده‌ی «نمای کلی» است و به محدوده‌ی ایران وابسته نیست
+CODE_TILE=$(grab "$BASE/api/tiles.php?z=5&x=20&y=12" "$TMP/tile.out")
+case "$CODE_TILE" in
+  200) say "| کاشی نقشه از سرور خودمان (\`api/tiles.php\`) | $CODE_TILE | ✅ جواب می‌دهد (OpenStreetMap از طریق سرور) |" ;;
+  429|502|504)
+    say "| کاشی نقشه از سرور خودمان (\`api/tiles.php\`) | $CODE_TILE | ⚠️ نصب است ولی از هاست به OpenStreetMap وصل نمی‌شود (خروجی اینترنت هاست) |"
+    ISSUES+=("api/tiles.php نصب است ولی هاست به سرور نقشه وصل نمی‌شود؛ از پشتیبانی هاست دسترسی HTTPS خروجی (cURL) را بخواهید") ;;
+  *)
+    say "| کاشی نقشه از سرور خودمان (\`api/tiles.php\`) | $CODE_TILE | ⏳ نیست |"
+    ISSUES+=("api/tiles.php روی هاست نیست؛ بسته‌ی تازه را Extract کنید (نقشه‌ی موقعیت بدون آن در اپ خالی می‌ماند)") ;;
+esac
+
 # نشانه‌های سرور تازه: اعلان رویدادی و تاریخ شمسی
 CODE_PUSH2=$(grab "$BASE/api/push.php?action=config" "$TMP/push2.out")
 if [ "$CODE_PUSH2" = "200" ] && has "$TMP/push2.out" "fcm_ready"; then

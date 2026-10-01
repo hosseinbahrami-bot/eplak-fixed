@@ -1054,7 +1054,13 @@
     'لطفاً موضوع گزارش را انتخاب کنید': 'Please select a report category',
     'لطفاً واحد مربوطه را انتخاب کنید': 'Please select a department',
     'لطفاً عنوان و شرح گزارش را وارد کنید': 'Please enter title and description',
-    'لطفاً موقعیت مکانی را مشخص کنید': 'Please specify the location'
+    'لطفاً موقعیت مکانی را مشخص کنید': 'Please specify the location',
+    /* نمودار پیشرفت بارگذاری هر عکس/فیلم */
+    'فایل آپلود شد': 'File uploaded',
+    'ارسال نشد': 'Upload failed',
+    'در صف ارسال': 'Waiting to upload',
+    'تلاش دوباره…': 'Retrying…',
+    'تلاش دوباره': 'Try again'
   };
 
   /* ساخت معکوس انگلیسی به فارسی برای بازگشت بدون افت کیفیت */

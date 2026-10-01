@@ -243,9 +243,10 @@ ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) ا
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=26/.test(indexHtml)
-  && /core\/storage\.js\?v=20/.test(indexHtml)
-  && /assets\/js\/ep-camera\.js\?v=1/.test(indexHtml));
+  /modules\/reports\.js\?v=27/.test(indexHtml)
+  && /core\/storage\.js\?v=21/.test(indexHtml)
+  && /core\/upload-progress\.js\?v=1/.test(indexHtml)
+  && /assets\/js\/ep-camera\.js\?v=2/.test(indexHtml));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -379,7 +380,7 @@ console.log('\n=== یک درخواست = یک کد پیگیری؛ کد فقط پ
     /function reportCodeLabel\(/.test(reportsJs) && /در حال بارگذاری عکس\/فیلم…/.test(reportsJs)
     && /escapeHtml\(reportCodeLabel\(r\)\)/.test(reportsJs));
   ok('گزارش‌های ناتمام (آفلاین) فقط پس از رسیدن فایل‌ها ساخته می‌شوند',
-    /eplakFlushPendingMediaRef\(r\.clientRef, phone\)/.test(reportsJs)
+    /eplakFlushPendingMediaRef\(r\.clientRef, phone/.test(reportsJs)
     && /async function flushPendingMediaRef/.test(storageSrc)
     && /window\.eplakFlushPendingMediaRef\s*=/.test(storageSrc));
   ok('شناسه‌ی یکتا در پاسخ سرور به اپ می‌رسد (تطبیق دقیق رکوردها)',
@@ -417,9 +418,10 @@ ok('هر دو مسیر ارسال (تکه‌تکه و پشتیبان) از اس�
 ok('عکس و فیلم پیش از ساخته شدن گزارش بارگذاری می‌شوند (یک کد، با پیوست)',
   /async function uploadStagedMedia/.test(reportsJs)
   && /uploadReportMediaChunked\(0, phone, files/.test(reportsJs)
-  && /\{ clientRef: report\.clientRef \}/.test(reportsJs));
-ok('درصد پیشرفت با شمارنده‌ی دقیق محاسبه می‌شود (نه تخمینی)',
-  /progressDone/.test(storageSrc) && /markProgressDone/.test(storageSrc));
+  && /clientRef: report\.clientRef,/.test(reportsJs));
+ok('درصد پیشرفت بر پایه‌ی «بایت‌های واقعاً ارسال‌شده» محاسبه می‌شود (نه تعداد فایل، نه تخمینی)',
+  /const loadedBy = list\.map/.test(storageSrc) && /reportOverall/.test(storageSrc)
+  && /درصد کل هیچ‌وقت عقب نمی‌رود/.test(storageSrc));
 ok('ارسال دیرهنگام گزارش‌های آفلاین هم شناسه‌ی یکتا و مختصات را با خود می‌برد',
   /client_ref: report\.clientRef/.test(reportsJs)
   && /typeof report\.lat === 'number' && typeof report\.lng === 'number'/.test(reportsJs));
@@ -468,7 +470,7 @@ console.log('\n=== دور ۲۶: ارسال مجدد پیوست‌ها (ریشه�
 const storageJs = fs.readFileSync(path.join(ROOT, 'core/storage.js'), 'utf8');
 ok('تکه‌های ارسالی، شناسه‌ی یکتای درخواست را با خود می‌برند (بدون آن سرور فایل را رد می‌کرد)',
   /client_ref: clientRef \|\| ''/.test(storageJs)
-  && storageJs.indexOf('client_ref: clientRef') < storageJs.indexOf('}, chunkUrl);'));
+  && storageJs.indexOf('client_ref: clientRef') < storageJs.indexOf('}, chunkUrl,'));
 ok('مسیر پشتیبان (add_media) هم شناسه‌ی یکتا را می‌فرستد',
   /wholeUrl[\s\S]{0,600}client_ref: clientRef \|\| ''/.test(storageJs));
 ok('فقط خطای حجم/نوع «قطعی» شمرده می‌شود؛ بقیه شانس دوباره می‌گیرند',
@@ -486,7 +488,7 @@ ok('فایل‌های بی‌بایت (پاک‌شده از حافظه) ارسا
   /const usable = mine\.filter\(r => r && r\.blob/.test(storageJs) && /if \(!usable\.length\) return false;/.test(storageJs));
 
 ok('تلاش دوباره از سه منبع فایل می‌گیرد (صفحه، حافظه‌ی برنامه، صف پایدار)',
-  /lastMediaAttempt/.test(reportsJs) && /eplakFlushPendingMediaRef\(ref, phone, 0\)/.test(reportsJs));
+  /lastMediaAttempt/.test(reportsJs) && /eplakFlushPendingMediaRef\(ref, phone, 0/.test(reportsJs));
 ok('پس از رسیدن فایل‌های جامانده، گزارش ساخته و «یک» کد پیگیری صادر می‌شود',
   /await flushPendingCreates\(phone\);/.test(reportsJs));
 ok('امضای بازخورد صف درست است (reportId, clientRef, count)',

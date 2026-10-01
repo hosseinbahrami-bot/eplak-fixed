@@ -7237,3 +7237,61 @@ body.media-viewer-locked { overflow: hidden; }
 .svc-tag-icon { display: inline-flex; vertical-align: -2px; margin-left: 4px; }
 .svc-tag-icon svg { display: block; }
 .pcf-icon svg { vertical-align: -2px; }
+
+/* ============================================================
+   نمودار خطیِ درصدی بارگذاری «هر» عکس/فیلم
+   ------------------------------------------------------------
+   جا: جزئیات گزارش ← «روند رسیدگی» ← گام «ثبت گزارش»، و صفحه‌ی
+   «گزارش ثبت شد». در حال ارسال: نوار + درصد؛ پس از آپلود: نوار
+   می‌رود و فقط «فایل آپلود شد» می‌ماند (core/upload-progress.js).
+   ============================================================ */
+.flow-uploads { margin-top: 8px; }
+.up-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.up-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px; border-radius: 12px; text-align: start;
+  background: var(--card-bg); border: 1px solid var(--card-border);
+}
+.up-ico {
+  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 201, 167, 0.12); color: var(--teal);
+}
+.up-ico svg { display: block; }
+.up-ico.ok { background: rgba(22, 163, 74, 0.14); color: #16a34a; }
+.up-ico.bad { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+.up-main { flex: 1; min-width: 0; }
+.up-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.up-name {
+  font-size: 12px; font-weight: 700; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: ltr; unicode-bidi: plaintext; min-width: 0;
+}
+.up-pct { font-size: 12px; font-weight: 800; color: var(--teal); flex: none; }
+.up-bar {
+  height: 7px; margin-top: 7px; border-radius: 999px; overflow: hidden;
+  background: rgba(100, 116, 139, 0.22);   /* جهت از صفحه می‌آید: فارسی از راست، انگلیسی از چپ پر می‌شود */
+}
+.up-fill {
+  display: block; height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal), #3b82f6);
+  transition: width .25s ease;
+}
+.up-sub2 { margin-top: 5px; font-size: 11px; color: var(--text-muted); }
+.up-done { font-size: 13px; font-weight: 800; color: #16a34a; }
+.up-fail { font-size: 13px; font-weight: 800; color: #ef4444; }
+.up-sub { margin-top: 3px; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); min-width: 0; }
+.up-sub .up-name { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.up-kind svg { width: 13px; height: 13px; vertical-align: -2px; display: block; }
+.up-note { margin-top: 4px; font-size: 11.5px; line-height: 1.8; color: #ef4444; }
+.up-retry {
+  margin-top: 7px; padding: 6px 12px; border: 0; border-radius: 9px;
+  background: var(--teal); color: #fff; font-family: inherit;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.up-row[data-state="queued"] .up-pct { color: var(--text-muted); font-weight: 700; }
+.up-row[data-state="retrying"] .up-pct { color: #d97706; }
+.up-row[data-state="retrying"] .up-fill { background: #d97706; }
+.up-row.is-done { background: rgba(22, 163, 74, 0.08); border-color: rgba(22, 163, 74, 0.28); }
+.up-row.is-failed { background: rgba(239, 68, 68, 0.07); border-color: rgba(239, 68, 68, 0.28); }
+@media (prefers-reduced-motion: reduce) { .up-fill { transition: none; } }

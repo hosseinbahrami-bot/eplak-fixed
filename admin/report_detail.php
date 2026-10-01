@@ -50,7 +50,7 @@ if ($report && !empty($report['user_phone'])) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات گزارش</title>
   <link rel="stylesheet" href="assets/style.css?v=9">
-  <script src="../assets/js/ep-map.js?v=1"></script>
+  <script src="../assets/js/ep-map.js?v=3"></script>
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -527,7 +527,7 @@ if ($report && !empty($report['user_phone'])) {
       var lat = <?= $hasGeo ? json_encode($reportLat) : 'null' ?>;
       var lng = <?= $hasGeo ? json_encode($reportLng) : 'null' ?>;
       if (mapBox && lat !== null && lng !== null && window.EplakMap) {
-        var adminMap = window.EplakMap.create(mapBox, { lat: lat, lng: lng, zoom: 17, draggable: true });
+        var adminMap = window.EplakMap.create(mapBox, { lat: lat, lng: lng, zoom: 17, draggable: true, tileProxy: '../api/tiles.php' });
         adminMap.setPosition(lat, lng);
         /* دکمه‌ی جابه‌جایی دوباره‌ی نشانگر روی نقطه‌ی اصلی */
         var resetBtn = document.createElement('button');

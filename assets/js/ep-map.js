@@ -19,6 +19,20 @@
 
    نکته‌ی مهم: این نقشه وقتی کاشی‌ها دانلود نشوند هم به کار خود ادامه می‌دهد
    (مختصات ثبت می‌شود) — یعنی قطعی نقشه باعث از کار افتادن ثبت درخواست نمی‌شود.
+
+   ── کاشی‌ها از کجا می‌آیند؟ (چرا «نقشه دیده نمی‌شد») ──────────────────────
+   اسنپ و نشان هم نقشه‌ی خود را بر پایه‌ی داده‌های OpenStreetMap و از «سرور
+   خودشان» می‌دهند. اپ ما قبلاً کاشی‌ها را مستقیم از tile.openstreetmap.org
+   می‌گرفت؛ ولی صفحه‌ی اپ از file:/// باز می‌شود، هیچ Referer نمی‌فرستد و OSM
+   چنین درخواستی را مسدود می‌کند (و در ایران هم دسترسی مستقیم گاهی کند/قطع است).
+   حالا ترتیب این است:
+     ۱) سرور خودِ ای‌پلاک: api/tiles.php (کاشی را از OSM می‌گیرد، کش می‌کند و
+        می‌دهد — همان سروری که آپلود عکس هم از آن کار می‌کند)
+     ۲) OpenStreetMap مستقیم (برای مرورگر/پنل ادمین که Referer می‌فرستد)
+   هر منبعی که جواب نداد، خودکار منبع بعدی امتحان می‌شود؛ اگر همه شکست خوردند،
+   مختصات نمایش داده می‌شود و دکمه‌ی «تلاش دوباره» هست.
+   منبع‌ها قابل تغییرند: options.tileSources یا window.EPLAK_MAP_TILE_SOURCES
+   (آرایه‌ای از قالب‌های {z}/{x}/{y}).
    ============================================================================ */
 (function (global) {
   'use strict';
@@ -29,6 +43,37 @@
   var MAX_ZOOM = 19;
   var STYLE_ID = 'epMapStyles';
   var MAX_TILE_ERRORS = 4;   /* بعد از این تعداد خطا، پیام «نقشه در دسترس نیست» */
+  var SOURCE_WATCHDOG_MS = 12000;  /* اگر در این مدت هیچ کاشی نیامد (نه خطا، نه تصویر)، منبع بعدی */
+
+  /* ── منبع‌های کاشی به ترتیب اولویت ─────────────────────────────────── */
+  function fillTemplate(template, z, x, y) {
+    return String(template)
+      .split('{z}').join(String(z))
+      .split('{x}').join(String(x))
+      .split('{y}').join(String(y));
+  }
+
+  function resolveTileSources(options) {
+    var opts = options || {};
+    if (Array.isArray(opts.tileSources) && opts.tileSources.length) return opts.tileSources.slice();
+    if (Array.isArray(global.EPLAK_MAP_TILE_SOURCES) && global.EPLAK_MAP_TILE_SOURCES.length) {
+      return global.EPLAK_MAP_TILE_SOURCES.slice();
+    }
+    var list = [];
+    var proxy = opts.tileProxy ? String(opts.tileProxy) : '';
+    if (!proxy) {
+      /* در اپ/وب، همان آدرس پایه‌ی API (core/storage.js) + tiles.php */
+      try {
+        if (typeof global.eplakApiBase === 'function') {
+          var base = String(global.eplakApiBase() || '').replace(/\/+$/, '');
+          if (base) proxy = base + '/tiles.php';
+        }
+      } catch (e) { /* مستقیم OSM */ }
+    }
+    if (proxy) list.push(proxy + (proxy.indexOf('?') > -1 ? '&' : '?') + 'z={z}&x={x}&y={y}');
+    list.push(TILE_URL);
+    return list;
+  }
 
   /* ── استایل‌ها یک‌بار به صفحه اضافه می‌شوند (هم اپ، هم پنل ادمین) ── */
   function injectStyles() {
@@ -43,10 +88,12 @@
       '.ep-map-tiles img{position:absolute;width:256px;height:256px;border:0;pointer-events:none;',
       '  -webkit-user-drag:none;user-select:none;}',
       '.ep-map-dark .ep-map-tiles img{filter:brightness(0.72) saturate(0.85) hue-rotate(180deg) invert(0.92);}',
-      '.ep-map-fallback{position:absolute;inset:0;display:none;align-items:center;justify-content:center;',
+      '.ep-map-fallback{position:absolute;inset:0;z-index:5;display:none;align-items:center;justify-content:center;',
       '  flex-direction:column;gap:6px;text-align:center;padding:12px;background:linear-gradient(135deg,#16233c,#0d1527);',
       '  color:#cbd5e1;font-size:11.5px;line-height:1.9;}',
       '.ep-map-fallback.show{display:flex;}',
+      '.ep-map-retry{margin-top:4px;border:0;border-radius:10px;padding:7px 14px;background:#00C9A7;color:#04201b;',
+      '  font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;}',
       '.ep-map-fallback .ep-map-coords{direction:ltr;font-weight:700;color:#00C9A7;font-size:12.5px;}',
       '.ep-map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);pointer-events:none;',
       '  filter:drop-shadow(0 6px 10px rgba(239,68,68,0.45));z-index:3;}',
@@ -105,6 +152,12 @@
     var tileCache = new Map();
     var tileErrors = 0;
     var tilesLayer, fallback, loading;
+    var sources = resolveTileSources(opts);
+    var activeSource = 0;        /* کاشی‌های تازه از این منبع شروع می‌شوند */
+    var verifiedSource = -1;     /* بهترین منبعی که واقعاً تصویر داده است */
+    var sourceFailures = sources.map(function () { return 0; });
+    var anyTileLoaded = false;
+    var watchdog = null;
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {};
 
     container.classList.add('ep-map');
@@ -135,8 +188,16 @@
     fallback.className = 'ep-map-fallback';
     fallback.innerHTML = '<div>🗺️ نقشه در دسترس نیست (اینترنت یا دسترسی به سرور نقشه)</div>'
       + '<div class="ep-map-coords">—</div>'
-      + '<div>مختصات همین‌جا ثبت می‌شود و در پنل ادمین نمایش داده می‌شود.</div>';
+      + '<div>مختصات همین‌جا ثبت می‌شود و در پنل ادمین نمایش داده می‌شود.</div>'
+      + '<button type="button" class="ep-map-retry">تلاش دوباره برای نقشه</button>';
     container.appendChild(fallback);
+    var retryBtn = fallback.querySelector('.ep-map-retry');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        retryTiles();
+      });
+    }
 
     loading = document.createElement('div');
     loading.className = 'ep-map-loading';
@@ -176,6 +237,82 @@
       if (el) el.textContent = state.lat.toFixed(6) + ', ' + state.lng.toFixed(6);
     }
 
+    /* ── درخواست یک کاشی از منبع شماره‌ی idx ──────────────────────────── */
+    function requestTile(img, z, x, y, idx) {
+      img.dataset.srcIdx = String(idx);
+      img.src = fillTemplate(sources[idx], z, x, y);
+    }
+
+    function showFallback() {
+      loading.style.display = 'none';
+      fallback.classList.add('show');
+      updateFallbackCoords();
+    }
+
+    /* موفقیت یا شکست هر کاشی؛ اگر یک منبع جواب نداد، همان کاشی (و کاشی‌های
+       بعدی) از منبع بعدی گرفته می‌شود. فقط وقتی همه‌ی منبع‌ها شکست بخورند،
+       کاشی پنهان و شمارنده‌ی خطا بالا می‌رود. */
+    function attachTileHandlers(img, z, x, y) {
+      img.addEventListener('load', function () {
+        var idx = parseInt(img.dataset.srcIdx, 10) || 0;
+        anyTileLoaded = true;
+        tileErrors = 0;
+        if (verifiedSource === -1 || idx < verifiedSource) verifiedSource = idx;
+        activeSource = verifiedSource;
+        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+        loading.style.display = 'none';
+        fallback.classList.remove('show');
+      });
+      img.addEventListener('error', function () {
+        var idx = parseInt(img.dataset.srcIdx, 10) || 0;
+        if (idx + 1 < sources.length) {
+          sourceFailures[idx]++;
+          if (verifiedSource !== idx && sourceFailures[idx] >= 2 && activeSource === idx) {
+            activeSource = idx + 1;
+          }
+          requestTile(img, z, x, y, idx + 1);
+          return;
+        }
+        img.style.visibility = 'hidden';
+        tileErrors++;
+        if (tileErrors >= MAX_TILE_ERRORS) showFallback();
+      });
+    }
+
+    /* نگهبان: اگر شبکه بی‌صدا بسته باشد (نه خطا، نه تصویر)، به منبع بعدی برو */
+    function armWatchdog() {
+      if (watchdog || anyTileLoaded || typeof setTimeout !== 'function') return;
+      watchdog = setTimeout(function () {
+        watchdog = null;
+        if (anyTileLoaded) return;
+        if (activeSource + 1 < sources.length) {
+          activeSource++;
+          Array.prototype.slice.call(tilesLayer.children).forEach(function (node) {
+            var parts = String(node.dataset.tile || '').split('/');
+            if (parts.length === 3) {
+              requestTile(node, parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2], 10), activeSource);
+            }
+          });
+          armWatchdog();
+        } else {
+          showFallback();
+        }
+      }, SOURCE_WATCHDOG_MS);
+    }
+
+    /* دکمه‌ی «تلاش دوباره»: از اولین منبع، با کاشی‌های تازه */
+    function retryTiles() {
+      tileErrors = 0;
+      activeSource = 0;
+      verifiedSource = -1;
+      anyTileLoaded = false;
+      sourceFailures = sources.map(function () { return 0; });
+      fallback.classList.remove('show');
+      loading.style.display = '';
+      tilesLayer.innerHTML = '';
+      renderTiles();
+    }
+
     /* رسم کاشی‌های لازم برای ظرف فعلی */
     function renderTiles() {
       var box = size();
@@ -202,25 +339,12 @@
           var img = document.createElement('img');
           img.dataset.tile = key;
           img.alt = '';
-          img.loading = 'lazy';
+          img.loading = 'eager';      /* کاشی‌ها همین‌الان لازم‌اند؛ lazy در وب‌ویو دیر می‌آید */
           img.decoding = 'async';
-          img.src = TILE_URL.replace('{z}', state.zoom).replace('{x}', wrappedX).replace('{y}', ty);
           img.style.left = (tx * TILE_SIZE - left) + 'px';
           img.style.top = (ty * TILE_SIZE - top) + 'px';
-          img.addEventListener('load', function () {
-            tileErrors = 0;
-            loading.style.display = 'none';
-            fallback.classList.remove('show');
-          });
-          img.addEventListener('error', function () {
-            img.style.visibility = 'hidden';
-            tileErrors++;
-            if (tileErrors >= MAX_TILE_ERRORS) {
-              loading.style.display = 'none';
-              fallback.classList.add('show');
-              updateFallbackCoords();
-            }
-          });
+          attachTileHandlers(img, state.zoom, wrappedX, ty);
+          requestTile(img, state.zoom, wrappedX, ty, activeSource);
           tilesLayer.appendChild(img);
         }
       }
@@ -318,6 +442,7 @@
 
     /* رسم اولیه: بدون این کار، نقشه تا اولین جابه‌جایی/زوم خالی می‌ماند. */
     renderTiles();
+    armWatchdog();
 
     return {
       setPosition: setPosition,
@@ -327,9 +452,15 @@
       zoomOut: function () { setZoom(state.zoom - 1); },
       refresh: function () { renderTiles(); },
       setTheme: function (night) { container.classList.toggle('ep-map-dark', !!night); },
+      retry: retryTiles,
+      /* برای عیب‌یابی و آزمون: کدام منبع کاشی فعال/تأییدشده است */
+      tileStatus: function () {
+        return { sources: sources.slice(), active: activeSource, verified: verifiedSource, errors: tileErrors, loaded: anyTileLoaded };
+      },
       destroy: function () {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        if (watchdog) { clearTimeout(watchdog); watchdog = null; }
         tileCache.clear();
       },
       element: container
@@ -437,6 +568,7 @@
 
   var api = {
     create: create,
+    resolveTileSources: resolveTileSources,
     reverseGeocode: reverseGeocode,
     formatShortAddress: formatShortAddress,
     formatPosition: formatPosition,

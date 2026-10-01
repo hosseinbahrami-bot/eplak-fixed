@@ -509,3 +509,25 @@ the existing report and code, so even an old app cannot create two reports with 
 4. Test: submit a report with a photo **and** a video (one from the camera, one from the gallery).
    You should see “در حال بارگذاری… ٪” and then **one tracking code**, and in the report details
    **one row** with that photo/video.
+
+---
+
+## 26) Round 27 — per-file upload progress, “the video never arrived” fix, and the location map from our own server
+
+**What the user reported:** the photo arrived but the video did not; the location map was invisible (use what Snapp/Neshan use); and a per-file percentage line chart inside the *Processing Flow* that turns into just “File uploaded” when done.
+
+**Per-file progress chart** — shown in the report details under *Processing Flow → Report submitted* (and on the “Report submitted” screen): queued → bar + percent (“45%”, “4.8 of 10.6 MB”) → retrying → **bar disappears and only “File uploaded” remains** → or “Upload failed” with the real reason and a *Try again* button. Percent is byte-based, updates *inside* each chunk, and never shows 100% before the server confirms (`core/upload-progress.js`).
+
+**Why the video did not arrive (all fixed):**
+1. **The report was created before the video finished** (main cause). The periodic report sync (every 45 s, when opening “My reports”, when the app returns to the foreground) created every “pending” report; a video that is still uploading is not in the failure queue yet, so the sync assumed nothing was left, created the report with *only the photo* and issued the tracking code while the video was still in flight. If the app went to the background or closed in those minutes the video never attached. Reproduced in a real browser test; now a request is never created or re-sent while its files are uploading.
+2. The server rejected more than 500 chunks, so large videos failed once the app shrank chunks behind a strict firewall. The cap is now 6000 (`EPLAK_MEDIA_MAX_CHUNKS`); with an old server the app enlarges the chunk instead.
+3. A lost response made the retry get “order mismatch (409)” and restart the video. The server now acknowledges duplicate chunks without appending them; with an old server the app resumes from the server’s `expected` position.
+4. Only 3 retries and no wait for connectivity: now 6 retries with growing pauses, 502–504 retried, and the app waits (up to 45 s) for the `online` event.
+
+The in-app camera now records 720p at 1.5 Mbit/s (~11 MB/min instead of ~20).
+
+**Location map.** Tiles came straight from `tile.openstreetmap.org`, but the app page is `file://` (no `Referer`), which OSM blocks. Snapp and Neshan both serve **OpenStreetMap-based** maps from their own servers ([Snapp](https://wiki.openstreetmap.org/wiki/Fa:Snapp), [Neshan](https://platform.neshan.org/)). Eplak now does the same: `api/tiles.php` fetches tiles from OSM (identifying User-Agent/Referer), caches them on disk and serves them from the same server the uploads use. Source order: our server → OSM direct; automatic failover (including a 12 s watchdog), a *Try again* button, and `geo:` links so Android offers installed map apps (Neshan, Balad, Google Maps). If the municipality obtains Neshan’s direct raster-tile service, put `tile_upstreams` / `tile_api_key` in `shared/config.php` (the key stays on the server). The host must allow outgoing HTTPS (cURL); the live check now verifies it.
+
+**Tests:** `upload.test.mjs` (70) and `tiles.test.mjs` (59) were added; all 692 checks pass.
+
+**Update steps:** extract the new `eplak-fixed-update.zip` (new files: `api/tiles.php`, `shared/tiles.php`, `core/upload-progress.js`) and install the new APK (the signing key of a GitHub build is kept in that branch’s cache; if it differs from the installed app’s, Android says “App not installed” — uninstall the previous build once).

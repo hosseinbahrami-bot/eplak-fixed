@@ -62,6 +62,14 @@ AddDefaultCharset UTF-8
     Header set Expires "0"
   </FilesMatch>
 
+  # کاشی‌های نقشه (api/tiles.php): کش یک‌روزه در مرورگر/اپ تا هر بار دوباره
+  # نگیرد (خودِ فایل هم همین هدر را می‌فرستد؛ این بلوک جلوی «no-store» بالا را می‌گیرد)
+  <FilesMatch "^tiles\.php$">
+    Header set Cache-Control "public, max-age=86400"
+    Header unset Pragma
+    Header unset Expires
+  </FilesMatch>
+
   # سرویس‌ورکر باید بدون کش بررسی شود تا نسخه‌ی تازه‌اش فعال شود
   <FilesMatch "^sw\.js$">
     Header set Cache-Control "no-cache, must-revalidate, max-age=0"

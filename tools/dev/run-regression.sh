@@ -18,6 +18,10 @@
 #                 پس از ثبت درخواست، و ورود دوباره با کد تایید پس از خروج از اپ
 #    geo        → نقشه‌ی موقعیت (کاشی‌های OpenStreetMap)، GPS گوشی، انتخاب
 #                 عکس/فیلم در اپ اندروید و ذخیره/نمایش مختصات در پنل ادمین
+#    upload     → نمودار درصدی «هر فایل»، ارسال تکه‌تکه‌ی فیلم (قطع شبکه، فایروال،
+#                 تکه‌ی تکراری، سقف تعداد تکه)، و ساخته نشدن زودهنگام گزارش
+#    tiles      → کاشی‌های نقشه از سرور خودِ ای‌پلاک (پروکسی + کش) و جابه‌جایی
+#                 خودکار منبع‌های نقشه در اپ
 # ============================================================================
 set -uo pipefail
 
@@ -63,7 +67,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue online geo; do
+for t in notify app pushcrypto fcm backend rescue online geo upload tiles; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"
