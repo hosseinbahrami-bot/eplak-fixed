@@ -222,7 +222,7 @@ if [ -f "$IDX" ] && [ -f "$REPO/index.html" ]; then
   say ""
   say "| فایل | روی سرور | در مخزن | وضعیت |"
   say "|---|---|---|---|"
-  for f in "assets/css/style.css" "modules/reports.js" "core/i18n.js" "app.js"; do
+  for f in "assets/css/style.css" "modules/reports.js" "modules/live.js" "modules/auth.js" "core/i18n.js" "app.js"; do
     lv=$(grep -oE "${f//./\\.}\?v=[0-9]+" "$IDX" | head -1 | grep -oE '[0-9]+$')
     rv=$(grep -oE "${f//./\\.}\?v=[0-9]+" "$REPO/index.html" | head -1 | grep -oE '[0-9]+$')
     if [ -z "$lv" ]; then lv="—"; fi
