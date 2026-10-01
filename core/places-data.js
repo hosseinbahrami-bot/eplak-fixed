@@ -47,7 +47,7 @@
       {"id": "kheyrabad-pharmacy24", "cat": "health", "fa": "داروخانه شبانه‌روزی دکتر علیرضائی", "en": "Dr. Alirezaei 24-hour Pharmacy", "lat": 35.38377, "lng": 51.60866, "addr": "خیرآباد، بلوار شهید سلیمانی", "addrEn": "Kheyrabad, Shahid Soleimani Blvd."},
       /* ── مساجد و اماکن مذهبی ── */
       {"id": "jame-mosque", "cat": "mosque", "fa": "مسجد جامع ورامین", "en": "Jame Mosque of Varamin", "lat": 35.32213, "lng": 51.64164, "also": "culture", "note": "از زیباترین مساجد چهارایوانی ایران؛ یادگار دوره ایلخانی", "noteEn": "One of Iran's finest four-iwan mosques, dating from the Ilkhanid era"},
-      {"id": "imamzadeh-yahya", "cat": "mosque", "fa": "امامزاده یحیی (ع)", "en": "Imamzadeh Yahya", "lat": 35.31615, "lng": 51.6483, "also": "culture", "addr": "محله کهنه‌گل", "addrEn": "Kohneh Gol neighborhood", "note": "از مهم‌ترین زیارتگاه‌ها و بناهای تاریخی ورامین", "noteEn": "One of Varamin's most important shrines and historic buildings"},
+      {"id": "imamzadeh-yahya", "cat": "mosque", "fa": "امامزاده یحیی (ع)", "en": "Imamzadeh Yahya", "lat": 35.31615, "lng": 51.6483, "also": "culture", "addr": "محله کهنه‌گل", "addrEn": "Kohneh Gol neighborhood", "note": "از مهم‌ترین زیارتگاه‌های ورامین؛ بقعه‌ای از سال ۷۰۷ هجری قمری و ثبت‌شده در آثار ملی (شماره‌ی ۱۹۹)", "noteEn": "One of Varamin's most important shrines; a shrine building from 707 AH, registered as a national monument (no. 199)"},
       {"id": "imamzadeh-hossein-reza", "cat": "mosque", "fa": "امامزاده حسین‌رضا (ع)", "en": "Imamzadeh Hossein Reza", "lat": 35.33822, "lng": 51.64375, "also": "culture", "approx": 1, "note": "برج آرامگاهی تاریخی؛ اثر ثبت‌شده در فهرست آثار ملی ایران (مختصات از ویکی‌داده)", "noteEn": "A historic tomb tower, registered on Iran's National Heritage list (coordinates from Wikidata)"},
       {"id": "seyyed-fathollah-tomb", "cat": "mosque", "fa": "آرامگاه سید فتح‌الله", "en": "Tomb of Seyyed Fathollah", "lat": 35.32381, "lng": 51.64839, "also": "culture", "approx": 1, "note": "امامزاده و برج آرامگاهی؛ اثر ثبت‌شده در فهرست آثار ملی ایران (مختصات از ویکی‌داده)", "noteEn": "An imamzadeh and tomb tower, registered on Iran's National Heritage list (coordinates from Wikidata)"},
       {"id": "imamzadeh-zeid", "cat": "mosque", "fa": "امامزاده زید ابوالحسن حسینی ورامینی", "en": "Imamzadeh Zeid Abolhasan Hosseini", "lat": 35.32081, "lng": 51.64198},
@@ -82,7 +82,7 @@
       {"id": "razi-culture-center", "cat": "culture", "fa": "فرهنگسرای رازی", "en": "Razi Cultural Center", "lat": 35.32255, "lng": 51.65452},
       {"id": "razi-library", "cat": "culture", "fa": "کتابخانه رازی", "en": "Razi Library", "lat": 35.32237, "lng": 51.65414},
       /* ── ادارات و سازمان‌ها ── */
-      {"id": "governorate", "cat": "office", "fa": "فرمانداری ورامین", "en": "Varamin Governorate", "lat": 35.32963, "lng": 51.64016, "approx": 1, "tel": "02136253168", "addr": "میدان امام حسین (ع)، خیابان شهید بهشتی، روبروی شهرداری", "addrEn": "Emam Hossein Sq., Shahid Beheshti St., opposite the Municipality"},
+      {"id": "governorate", "cat": "office", "fa": "فرمانداری ورامین", "en": "Varamin Governorate", "lat": 35.32798, "lng": 51.64129, "approx": 1, "tel": "02136253164", "addr": "میدان امام حسین (ع)، خیابان شهید بهشتی، روبروی شهرداری", "addrEn": "Emam Hossein Sq., Shahid Beheshti St., opposite the Municipality"},
       {"id": "municipality", "cat": "office", "fa": "شهرداری ورامین (ساختمان مرکزی)", "en": "Varamin Municipality (Main Building)", "lat": 35.32831, "lng": 51.64017, "tel": "137", "addr": "ابتدای خیابان شهید بهشتی، میدان شهرداری، روبروی فرمانداری", "addrEn": "Beginning of Shahid Beheshti St., Municipality Sq., opposite the Governorate"},
       {"id": "municipality-district1", "cat": "office", "fa": "شهرداری ناحیه یک ورامین", "en": "Municipality – District 1", "lat": 35.31973, "lng": 51.65047, "tel": "137", "addr": "خیابان شهید بهشتی", "addrEn": "Shahid Beheshti St."},
       {"id": "municipality-zone2", "cat": "office", "fa": "شهرداری منطقه دو ورامین", "en": "Municipality – Zone 2", "lat": 35.37081, "lng": 51.62043, "tel": "137"},
@@ -97,7 +97,7 @@
       {"id": "telecom", "cat": "office", "fa": "مخابرات ورامین", "en": "Varamin Telecommunications Office", "lat": 35.32871, "lng": 51.63923},
       {"id": "agri-jihad", "cat": "office", "fa": "جهاد کشاورزی ورامین", "en": "Varamin Agricultural Jihad Organization", "lat": 35.3243, "lng": 51.65969},
       {"id": "forensic", "cat": "office", "fa": "پزشکی قانونی ورامین", "en": "Varamin Legal Medicine Office", "lat": 35.33054, "lng": 51.64897},
-      {"id": "welfare", "cat": "office", "fa": "بهزیستی ورامین", "en": "Varamin Welfare Organization", "lat": 35.38563, "lng": 51.61664},
+      {"id": "welfare", "cat": "office", "fa": "بهزیستی (مرکز خیرآباد)", "en": "Welfare Organization (Kheyrabad center)", "lat": 35.38563, "lng": 51.61664, "addr": "خیرآباد", "addrEn": "Kheyrabad"},
       {"id": "plate-center", "cat": "office", "fa": "مرکز تعویض پلاک ورامین", "en": "Varamin Vehicle Plate Center", "lat": 35.32749, "lng": 51.66901},
       {"id": "weather-office", "cat": "office", "fa": "اداره هواشناسی ورامین", "en": "Varamin Meteorological Office", "lat": 35.34384, "lng": 51.63226},
       /* ── انتظامی و امدادی ── */

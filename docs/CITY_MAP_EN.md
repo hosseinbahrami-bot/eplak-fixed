@@ -126,7 +126,8 @@ One line in the `places` array of `core/places-data.js`:
 - Coordinates come from **OpenStreetMap** (© OpenStreetMap contributors, ODbL), fetched on 2026-10-01 and cross-checked against official sources
   (hospital addresses/phones, governorate and municipality addresses from their official sites, landmarks against Wikipedia).
   Only places that are named in OSM are included; unnamed mosques or very new buildings may be missing — add them yourself.
-- The **Varamin Governorate** is unnamed in OSM; its position is estimated from the official address (“Emam Hossein Sq., Shahid Beheshti St., opposite the Municipality”) and flagged with `approx`.
+- The **Varamin Governorate** is unnamed in OSM; its position follows the official address (“Emam Hossein Sq., Shahid Beheshti St., opposite the Municipality”) and the point recorded for it on the Balad map (Governorate St.); with no official coordinates source it is flagged `approx`.
+- **Offices without reliable coordinates** are not listed and should be added from the panel: the Welfare office next to the Governorate (the existing “Welfare” point is the Kheyrabad center), Municipality Zone 3 and the municipal districts, the waste-management organization, civil registry, tax office … (how to add: section 4).
 - **Four registered national monuments** (Imamzadeh Hossein Reza, Tomb of Seyyed Fathollah, Remains of Bajak Castle, Varamin Sugar Refinery) are not named in OSM; their coordinates come from **Wikidata** (CC0; items with “National Heritage of Iran”) and, having no second source, are flagged `approx`.
 - The base map needs internet and the tile server; if it fails you see “Map imagery could not be loaded” with a retry button, but the list and routing still work.
 - Unnamed or brand-new mosques, offices and cultural venues are not in OSM/Wikidata (e.g. civil registry, tax office, post, council, relief …); municipality staff add them through the **“City places” admin page** (section 4).

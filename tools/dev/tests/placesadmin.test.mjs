@@ -274,7 +274,7 @@ section('اصلاح مکانِ پیش‌فرض (فرمانداری): ذخیره�
 const gov = data.places.find((p) => p.id === 'governorate');
 edit = await admin.get('/admin/places.php?edit=governorate');
 ok('فرمِ مکانِ پیش‌فرض با مقدارهای خودِ فایل داده پر می‌شود',
-  edit.text.includes(`value="${gov.fa}"`) && /value="35\.329630"/.test(edit.text) && /name="approx"[^>]*checked/.test(edit.text) && !/data-testid="place-restore"/.test(edit.text) && !/name="published"/.test(edit.text)
+  edit.text.includes(`value="${gov.fa}"`) && edit.text.includes(`value="${gov.lat.toFixed(6)}"`) && /name="approx"[^>]*checked/.test(edit.text) && !/data-testid="place-restore"/.test(edit.text) && !/name="published"/.test(edit.text)
   && !/padding-top:14px/.test(edit.text));   /* بدون نوار خالیِ «حذف/بازگردانی» برای مکانِ دست‌نخورده */
 const sameFields = { action: 'save', key: 'governorate', cat: gov.cat, name_fa: gov.fa, name_en: gov.en, addr_fa: gov.addr || '', addr_en: gov.addrEn || '', tel: gov.tel || '', note_fa: gov.note || '', note_en: gov.noteEn || '', lat: String(gov.lat), lng: String(gov.lng), approx: gov.approx ? '1' : '' };
 res = await submit('/admin/places.php?edit=governorate', sameFields);
