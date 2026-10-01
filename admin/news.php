@@ -22,7 +22,7 @@ $deleted = isset($_GET['deleted']);
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>اخبار و دانستنی‌ها</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -44,6 +44,7 @@ $deleted = isset($_GET['deleted']);
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
         <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+        <a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
         <a href="logout.php"><i class="fas fa-sign-out-alt"></i> <span>خروج</span></a>
       </nav>
     </aside>
@@ -106,8 +107,22 @@ $deleted = isset($_GET['deleted']);
             <?php else: ?>
               <?php foreach ($rows as $row): ?>
                 <tr>
-                  <td style="font-size: 20px;"><?= htmlspecialchars($row['icon'] ?: '📰') ?></td>
-                  <td><strong><?= htmlspecialchars($row['title']) ?></strong></td>
+                  <td style="font-size: 20px;">
+                    <?php if (!empty($row['image_url'])): ?>
+                      <img src="<?= htmlspecialchars(adminMediaUrl((string) $row['image_url'])) ?>" alt=""
+                           style="width:42px; height:42px; border-radius:10px; object-fit:cover; display:block; margin:auto;">
+                    <?php else: ?>
+                      <?= htmlspecialchars($row['icon'] ?: '📰') ?>
+                    <?php endif; ?>
+                  </td>
+                  <td>
+                    <strong><?= htmlspecialchars($row['title']) ?></strong>
+                    <?php if (!empty($row['badge'])): ?>
+                      <div style="font-size: 12px; color: var(--dark-500); margin-top: 4px;">
+                        <i class="fas fa-tag" style="font-size: 10px;"></i> <?= htmlspecialchars((string) $row['badge']) ?>
+                      </div>
+                    <?php endif; ?>
+                  </td>
                   <td style="max-width: 280px; color: var(--dark-500); font-size: 13px;">
                     <?= htmlspecialchars(mb_substr($row['summary'] ?: $row['body'], 0, 60)) ?><?= mb_strlen($row['summary'] ?: $row['body']) > 60 ? '…' : '' ?>
                   </td>

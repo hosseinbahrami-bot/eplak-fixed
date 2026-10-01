@@ -18,7 +18,7 @@ $doneTickets = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['s
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>مدیریت تیکت‌ها</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -40,6 +40,7 @@ $doneTickets = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['s
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
 <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
 <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+<a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
       </nav>
     </aside>
     <main class="main">
@@ -70,11 +71,11 @@ $doneTickets = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['s
         </div>
         <div class="stat-item">
           <i class="fas fa-spinner" style="color: var(--info);"></i>
-          <span>در حال بررسی: <strong><?= $inProgressTickets ?></strong></span>
+          <span>در حال رسیدگی: <strong><?= $inProgressTickets ?></strong></span>
         </div>
         <div class="stat-item">
           <i class="fas fa-check-circle" style="color: var(--success);"></i>
-          <span>انجام‌شده: <strong><?= $doneTickets ?></strong></span>
+          <span>انجام شد: <strong><?= $doneTickets ?></strong></span>
         </div>
       </div>
 
@@ -101,8 +102,8 @@ $doneTickets = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['s
                 <select name="status" class="filter-select" style="width: 100%;">
                   <option value="all" <?= $statusFilter === 'all' ? 'selected' : '' ?>>همه وضعیت‌ها</option>
                   <option value="pending" <?= $statusFilter === 'pending' ? 'selected' : '' ?>>در انتظار</option>
-                  <option value="in_progress" <?= $statusFilter === 'in_progress' ? 'selected' : '' ?>>در حال بررسی</option>
-                  <option value="done" <?= $statusFilter === 'done' ? 'selected' : '' ?>>انجام‌شده</option>
+                  <option value="in_progress" <?= $statusFilter === 'in_progress' ? 'selected' : '' ?>>در حال رسیدگی</option>
+                  <option value="done" <?= $statusFilter === 'done' ? 'selected' : '' ?>>انجام شد</option>
                 </select>
               </div>
               <button type="submit" class="btn btn-primary">
@@ -166,15 +167,15 @@ $doneTickets = count(array_filter($tickets, fn($t) => normalizeStatusValue($t['s
                       <?php
                         $statusClass = normalizeStatusValue($ticket['status']) === 'done' ? 'status-done' : 
                                       (normalizeStatusValue($ticket['status']) === 'in_progress' ? 'status-progress' : 'status-pending');
-                        $statusText = normalizeStatusValue($ticket['status']) === 'done' ? 'انجام‌شده' :
-                                     (normalizeStatusValue($ticket['status']) === 'in_progress' ? 'در حال بررسی' : 'در انتظار');
+                        $statusText = normalizeStatusValue($ticket['status']) === 'done' ? 'انجام شد' :
+                                     (normalizeStatusValue($ticket['status']) === 'in_progress' ? 'در حال رسیدگی' : 'در انتظار');
                       ?>
                       <span class="<?= $statusClass ?>">
                         <?php if ($statusText === 'در انتظار'): ?>
                           <i class="fas fa-hourglass-half"></i>
-                        <?php elseif ($statusText === 'در حال بررسی'): ?>
+                        <?php elseif ($statusText === 'در حال رسیدگی'): ?>
                           <i class="fas fa-spinner fa-spin"></i>
-                        <?php elseif ($statusText === 'انجام‌شده'): ?>
+                        <?php elseif ($statusText === 'انجام شد'): ?>
                           <i class="fas fa-check-circle"></i>
                         <?php endif; ?>
                         <?= $statusText ?>

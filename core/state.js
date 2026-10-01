@@ -5,12 +5,14 @@
      ای‌پلاک — Application State & Data
   ========================================================= */
 
+  /* برچسب‌های وضعیت — دقیقاً چهار مرحله‌ی روند رسیدگی:
+     ثبت گزارش → در حال انتظار → در حال رسیدگی → انجام شد */
   const STATUS_LABEL = {
     all: 'همه',
-    pending: 'در انتظار',
-    in_progress: 'در حال بررسی',
-    review: 'در حال بررسی',
-    done: 'انجام شده'
+    pending: 'در حال انتظار',
+    in_progress: 'در حال رسیدگی',
+    review: 'در حال رسیدگی',
+    done: 'انجام شد'
   };
   const STATUS_LABEL_EN = {
     all: 'All',
@@ -25,6 +27,13 @@
     in_progress: 'status-review',
     review: 'status-review',
     done: 'status-done'
+  };
+  /* نام‌های آیکون هر وضعیت در پک آیکون حرفه‌ای */
+  const STATUS_ICON = {
+    pending: 'hourglass',
+    in_progress: 'search',
+    review: 'search',
+    done: 'check-circle'
   };
 
   function normalizeStatusValue(value) {
@@ -67,7 +76,7 @@
       : (window.i18n && window.i18n.currentLang === 'en');
     const label = isEn
       ? (STATUS_LABEL_EN[key] || 'Pending')
-      : (STATUS_LABEL[key] || 'در انتظار');
+      : (STATUS_LABEL[key] || 'در حال انتظار');
     return {
       key,
       label,

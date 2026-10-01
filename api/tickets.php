@@ -134,6 +134,15 @@ try {
 
     $pdo->commit();
     $code = 'TK-1403-' . str_pad((string) ($ticketId + 1000), 4, '0', STR_PAD_LEFT);
+
+    /* اعلان فوری برای خودِ کاربر (فهرست اعلان‌های اپ/سایت + فایربیس در حالت بسته) */
+    try {
+        require_once __DIR__ . '/../shared/notify_events.php';
+        eplakNotifyRequestCreated($pdo, $phone, 'پیام/درخواست', $code);
+    } catch (Throwable $e) {
+        error_log('[eplak-api:tickets.notify] ' . $e->getMessage());
+    }
+
     eplakJson([
         'success'       => true,
         'id'            => $ticketId,

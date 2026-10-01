@@ -50,7 +50,7 @@ if ($report && !isset($report['code'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ویرایش گزارش</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -72,6 +72,7 @@ if ($report && !isset($report['code'])) {
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
 <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
 <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+<a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
       </nav>
     </aside>
     <main class="main">
@@ -256,10 +257,10 @@ if ($report && !isset($report['code'])) {
                     در انتظار
                   </option>
                   <option value="in_progress" <?= normalizeStatusValue($report['status']) === 'in_progress' ? 'selected' : '' ?>>
-                    در حال بررسی
+                    در حال رسیدگی
                   </option>
                   <option value="done" <?= normalizeStatusValue($report['status']) === 'done' ? 'selected' : '' ?>>
-                    انجام‌شده
+                    انجام شد
                   </option>
                 </select>
               </div>
@@ -274,9 +275,9 @@ if ($report && !isset($report['code'])) {
                     <?php
                       $currentStatus = normalizeStatusValue($report['status']);
                       if ($currentStatus === 'done') {
-                        echo '<i class="fas fa-check-circle"></i> انجام‌شده';
+                        echo '<i class="fas fa-check-circle"></i> انجام شد';
                       } elseif ($currentStatus === 'in_progress') {
-                        echo '<i class="fas fa-spinner fa-spin"></i> در حال بررسی';
+                        echo '<i class="fas fa-spinner fa-spin"></i> در حال رسیدگی';
                       } else {
                         echo '<i class="fas fa-hourglass-half"></i> در انتظار';
                       }
@@ -355,8 +356,8 @@ if ($report && !isset($report['code'])) {
         statusSelect.addEventListener('change', function() {
           const statusMap = {
             'pending': { class: 'status-pending', icon: 'fa-hourglass-half', text: 'در انتظار' },
-            'in_progress': { class: 'status-progress', icon: 'fa-spinner fa-spin', text: 'در حال بررسی' },
-            'done': { class: 'status-done', icon: 'fa-check-circle', text: 'انجام‌شده' }
+            'in_progress': { class: 'status-progress', icon: 'fa-spinner fa-spin', text: 'در حال رسیدگی' },
+            'done': { class: 'status-done', icon: 'fa-check-circle', text: 'انجام شد' }
           };
           
           const status = statusMap[this.value] || statusMap['pending'];

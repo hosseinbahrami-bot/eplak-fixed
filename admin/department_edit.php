@@ -129,7 +129,7 @@ if (empty($department['code'])) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ویرایش واحد</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -151,6 +151,7 @@ if (empty($department['code'])) {
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
 <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
 <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+<a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
       </nav>
     </aside>
     <main class="main">
