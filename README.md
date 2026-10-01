@@ -8,7 +8,7 @@
 |---|---|---|
 | 📱 **اپ اندروید** | فایل نصب گوشی (`eplak-app.apk`) — نسخه‌ی آخر همیشه: [صفحه‌ی Releases](https://github.com/hosseinbahrami-bot/eplak-fixed/releases) | **[دانلود APK](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk)** |
 | 🍎 **اپ iOS (آیفون)** | فایل نصب بدون امضا (`eplak-app-unsigned.ipa`) — با Sideloadly / AltStore / Xcode و Apple ID خودتان نصب می‌شود؛ راهنما: `docs/IOS_PWA_FA.md` | **[دانلود `eplak-app-unsigned.ipa`](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app-unsigned.ipa)** |
-| 🌍 **PWA (آیفون و اندروید)** | خودِ سایت یک PWA است: آیفون ← Safari ← «افزودن به صفحه اصلی»؛ اندروید ← Chrome ← «نصب». نسخه‌ی ایستای مستقل برای میزبان‌های بدون PHP: | [دانلود `eplak-pwa.zip`](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-pwa.zip) |
+| 🌍 **PWA (آیفون و اندروید) — بدون فایل** | فقط یک لینک: آیفون ← Safari ← «افزودن به صفحه اصلی»؛ اندروید ← Chrome ← «نصب». لینک مستقیم روی GitHub Pages (پس از یک‌بار روشن کردن Pages؛ `docs/IOS_PWA_FA.md` بخش ۳-۱) — و خودِ سایت هاست هم همین الان یک PWA است: `https://eplak.ir/eplak-fixed/` | **[https://hosseinbahrami-bot.github.io/eplak-fixed/](https://hosseinbahrami-bot.github.io/eplak-fixed/)** |
 | 🌐 **بسته‌ی سایت و پنل** | برای آپلود روی `eplak.ir/eplak-fixed` | **[دانلود `eplak-fixed-update.zip`](https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip)** |
 | 🗂️ **همه‌ی نسخه‌ها** | صفحه‌ی Releases گیت‌هاب | [صفحه‌ی Releases](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/tag/v2.0-eplak-update) |
 
@@ -50,7 +50,7 @@ bash tools/dev/run-regression.sh places   # نقشه و اماکن شهری + م
 bash tools/dev/run-regression.sh placesadmin   # مدیریت اماکن از پنل ادمین (PHP واقعی)
 bash tools/dev/run-regression.sh security   # ابزار ناامن rescue-db.php حذف شده و برنمی‌گردد
 bash tools/dev/run-regression.sh ios        # پروژه‌ی iOS، بسته‌ی وب، پل GPS، ورک‌فلوها
-bash tools/dev/run-regression.sh pwa        # manifest، بسته‌ی PWA مستقل
+bash tools/dev/run-regression.sh pwa        # manifest، ساخت نسخه‌ی ایستای PWA
 ```
 
 همین آزمون‌ها با هر تغییر روی گیت‌هاب هم اجرا می‌شوند:
@@ -67,5 +67,5 @@ bash tools/dev/run-regression.sh pwa        # manifest، بسته‌ی PWA مس�
 
 - **Actions → Build iOS IPA** (روی macOS): اپ را روی شبیه‌ساز iPhone واقعاً اجرا و می‌سنجد (پینگ سرور، نقشه، «موقعیت من»، لینک نشان)،
   سپس `eplak-app-unsigned.ipa` (بدون امضا) و `eplak-ios-project.zip` (پروژه‌ی Xcode) را می‌سازد.
-- **Actions → Build PWA package**: `eplak-pwa.zip` را می‌سازد و در Chrome واقعی، روی origin جدا و با سرور واقعی می‌سنجد
-  (CORS، سرویس‌ورکر، قابلیت نصب، نقشه).
+- **Actions → Build PWA package**: PWA را در Chrome واقعی، روی origin جدا و با سرور واقعی می‌سنجد (CORS، سرویس‌ورکر، قابلیت نصب، نقشه)
+  و روی **GitHub Pages** منتشر می‌کند (`https://hosseinbahrami-bot.github.io/eplak-fixed/`؛ مالک مخزن یک‌بار: Settings ← Pages ← Source: GitHub Actions).

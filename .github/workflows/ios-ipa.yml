@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           # همان بسته‌ی ایستای PWA مستقل، روی یک سرور محلی، داخل Safari واقعیِ iOS (WebKit) و با سرور واقعی ای‌پلاک
-          bash tools/build-pwa.sh pwa-dist eplak-pwa.zip > /dev/null
+          bash tools/build-pwa.sh pwa-dist > /dev/null
           python3 -m http.server 8099 --bind 127.0.0.1 --directory pwa-dist > /dev/null 2>&1 &
           sleep 2
           UDID="$(cat evidence/udid.txt)"

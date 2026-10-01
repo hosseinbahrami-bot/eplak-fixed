@@ -14,6 +14,8 @@
    از صفحه عکس هم می‌گیرد.
 
    استفاده:  node tools/pwa-smoke.mjs [پوشه‌ی pwa-dist] [پوشه‌ی خروجی]
+   اگر PWA_URL داده شود (مثلاً https://hosseinbahrami-bot.github.io/eplak-fixed/) به‌جای سرور محلی،
+   همان آدرسِ واقعیِ منتشرشده سنجیده می‌شود (ورک‌فلو پس از انتشار روی GitHub Pages این کار را می‌کند).
    نیاز: puppeteer-core (npm) و Chrome (CHROME_PATH؛ پیش‌فرض /usr/bin/google-chrome) */
 import http from 'http'; import fs from 'fs'; import path from 'path';
 import puppeteer from 'puppeteer-core';
@@ -28,17 +30,22 @@ fs.mkdirSync(OUT, { recursive: true });
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg' };
-const server = http.createServer((req, res) => {
-  let u = decodeURIComponent(req.url.split('?')[0]);
-  if (u.endsWith('/')) u += 'index.html';
-  const f = path.join(DIST, path.normalize(u));
-  if (!f.startsWith(DIST) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); res.end('not found'); return; }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-  fs.createReadStream(f).pipe(res);
-});
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const BASE = `http://127.0.0.1:${server.address().port}/`;
-console.log('PWA روی', BASE, 'و API روی', API);
+const REMOTE = process.env.PWA_URL ? String(process.env.PWA_URL).replace(/\/*$/, '/') : '';
+let server = null;
+let BASE = REMOTE;
+if (!REMOTE) {
+  server = http.createServer((req, res) => {
+    let u = decodeURIComponent(req.url.split('?')[0]);
+    if (u.endsWith('/')) u += 'index.html';
+    const f = path.join(DIST, path.normalize(u));
+    if (!f.startsWith(DIST) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); res.end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    fs.createReadStream(f).pipe(res);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  BASE = `http://127.0.0.1:${server.address().port}/`;
+}
+console.log('PWA روی', BASE, REMOTE ? '(آدرس واقعیِ منتشرشده)' : '(سرور محلی)', 'و API روی', API);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const errors = [], notes = [];
@@ -136,10 +143,10 @@ try {
   errors.push('اجرای آزمون با خطا قطع شد: ' + String(e && e.stack || e).slice(0, 500));
 } finally {
   if (browser) await browser.close().catch(() => {});
-  server.close();
+  if (server) server.close();
 }
 
-const lines = ['## آزمون دودی PWA (Chrome، origin جدا از سرور اصلی)', ''];
+const lines = [REMOTE ? '## آزمون دودی PWA روی آدرس واقعیِ منتشرشده (Chrome)' : '## آزمون دودی PWA (Chrome، origin جدا از سرور اصلی)', ''];
 lines.push(...notes.map((n) => '- ' + n));
 if (problems.length) { lines.push('', '### خطاهای کنسول/شبکه‌ی دیده‌شده (گزارشی)'); lines.push(...problems.slice(0, 15).map((x) => '- ' + x)); }
 lines.push('');

@@ -11,7 +11,11 @@
 #    • آدرس نسبیِ عکس/ویدیوی گزارش‌ها (uploads/…) هم به سرور اصلی می‌رود
 #  هیچ فایلی از مخزن تغییر نمی‌کند؛ فقط کپیِ داخل پوشه‌ی خروجی اصلاح می‌شود.
 #
-#  اجرا:   bash tools/build-pwa.sh [پوشه‌ی خروجی=pwa-dist] [فایل zip=eplak-pwa.zip]
+#  ورک‌فلوی .github/workflows/pwa.yml همین پوشه را روی GitHub Pages می‌گذارد
+#  (https://hosseinbahrami-bot.github.io/eplak-fixed/) — کاربر هیچ zipی دریافت نمی‌کند.
+#  zip فقط وقتی ساخته می‌شود که خودتان آرگومان دوم را بدهید (برای میزبان دلخواه).
+#
+#  اجرا:   bash tools/build-pwa.sh [پوشه‌ی خروجی=pwa-dist] [فایل zip (اختیاری)]
 #  آدرس API دیگر؟  EPLAK_PWA_API_BASE=https://example.ir/eplak-fixed/api bash tools/build-pwa.sh
 # ============================================================================
 set -euo pipefail
@@ -19,11 +23,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 API_BASE="${EPLAK_PWA_API_BASE:-https://eplak.ir/eplak-fixed/api}"
 OUT_DIR="${1:-pwa-dist}"
-ZIP="${2:-eplak-pwa.zip}"
+ZIP="${2:-}"
 SITE_BASE="${API_BASE%/api}"
 
 echo "→ ساخت PWA مستقل در $OUT_DIR (API: $API_BASE)"
-rm -rf "$OUT_DIR" "$ZIP"
+rm -rf "$OUT_DIR"
+[ -z "$ZIP" ] || rm -f "$ZIP"
 mkdir -p "$OUT_DIR"
 
 for item in index.html app.js manifest.json sw.js core modules views assets; do
@@ -62,8 +67,11 @@ open(path, 'w', encoding='utf-8').write(html)
 print('✅ index.html برای میزبان ایستا اصلاح شد')
 PYEOF
 
-case "$ZIP" in /*) ZIP_PATH="$ZIP" ;; *) ZIP_PATH="$PWD/$ZIP" ;; esac
-(cd "$OUT_DIR" && zip -q -r "$ZIP_PATH" . -x '*.DS_Store')
-
-COUNT="$(unzip -Z1 "$ZIP_PATH" | wc -l | tr -d ' ')"
-echo "✅ آماده شد: $ZIP ($(du -h "$ZIP_PATH" | cut -f1)، $COUNT مورد) — پوشه‌ی $OUT_DIR هم برای آزمون محلی هست"
+if [ -n "$ZIP" ]; then
+  case "$ZIP" in /*) ZIP_PATH="$ZIP" ;; *) ZIP_PATH="$PWD/$ZIP" ;; esac
+  (cd "$OUT_DIR" && zip -q -r "$ZIP_PATH" . -x '*.DS_Store')
+  COUNT="$(unzip -Z1 "$ZIP_PATH" | wc -l | tr -d ' ')"
+  echo "✅ آماده شد: $ZIP ($(du -h "$ZIP_PATH" | cut -f1)، $COUNT مورد) — پوشه‌ی $OUT_DIR هم هست"
+else
+  echo "✅ آماده شد: پوشه‌ی $OUT_DIR ($(find "$OUT_DIR" -type f | wc -l | tr -d ' ') فایل، $(du -sh "$OUT_DIR" | cut -f1))"
+fi

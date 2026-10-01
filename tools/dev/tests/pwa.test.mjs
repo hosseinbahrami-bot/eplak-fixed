@@ -1,16 +1,17 @@
-/* pwa.test.mjs — «نسخه PWA»: manifest، تگ‌های iOS/اندروید، و بسته‌ی ایستای مستقل
+/* pwa.test.mjs — «نسخه PWA»: manifest، تگ‌های iOS/اندروید، نسخه‌ی ایستا و انتشار روی GitHub Pages
    ---------------------------------------------------------------------------
-   PWA همان سایت است (manifest.json + sw.js + آیکون‌ها). این آزمون می‌سنجد:
+   PWA همان سایت است (manifest.json + sw.js + آیکون‌ها) و لینک مستقیمش روی GitHub Pages است
+   (https://hosseinbahrami-bot.github.io/eplak-fixed/)؛ کاربر هیچ فایل zipی دریافت نمی‌کند. این آزمون می‌سنجد:
      ۱) manifest.json معتبر است و آیکون‌هایش واقعاً هستند و اندازه‌ی اعلام‌شده را دارند
         (شرط نصب در Chrome/اندروید)، و index.html تگ‌های نصب روی iOS را دارد
         (apple-touch-icon ۱۸۰، حالت تمام‌صفحه، نوار وضعیت، viewport-fit)
      ۲) سرویس‌ورکر: ثبت می‌شود و اعلان (push / notificationclick) را مدیریت می‌کند
-     ۳) tools/build-pwa.sh (واقعاً اجرا می‌شود): بسته‌ی ایستا با آدرس API روی سرور اصلی؛ index.html
+     ۳) tools/build-pwa.sh (واقعاً اجرا می‌شود): نسخه‌ی ایستا با آدرس API روی سرور اصلی؛ index.html
         مخزن دست‌نخورده می‌ماند؛ همان کدِ core/storage.js روی یک origin دیگر آدرس API را از پیکربندی
-        می‌خواند و آدرس پیوست‌ها (uploads/…) به سرور اصلی می‌رود (jsdom)
-        و محتوای zip: فقط فایل‌های ایستا، بدون بخش‌های PHP/پنل/راهنما
-     ۴) آزمون دودیِ Chrome (tools/pwa-smoke.mjs) و ورک‌فلوی pwa.yml سالم‌اند
-     ۵) راهنمای نصب (FA/EN)
+        می‌خواند و آدرس پیوست‌ها (uploads/…) به سرور اصلی می‌رود (jsdom)؛ بدون آرگومان دوم zip نمی‌سازد
+     ۴) آزمون دودیِ Chrome (tools/pwa-smoke.mjs، هم روی سرور محلی هم روی آدرس منتشرشده) و ورک‌فلوی pwa.yml
+        (دو job: آزمون، و انتشار روی Pages فقط وقتی Pages روشن است؛ بدون zip و بدون پیوست به Releases)
+     ۵) راهنمای نصب (FA/EN) و README: لینک مستقیم Pages و آدرس هاست، مراحل روشن کردن Pages، و هیچ zipی
 */
 import fs from 'fs'; import path from 'path'; import os from 'os';
 import { spawnSync } from 'child_process';
@@ -127,6 +128,11 @@ if (!haveZip || !havePy) {
   const zipIndex = spawnSync('unzip', ['-p', path.join(proj, 'pwa.zip'), 'index.html'], { encoding: 'utf8', maxBuffer: 1 << 26 }).stdout;
   ok('index.html داخل zip همان نسخه‌ی اصلاح‌شده‌ی پوشه‌ی خروجی است', zipIndex === patched && zipIndex.length > 1000);
 
+  const bNoZip = spawnSync('bash', ['tools/build-pwa.sh', 'outnz'], { cwd: proj, encoding: 'utf-8' });
+  ok('بدون آرگومان دوم فقط پوشه ساخته می‌شود و هیچ فایل zipی تولید نمی‌شود (ورک‌فلوی Pages همین را می‌خواهد)',
+    bNoZip.status === 0 && fs.existsSync(path.join(proj, 'outnz/index.html')) && fs.existsSync(path.join(proj, 'outnz/.nojekyll'))
+    && !fs.existsSync(path.join(proj, 'eplak-pwa.zip')) && !fs.readdirSync(proj).some((f) => /^eplak-pwa/.test(f)), (bNoZip.stdout + bNoZip.stderr).slice(-200));
+
   const b2 = spawnSync('bash', ['tools/build-pwa.sh', 'out2', 'pwa2.zip'], { cwd: proj, encoding: 'utf8', env: { ...process.env, EPLAK_PWA_API_BASE: 'https://example.ir/x/api' } });
   const patched2 = fs.existsSync(path.join(proj, 'out2/index.html')) ? fs.readFileSync(path.join(proj, 'out2/index.html'), 'utf8') : '';
   ok('آدرس API دلخواه (EPLAK_PWA_API_BASE) هم برای API و هم برای پیوست‌ها اعمال می‌شود',
@@ -152,24 +158,55 @@ ok('نام‌هایی که آزمون دودی از صفحه می‌خواند �
   html.includes('id="cityMapCanvas"') && /cm-chip/.test(read('modules/city-map.js')) && /cm-row/.test(read('modules/city-map.js'))
   && /ep-map-tiles/.test(read('assets/js/ep-map.js')) && /ep-map-markers/.test(read('assets/js/ep-map.js'))
   && /getInstallabilityErrors/.test(smokeSrc) && /getAppManifest/.test(smokeSrc) && /showScreen\('screen-map'\)/.test(smokeSrc));
+ok('آزمون دودی می‌تواند به‌جای سرور محلی، آدرس واقعیِ منتشرشده را بسنجد (PWA_URL)',
+  /process\.env\.PWA_URL/.test(smokeSrc) && /if \(!REMOTE\)/.test(smokeSrc) && /if \(server\) server\.close\(\)/.test(smokeSrc));
+
 let wf = null, wfErr = '';
 try { wf = YAML.parse(read('.github/workflows/pwa.yml')); } catch (e) { wfErr = String(e.message || e); }
-ok('pwa.yml YAML سالم است و روی Ubuntu اجرا می‌شود', !!wf && /^ubuntu-/.test(wf.jobs.pwa['runs-on']), wfErr);
+ok('pwa.yml YAML سالم است و دو job دارد (pwa و pages) روی Ubuntu', !!wf && wf.jobs && wf.jobs.pwa && wf.jobs.pages
+  && /^ubuntu-/.test(wf.jobs.pwa['runs-on']) && /^ubuntu-/.test(wf.jobs.pages['runs-on']), wfErr);
 const apkWf = YAML.parse(read('.github/workflows/android-apk.yml'));
 const pwaPaths = new Set((wf && wf.on.push.paths) || []);
 const apkWeb = apkWf.on.push.paths.filter((x) => !['android-app/**', '.github/workflows/android-apk.yml'].includes(x));
-ok('هر تغییرِ وبی که APK می‌سازد، بسته‌ی PWA را هم دوباره می‌سازد', apkWeb.length >= 6 && apkWeb.every((x) => pwaPaths.has(x)) && pwaPaths.has('manifest.json') && pwaPaths.has('sw.js'), [...pwaPaths].join(' '));
+ok('هر تغییرِ وبی که APK می‌سازد، PWA را هم دوباره می‌سازد و منتشر می‌کند', apkWeb.length >= 6 && apkWeb.every((x) => pwaPaths.has(x)) && pwaPaths.has('manifest.json') && pwaPaths.has('sw.js'), [...pwaPaths].join(' '));
 const wfText = read('.github/workflows/pwa.yml');
-ok('zip فقط پس از گذشتن آزمون دودی به Releases پیوست می‌شود، به همان صفحه‌ی APK',
-  wf.env.RELEASE_TAG === 'v2.0-eplak-update' && wfText.indexOf('pwa-smoke.mjs') > 0
-  && wfText.indexOf('pwa-smoke.mjs') < wfText.indexOf('gh release upload') && /--clobber/.test(wfText) && !/secrets\./.test(wfText));
+const pages = (wf && wf.jobs.pages) || { steps: [], permissions: {}, environment: {} };
+const stepOf = (re) => pages.steps.find((st) => re.test(String(st.uses || '')));
+const idx = (re) => pages.steps.findIndex((st) => re.test(String(st.uses || '')));
+ok('job انتشار بعد از آزمون می‌آید و مجوزهای Pages را دارد (pages: write، id-token: write) و روی محیط github-pages است',
+  [].concat(pages.needs).includes('pwa') && pages.permissions.pages === 'write' && pages.permissions['id-token'] === 'write'
+  && pages.environment.name === 'github-pages' && /steps\.deployment\.outputs\.page_url/.test(pages.environment.url || ''));
+ok('انتشار با ابزارهای رسمی GitHub (configure-pages، upload-pages-artifact، deploy-pages) و از پوشه‌ی pwa-dist',
+  !!stepOf(/^actions\/configure-pages@/) && !!stepOf(/^actions\/deploy-pages@/) && !!stepOf(/^actions\/upload-pages-artifact@/)
+  && (stepOf(/^actions\/upload-pages-artifact@/).with || {}).path === 'pwa-dist'
+  && idx(/^actions\/upload-pages-artifact@/) < idx(/^actions\/deploy-pages@/));
+const checkStep = pages.steps.find((st) => st.id === 'check');
+ok('پیش از انتشار بررسی می‌شود Pages روشن و منبعش «GitHub Actions» (workflow) است؛ وگرنه job بدون خطا رد می‌شود و مراحل را می‌نویسد',
+  !!checkStep && /build_type/.test(checkStep.run) && /"workflow"/.test(checkStep.run) && /Settings ← Pages/.test(checkStep.run) && /exit 0/.test(checkStep.run));
+const gated = pages.steps.filter((st) => st.id !== 'check');
+ok('همه‌ی مراحل بعد از بررسی فقط وقتی Pages روشن است اجرا می‌شوند', gated.length >= 8 && gated.every((st) => /steps\.check\.outputs\.enabled == 'true'/.test(String(st.if || ''))));
+ok('پس از انتشار، همان آزمون دودی روی آدرس واقعیِ منتشرشده اجرا می‌شود (PWA_URL = page_url)',
+  /PWA_URL: \$\{\{ steps\.deployment\.outputs\.page_url \}\}/.test(wfText) && wfText.indexOf('actions/deploy-pages') < wfText.indexOf('node tools/pwa-smoke.mjs pwa-dist pages-evidence'));
+ok('آدرس نهایی PWA در ورک‌فلو https://hosseinbahrami-bot.github.io/eplak-fixed/ است', wf.env.PAGES_URL === 'https://hosseinbahrami-bot.github.io/eplak-fixed/');
+ok('هیچ zip و هیچ پیوست به Releases در ورک‌فلوی PWA نیست؛ و secretی لازم نیست', !/eplak-pwa/.test(wfText) && !/gh release upload/.test(wfText) && !/secrets\./.test(wfText));
+ok('عکس‌ها فقط وقتی پیام کامیت «[evidence]» دارد به برچسب گیت می‌روند (برچسب‌های آزمایشی روی هر اجرا جمع نمی‌شوند)',
+  (wfText.match(/contains\(github\.event\.head_commit\.message, '\[evidence\]'\)/g) || []).length === 2);
 
 /* ── ۶) راهنما ───────────────────────────────────────────────────────────── */
-console.log('— ۵) راهنما');
+console.log('— ۵) راهنما و README');
 const faDoc = exists('docs/IOS_PWA_FA.md') ? read('docs/IOS_PWA_FA.md') : '';
 const enDoc = exists('docs/IOS_PWA_EN.md') ? read('docs/IOS_PWA_EN.md') : '';
-ok('راهنمای فارسی: PWA، eplak-pwa.zip، نصب روی آیفون و اندروید', ['PWA', 'eplak-pwa.zip', 'Safari', 'Chrome', 'افزودن به صفحه اصلی'].every((t) => faDoc.includes(t)));
-ok('راهنمای انگلیسی: PWA, eplak-pwa.zip, install on iPhone and Android', ['PWA', 'eplak-pwa.zip', 'Safari', 'Chrome', 'Add to Home Screen'].every((t) => enDoc.includes(t)));
+const readme = read('README.md');
+const PAGES = 'https://hosseinbahrami-bot.github.io/eplak-fixed/';
+ok('راهنمای فارسی: لینک مستقیم GitHub Pages، آدرس هاست، مراحل روشن کردن Pages، نصب با Safari/Chrome',
+  [PAGES, 'https://eplak.ir/eplak-fixed/', 'Settings ← Pages', 'GitHub Actions', 'Re-run all jobs', 'Safari', 'Chrome', 'افزودن به صفحه اصلی'].every((t) => faDoc.includes(t)));
+ok('راهنمای انگلیسی: direct GitHub Pages link, host address, steps to switch Pages on, install with Safari/Chrome',
+  [PAGES, 'https://eplak.ir/eplak-fixed/', 'Settings → Pages', 'GitHub Actions', 'Re-run all jobs', 'Safari', 'Chrome', 'Add to Home Screen'].every((t) => enDoc.includes(t)));
+ok('راهنمای فارسی و انگلیسی: محدودیت environment (شاخه‌ی arena/**) را می‌گویند', /arena\/\*\*/.test(faDoc) && /arena\/\*\*/.test(enDoc) && /environment protection/.test(faDoc) && /environment protection/.test(enDoc));
+ok('هیچ‌جا (README، راهنماها، پایش) فایل zip برای PWA داده نمی‌شود',
+  ![readme, faDoc, enDoc, read('tools/live-check.sh'), read('docs/DEPLOY_UPDATE_FA.md'), read('docs/DEPLOY_UPDATE_EN.md')].some((t) => /eplak-pwa/.test(t)));
+ok('README لینک مستقیم PWA را دارد', readme.includes(PAGES) && /PWA/.test(readme));
+ok('پایش زنده (live-check) وضعیت GitHub Pages را می‌سنجد', read('tools/live-check.sh').includes('hosseinbahrami-bot.github.io/eplak-fixed') && /PAGES_UP/.test(read('tools/live-check.sh')));
 
 console.log('\n' + '='.repeat(52));
 console.log(`PWA: ${pass} passed, ${fail} failed`);

@@ -1,16 +1,17 @@
 # ============================================================================
-#  ساخت و آزمون «PWA مستقل» (بسته‌ی ایستا برای میزبان‌های بدون PHP)
+#  PWA ای‌پلاک روی GitHub Pages — لینک مستقیم، بدون هیچ فایل zip
 #
-#  PWA همان سایت است؛ وقتی بسته‌ی هاست را Extract می‌کنید، خودِ https://eplak.ir/eplak-fixed/ یک
-#  PWA کامل است. این ورک‌فلو یک نسخه‌ی «ایستا» هم می‌سازد (tools/build-pwa.sh) که آدرس API را
-#  روی سرور اصلی می‌گذارد و می‌توان آن را روی GitHub Pages / Netlify / هر پوشه‌ی دیگر گذاشت.
+#  آدرس نهایی:  https://hosseinbahrami-bot.github.io/eplak-fixed/
+#  PWA همان سایت است؛ این ورک‌فلو نسخه‌ی «ایستا»ی آن را می‌سازد (tools/build-pwa.sh: همان فایل‌های وب
+#  اپ اندروید/iOS + manifest و سرویس‌ورکر، با آدرس API روی سرور اصلی ای‌پلاک) و روی Pages می‌گذارد.
 #
-#  چه می‌شود؟
-#   ۱) بسته ساخته می‌شود (eplak-pwa.zip)
-#   ۲) در Chrome واقعی و روی یک origin جدا (مثل میزبان ایستا) باز می‌شود و با سرور واقعی ای‌پلاک
-#      حرف می‌زند: پینگ/CORS، قابلیت نصب (Page.getInstallabilityErrors)، سرویس‌ورکر، manifest،
-#      نقشه‌ی اماکن (tools/pwa-smoke.mjs) + عکس از صفحه
-#   ۳) فقط اگر آزمون گذشت، zip به همان صفحه‌ی Releases پیوست می‌شود
+#  دو کار:
+#   ۱) job «pwa»  — ساخت و آزمون در Chrome واقعی (روی origin جدا و با سرور واقعی: CORS، سرویس‌ورکر،
+#      قابلیت نصب، manifest، نقشه) + عکس از صفحه
+#   ۲) job «pages» — فقط اگر GitHub Pages روشن باشد: انتشار، و سپس همان آزمون روی آدرس واقعیِ منتشرشده
+#
+#  یک‌بار تنظیم لازم است (فقط مالک مخزن می‌تواند): Settings ← Pages ← Build and deployment ← Source:
+#  «GitHub Actions». تا آن زمان job «pages» بدون خطا رد می‌شود و در خلاصه‌ی اجرا همین را می‌نویسد.
 # ============================================================================
 name: Build PWA package
 
@@ -34,19 +35,21 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: pwa-${{ github.ref }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: v2.0-eplak-update
+  PAGES_URL: https://hosseinbahrami-bot.github.io/eplak-fixed/
 
 jobs:
   pwa:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write   # فقط برای برچسبِ اختیاریِ عکس‌ها (پیام کامیت «[evidence]»)
     steps:
       - name: دریافت کد
         uses: actions/checkout@v5
@@ -56,8 +59,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: ساخت بسته‌ی PWA
-        run: bash tools/build-pwa.sh pwa-dist eplak-pwa.zip
+      - name: ساخت PWA ایستا
+        run: bash tools/build-pwa.sh pwa-dist
 
       - name: نصب puppeteer-core (Chrome خودِ سرور استفاده می‌شود)
         run: |
@@ -78,20 +81,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: پیوست به Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          sha256sum eplak-pwa.zip | tee eplak-pwa.zip.sha256
-          gh release upload "$RELEASE_TAG" eplak-pwa.zip eplak-pwa.zip.sha256 --clobber --repo "$GITHUB_REPOSITORY"
-          {
-            echo "## PWA مستقل"
-            echo ""
-            echo "- فایل: \`eplak-pwa.zip\` — $(stat -c%s eplak-pwa.zip) بایت"
-            echo "- SHA-256: \`$(cut -d' ' -f1 eplak-pwa.zip.sha256)\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: ارسال عکس‌ها و گزارش آزمون به یک برچسب گیت (فقط وقتی پیام کامیت «[evidence]» دارد)
         if: ${{ always() && contains(github.event.head_commit.message, '[evidence]') }}
         env:
@@ -106,4 +95,119 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A && git commit -q -m "pwa smoke evidence (run ${GITHUB_RUN_NUMBER})"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/pwa-evidence-${GITHUB_RUN_NUMBER}"
+          exit 0
+
+  pages:
+    needs: pwa
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write   # برچسبِ اختیاریِ عکس‌ها
+      pages: write      # انتشار روی GitHub Pages
+      id-token: write   # تأیید هویت انتشار
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: "آیا GitHub Pages روشن است (منبع: GitHub Actions)؟"
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          INFO="$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq '(.build_type // "?") + " " + (.html_url // "")' 2>/dev/null)"
+          CODE=$?
+          BUILD_TYPE="${INFO%% *}"
+          if [ $CODE -eq 0 ] && [ "$BUILD_TYPE" = "workflow" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages روشن است: ${INFO#* }"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### ℹ️ GitHub Pages هنوز روشن نیست — PWA منتشر نشد"
+              echo ""
+              if [ $CODE -eq 0 ]; then
+                echo "Pages روشن است ولی منبعش «$BUILD_TYPE» است."
+              fi
+              echo "یک‌بار (فقط مالک مخزن): **Settings ← Pages ← Build and deployment ← Source: GitHub Actions**"
+              echo ""
+              echo "بعد همین اجرا را باز کنید و **Re-run all jobs** بزنید. آدرس نهایی PWA:"
+              echo ""
+              echo "\`$PAGES_URL\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: دریافت کد
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v5
+
+      - name: ساخت PWA ایستا
+        if: steps.check.outputs.enabled == 'true'
+        run: bash tools/build-pwa.sh pwa-dist
+
+      - name: تنظیم Pages
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: بسته‌بندی برای Pages
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pwa-dist
+
+      - name: انتشار روی GitHub Pages
+        if: steps.check.outputs.enabled == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: نصب Node و puppeteer-core
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: صبر تا آدرس منتشرشده جواب بدهد، سپس آزمون روی همان آدرس واقعی
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          PWA_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 18); do
+            if curl -fsS -m 20 "${PWA_URL}manifest.json" > /dev/null; then echo "آدرس منتشرشده جواب داد (تلاش $i)"; break; fi
+            echo "هنوز جواب نمی‌دهد (تلاش $i)…"; sleep 10
+          done
+          npm install --no-save --no-audit --no-fund --prefix tools puppeteer-core@23
+          node tools/pwa-smoke.mjs pwa-dist pages-evidence
+          {
+            echo ""
+            echo "### ✅ PWA روی GitHub Pages بالاست"
+            echo ""
+            echo "\`${PWA_URL}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: بارگذاری عکس‌ها و گزارش آزمونِ آدرس منتشرشده
+        if: ${{ always() && steps.check.outputs.enabled == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-evidence
+          path: pages-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: ارسال عکس‌ها و گزارش آزمونِ آدرس منتشرشده به یک برچسب گیت (فقط وقتی پیام کامیت «[evidence]» دارد)
+        if: ${{ always() && steps.check.outputs.enabled == 'true' && contains(github.event.head_commit.message, '[evidence]') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          [ -d pages-evidence ] || exit 0
+          D="$RUNNER_TEMP/evidence-repo"; rm -rf "$D"; mkdir -p "$D"; cp -R pages-evidence/. "$D"/
+          cd "$D" || exit 0
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "pages smoke evidence (run ${GITHUB_RUN_NUMBER})"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/pages-evidence-${GITHUB_RUN_NUMBER}"
           exit 0

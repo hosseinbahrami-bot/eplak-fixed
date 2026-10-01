@@ -362,6 +362,15 @@ else
   say "| sw.js (سرویس‌ورکر و اعلان) | $CODE_SWJS | ❌ نیست یا قدیمی است |"; PWA_OK="no"
   ISSUES+=("sw.js روی سایت درست جواب نمی‌دهد؛ PWA نصب نمی‌شود و اعلان وب کار نمی‌کند")
 fi
+PAGES_SITE="https://hosseinbahrami-bot.github.io/eplak-fixed"
+CODE_PAGES=$(grab "$PAGES_SITE/manifest.json" "$TMP/pages-manifest.json")
+PAGES_UP="no"
+if [ "$CODE_PAGES" = "200" ] && grep -q '"standalone"' "$TMP/pages-manifest.json" 2>/dev/null; then PAGES_UP="yes"; fi
+if [ "$PAGES_UP" = "yes" ]; then
+  say "| PWA روی GitHub Pages (لینک مستقیم) | $CODE_PAGES | ✅ بالاست: $PAGES_SITE/ |"
+else
+  say "| PWA روی GitHub Pages (لینک مستقیم) | $CODE_PAGES | ⏳ هنوز منتشر نشده — مالک مخزن: Settings ← Pages ← Source: GitHub Actions |"
+fi
 for pair in "آیکون ۱۹۲|$CODE_I192" "آیکون ۵۱۲|$CODE_I512" "آیکون آیفون (apple-touch-icon)|$CODE_IAPL"; do
   label="${pair%%|*}"; c="${pair#*|}"
   if [ "$c" = "200" ]; then
@@ -379,10 +388,9 @@ REL_BASE="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2
 APK_URL="$REL_BASE/eplak-app.apk"
 IPA_URL="$REL_BASE/eplak-app-unsigned.ipa"
 XPROJ_URL="$REL_BASE/eplak-ios-project.zip"
-PWA_URL="$REL_BASE/eplak-pwa.zip"
 say "| فایل | کد پاسخ | حجم | وضعیت |"
 say "|---|---|---|---|"
-for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$APK_URL" "اپ iOS (IPA بدون امضا)|$IPA_URL" "پروژه‌ی Xcode (zip)|$XPROJ_URL" "PWA مستقل (zip)|$PWA_URL"; do
+for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$APK_URL" "اپ iOS (IPA بدون امضا)|$IPA_URL" "پروژه‌ی Xcode (zip)|$XPROJ_URL"; do
   label="${pair%%|*}"; url="${pair#*|}"
   # فقط هدرها را می‌خوانیم (سرور گیت‌هاب ۳۰۲ می‌دهد و برای بررسی همین کافی است)
   headers=$(curl -sIL --max-time 40 "$url" 2>/dev/null || echo '')
@@ -399,7 +407,7 @@ for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$
   say "| $label | $code | $size بایت | $note |"
 done
 say ""
-say "> لینک‌ها: بسته‌ی سایت ← \`$ZIP_URL\` • اپ اندروید ← \`$APK_URL\` • اپ iOS ← \`$IPA_URL\` • پروژه‌ی Xcode ← \`$XPROJ_URL\` • PWA مستقل ← \`$PWA_URL\`"
+say "> لینک‌ها: بسته‌ی سایت ← \`$ZIP_URL\` • اپ اندروید ← \`$APK_URL\` • اپ iOS ← \`$IPA_URL\` • پروژه‌ی Xcode ← \`$XPROJ_URL\`"
 
 # ── ۷) وضعیت فایل APK منتشرشده (از روی صفحه‌ی Releases) ───────────────────
 hdr "۷) اپ اندروید منتشرشده"
@@ -1150,6 +1158,11 @@ else
   say "- ⏳ پرده‌ی «بدون اینترنت» هنوز روی سایت نصب نشده — بسته‌ی تازه را Extract کنید"
 fi
 say "- 📱 برای دیدن تعداد گوشی‌های ثبت‌شده: پنل ادمین → «بررسی نسخه» (باید بزرگ‌تر از صفر باشد)"
+if [ "$PAGES_UP" = "yes" ]; then
+  say "- ✅ PWA روی GitHub Pages بالاست (لینک مستقیم): $PAGES_SITE/"
+else
+  say "- ⏳ PWA روی GitHub Pages هنوز منتشر نشده — مالک مخزن یک‌بار: Settings ← Pages ← Source: GitHub Actions؛ بعد Re-run آخرین اجرای «Build PWA package»"
+fi
 if [ "$PWA_OK" = "yes" ]; then
   say "- ✅ PWA روی سایت قابل نصب است (manifest، سرویس‌ورکر و آیکون‌ها در دسترس‌اند)؛ نصب روی آیفون: Safari ← «افزودن به صفحه اصلی»"
 else
