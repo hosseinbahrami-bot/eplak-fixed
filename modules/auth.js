@@ -251,6 +251,23 @@
     }
     showScreen('screen-home');
     showToast(isEn ? 'Logged in successfully' : 'ورود با موفقیت انجام شد', { silentSound: true });
+
+    /* ۱) در اپ اندروید: این ورود به‌عنوان «ورود انجام شد» ثبت می‌شود تا تا
+          زمانی که کاربر خودش اپ را نبندد، دوباره کد نخواهد. */
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.markLoginDone === 'function') {
+        window.AndroidApp.markLoginDone();
+      }
+    } catch (e) {}
+
+    /* ۲) توکن فایربیس این دستگاه با شماره‌ی همین کاربر روی سرور ثبت می‌شود؛
+          بدون این کار، اعلان‌های شخصی (مثل «درخواست شما ثبت شد») در حالت
+          بسته بودن اپ به گوشی نمی‌رسد. */
+    try {
+      if (typeof window.registerAppDevice === 'function') {
+        window.registerAppDevice(true);
+      }
+    } catch (e) {}
   }
 
   function formatPhoneDisplay(raw) {

@@ -11,9 +11,9 @@ require_once __DIR__ . '/includes/xlsx.php';
 function exportStatusValues(string $key): array
 {
     $map = [
-        'pending'     => ['pending', 'در انتظار'],
-        'in_progress' => ['in_progress', 'review', 'در حال بررسی'],
-        'done'        => ['done', 'انجام شده', 'انجام‌شده'],
+        'pending'     => ['pending', 'در انتظار', 'در انتظار بررسی', 'در حال انتظار'],
+        'in_progress' => ['in_progress', 'review', 'در حال رسیدگی', 'در حال بررسی', 'در حال پیگیری'],
+        'done'        => ['done', 'انجام شد', 'انجام شده', 'انجام‌شده'],
     ];
     return $map[$key] ?? [$key];
 }
@@ -205,7 +205,7 @@ $statusStats  = getReportsStatusStats($pdo);
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>دریافت خروجی اکسل</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -226,6 +226,7 @@ $statusStats  = getReportsStatusStats($pdo);
         <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+        <a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
         <a href="logout.php"><i class="fas fa-sign-out-alt"></i> <span>خروج</span></a>
       </nav>
     </aside>
@@ -243,10 +244,10 @@ $statusStats  = getReportsStatusStats($pdo);
             <i class="fa-solid fa-file-excel"></i><span>همهٔ گزارش‌ها</span><em><?= $countReports ?> مورد</em>
           </a>
           <a class="export-btn" href="export.php?type=reports&amp;status=done">
-            <i class="fa-solid fa-circle-check"></i><span>گزارش‌های انجام‌شده</span><em><?= (int)$statusStats['counts']['done'] ?> مورد</em>
+            <i class="fa-solid fa-circle-check"></i><span>گزارش‌های انجام شد</span><em><?= (int)$statusStats['counts']['done'] ?> مورد</em>
           </a>
           <a class="export-btn" href="export.php?type=reports&amp;status=in_progress">
-            <i class="fa-solid fa-spinner"></i><span>در حال بررسی</span><em><?= (int)$statusStats['counts']['in_progress'] ?> مورد</em>
+            <i class="fa-solid fa-spinner"></i><span>در حال رسیدگی</span><em><?= (int)$statusStats['counts']['in_progress'] ?> مورد</em>
           </a>
           <a class="export-btn" href="export.php?type=reports&amp;status=pending">
             <i class="fa-solid fa-clock"></i><span>در انتظار</span><em><?= (int)$statusStats['counts']['pending'] ?> مورد</em>
@@ -284,8 +285,8 @@ $statusStats  = getReportsStatusStats($pdo);
             <label for="status">وضعیت (فقط گزارش‌ها)</label>
             <select id="status" name="status">
               <option value="">همهٔ وضعیت‌ها</option>
-              <option value="done">انجام‌شده</option>
-              <option value="in_progress">در حال بررسی</option>
+              <option value="done">انجام شد</option>
+              <option value="in_progress">در حال رسیدگی</option>
               <option value="pending">در انتظار</option>
             </select>
           </div>

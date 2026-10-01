@@ -21,6 +21,37 @@
     (window.location.protocol === 'file:' ? 'https://eplak.ir/eplak-fixed/api' : 'api');
   window.EPLAK_API_BASE_URL = BACKEND_BASE_URL;
 
+  /* ─── آدرس پایه‌ی API ─────────────────────────────────────────────
+     همه‌ی ماژول‌ها باید از همین یک تابع استفاده کنند (قبلاً چند ماژول آدرس
+     IP کامپیوتر توسعه‌دهنده را هاردکد کرده بودند و روی سایت/اپ کار نمی‌کرد). */
+  function apiBase() {
+    const configured = (typeof window.EPLAK_API_BASE_URL === 'string' && window.EPLAK_API_BASE_URL)
+      ? window.EPLAK_API_BASE_URL
+      : BACKEND_BASE_URL;
+    return String(configured || 'api').replace(/\/+$/, '');
+  }
+  window.eplakApiBase = apiBase;
+
+  /* ─── آدرس فایل‌های پیوست (عکس/فیلم گزارش) ────────────────────────
+     روی وب، آدرس‌ها نسبی‌اند (uploads/reports/…) و درست کار می‌کنند.
+     در اپ اندروید صفحه با file:///android_asset/index.html باز می‌شود؛ آنجا
+     آدرس نسبی به خود گوشی اشاره می‌کند، پس باید به دامنه‌ی سرور وصل شود. */
+  function resolveMediaUrl(path) {
+    const value = String(path || '').trim();
+    if (value === '') return '';
+    if (/^(https?:)?\/\//i.test(value) || value.indexOf('data:') === 0 || value.indexOf('blob:') === 0) {
+      return value;
+    }
+    if (window.location.protocol === 'file:') {
+      const base = String(BACKEND_BASE_URL || '').replace(/\/+$/, '').replace(/\/api$/i, '');
+      if (/^(https?:)?\/\//i.test(base)) {
+        return base + '/' + value.replace(/^\/+/, '');
+      }
+    }
+    return value;
+  }
+  window.eplakResolveMediaUrl = resolveMediaUrl;
+
   /* ─── کمکی‌های خام localStorage ─────────────────────────────────── */
   function lsGet(key) {
     try { return localStorage.getItem(key); } catch(e) { return null; }
@@ -42,24 +73,840 @@
     try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
   }
 
+  /* ─── «نوع محتوای ساده» برای درخواست‌های JSON ────────────────────────
+     چرا text/plain و نه application/json؟
+       • در اپ اندروید صفحه از file:///android_asset باز می‌شود و origin آن
+         «null» است. با Content-Type: application/json مرورگر/وب‌ویو یک
+         درخواست پیش‌پرواز OPTIONS می‌فرستد؛ اگر آن پاسخ تأیید نشود ارسال
+         بی‌صدا شکست می‌خورد (همان پیام «پیوست‌ها به سرور نرسیدند»).
+       • text/plain جزء انواع ساده است و پیش‌پرواز ندارد.
+       • سرور بدنه را با php://input می‌خواند و به Content-Type کاری ندارد. */
+  const JSON_CONTENT_TYPE = 'text/plain;charset=UTF-8';
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /* پیام فارسی خطای «حمل» (شبکه/فایروال/حجم) برای نمایش به کاربر */
+  function transportMessage(status, kind) {
+    const code = Number(status) || 0;
+    if (kind === 'timeout') return 'پاسخی از سرور نرسید (زمان انتظار تمام شد)';
+    if (code === 403) return 'فایروال هاست درخواست را رد کرد (کد ۴۰۳)';
+    if (code === 413) return 'حجم درخواست بیش از حد مجاز هاست است (کد ۴۱۳)';
+    if (code === 404) return 'این سرویس روی هاست فعال نیست (کد ۴۰۴) — بسته‌ی تازه را Extract کنید';
+    if (code === 405) return 'این روش ارسال روی هاست فعال نیست (کد ۴۰۵)';
+    if (code >= 500) return 'خطای داخلی سرور (کد ' + code + ')';
+    if (code > 0) return 'پاسخ سرور خوانده نشد (کد ' + code + ')';
+    return 'ارتباط با سرور برقرار نشد (اینترنت را بررسی کنید)';
+  }
+
+  function shortDetail(text) {
+    return String(text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+  }
+
+  function transportFail(status, kind, detail) {
+    const code = Number(status) || 0;
+    return {
+      success: false,
+      __transport: true,
+      status: code,
+      kind: kind || 'network',
+      error: transportMessage(code, kind),
+      detail: shortDetail(detail)
+    };
+  }
+
+  /* آیا پاسخ، خطای «حمل» است (نه پاسخ منطقی سرور)؟ */
+  function isTransportFailure(res) {
+    return !!(res && res.__transport);
+  }
+
+  /* ارسال JSON با XMLHttpRequest — هم درصد پیشرفت می‌دهد و هم کد وضعیت را
+     برای عیب‌یابی برمی‌گرداند (برخلاف fetch که در بعضی حالت‌ها پیام مبهم
+     می‌دهد). در صورت شکست، شیء { __transport:true, status, error } برمی‌گردد. */
+  function postJsonXhr(url, payload, timeoutMs, onProgress) {
+    return new Promise(resolve => {
+      let body;
+      try {
+        body = JSON.stringify(payload || {});
+      } catch (e) {
+        resolve(transportFail(0, 'encode', 'ساخت بدنه‌ی درخواست ممکن نشد'));
+        return;
+      }
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', JSON_CONTENT_TYPE);
+        xhr.timeout = Number(timeoutMs) > 0 ? Number(timeoutMs) : 60000;
+        if (typeof onProgress === 'function' && xhr.upload) {
+          xhr.upload.onprogress = function (ev) {
+            if (ev && ev.lengthComputable && ev.total > 0) {
+              onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
+            }
+          };
+        }
+        xhr.onload = function () {
+          let data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (typeof onProgress === 'function') onProgress(100);
+          if (data === null || typeof data !== 'object') {
+            resolve(transportFail(xhr.status, 'body', xhr.responseText));
+            return;
+          }
+          resolve(data);
+        };
+        xhr.onerror = function () { resolve(transportFail(0, 'network', '')); };
+        xhr.ontimeout = function () { resolve(transportFail(0, 'timeout', '')); };
+        xhr.send(body);
+      } catch (error) {
+        resolve(transportFail(0, 'network', error && error.message));
+      }
+    });
+  }
+
   async function syncDataToBackend(endpoint, payload) {
     if (!payload || typeof payload !== 'object') return null;
+    const res = await postJsonXhr(BACKEND_BASE_URL + '/' + endpoint + '.php', payload, 60000);
+    if (isTransportFailure(res)) {
+      console.warn('[backend] request failed', endpoint, res.status, res.error);
+      return null;
+    }
+    return res;
+  }
+
+  /* ارسال فرم چندبخشی (برای آپلود عکس/فیلم گزارش‌ها).
+     نکته: هدر Content-Type عمداً تنظیم نمی‌شود تا مرورگر خودش boundary بگذارد.
+     توجه: روی هاست فعلی، همین مسیر برای درخواست‌های دارای فایل با کد ۴۰۳
+     بسته شده است (فایروال ModSecurity/Imunify)؛ فقط به‌عنوان مسیر قدیمی نگه
+     داشته شده و مسیر اصلی، آپلود «تکه‌تکه‌ی JSON» است. */
+  function syncFormDataToBackendWithProgress(endpoint, formData, onProgress) {
+    return new Promise(resolve => {
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', BACKEND_BASE_URL + '/' + endpoint + '.php', true);
+        xhr.timeout = 300000;
+        if (typeof onProgress === 'function' && xhr.upload) {
+          xhr.upload.onprogress = function (ev) {
+            if (ev && ev.lengthComputable) {
+              onProgress(Math.min(99, Math.round((ev.loaded / ev.total) * 100)));
+            }
+          };
+        }
+        xhr.onload = function () {
+          let data = null;
+          try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+          if (typeof onProgress === 'function') onProgress(100);
+          if (data === null || typeof data !== 'object') {
+            resolve(transportFail(xhr.status, 'body', xhr.responseText));
+            return;
+          }
+          resolve(data);
+        };
+        xhr.onerror = function () { resolve(transportFail(0, 'network', '')); };
+        xhr.ontimeout = function () { resolve(transportFail(0, 'timeout', '')); };
+        xhr.send(formData);
+      } catch (error) {
+        resolve(transportFail(0, 'network', error && error.message));
+      }
+    });
+  }
+
+  /* ارسال JSON با نمایش درصد پیشرفت (عکس/فیلمی که داخل بدنه‌ی JSON
+     به‌صورت base64 می‌رود — همان مسیری که فایروال هاست اجازه می‌دهد). */
+  function syncJsonToBackendWithProgress(endpoint, payload, onProgress) {
+    return postJsonXhr(BACKEND_BASE_URL + '/' + endpoint + '.php', payload, 300000, onProgress);
+  }
+
+  /* خواندن فایل گوشی به‌صورت data URL (base64) */
+  function readFileAsDataUrl(blob) {
+    return new Promise(resolve => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      } catch (e) {
+        resolve('');
+      }
+    });
+  }
+
+  function postJson(url, payload, timeoutMs) {
+    return postJsonXhr(url, payload, timeoutMs || 60000);
+  }
+
+  /* ── آپلود تکه‌تکه‌ی عکس/فیلم (مسیر JSON) ─────────────────────────────
+     هاست فعلی، ارسال multipart/form-data همراه فایل را با کد ۴۰۳ می‌بندد و
+     به حجم درخواست JSON هم حساس است؛ پس هر تکه کوچک (پیش‌فرض ۵۱۲ کیلوبایت
+     خام ≈ ۷۰۰ کیلوبایت base64) و مستقل فرستاده می‌شود، هر تکه در صورت خطای
+     شبکه تا ۳ بار تکرار می‌شود و ترتیب تکه‌ها روی سرور بررسی می‌شود.
+     خروجی:
+       { ok, media:[...], failed:[نام فایل‌ها], error, unsupported, blocked, status }
+     unsupported=true یعنی نسخه‌ی هاست قدیمی است (کنش تکه‌تکه را ندارد). */
+  /* ── چرا تکه‌ها کوچک شدند؟ ────────────────────────────────────────────
+     آزمون‌های میدانی نشان داد درخواست‌های کوچک همیشه عبور می‌کنند، ولی بدنه‌ی
+     چند صد کیلوبایتیِ حاوی base64 ممکن است در فایروال هاست بسته شود. پس هر
+     تکه ۲۰۰ کیلوبایت خام (≈۲۷۰ کیلوبایت بدنه) است و اگر هاست رد کرد، اپ
+     خودکار تکه را نصف می‌کند (۲۰۰→۱۰۰→۵۰→۲۵ کیلوبایت) و همان فایل را از
+     ابتدا می‌فرستد تا هیچ‌وقت ارسال نیمه‌کاره نماند. */
+  const MEDIA_CHUNK_DEFAULT = 200 * 1024;
+  const MEDIA_CHUNK_MIN = 24 * 1024;
+  const MEDIA_CHUNK_STEPS = [200 * 1024, 100 * 1024, 50 * 1024, 25 * 1024];
+
+  /* ── موازی‌سازی ارسال فایل‌ها ─────────────────────────────────────────
+     عکس و فیلم باید «با هم» ارسال شوند، نه یکی‌یکی؛ پس چند فایل هم‌زمان
+     می‌روند (پیش‌فرض ۳ فایل). تعداد با window.EPLAK_MEDIA_UPLOAD_CONCURRENCY
+     قابل تنظیم است و نتیجه همیشه به ترتیب فهرست اصلی برگردانده می‌شود. */
+  function mediaUploadConcurrency() {
+    const custom = Number(window.EPLAK_MEDIA_UPLOAD_CONCURRENCY);
+    if (isFinite(custom) && custom >= 1 && custom <= 6) return Math.floor(custom);
+    return 3;
+  }
+
+  async function runMediaPool(items, worker, onDone) {
+    const list = Array.from(items || []);
+    const results = new Array(list.length);
+    let cursor = 0;
+    let finished = 0;
+    const lanes = Math.min(mediaUploadConcurrency(), Math.max(1, list.length));
+
+    async function lane() {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= list.length) return;
+        try {
+          results[idx] = await worker(list[idx], idx);
+        } catch (e) {
+          results[idx] = { ok: false, error: (e && e.message) ? e.message : 'upload-failed' };
+        }
+        finished++;
+        if (typeof onDone === 'function') {
+          try { onDone(finished, list.length); } catch (e) {}
+        }
+      }
+    }
+
+    const runners = [];
+    for (let i = 0; i < lanes; i++) runners.push(lane());
+    await Promise.all(runners);
+    return results;
+  }
+
+  function mediaChunkSize() {
+    const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
+    return (isFinite(custom) && custom >= MEDIA_CHUNK_MIN) ? custom : MEDIA_CHUNK_DEFAULT;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     «چند درصد از عکس و فیلم آپلود شد؟» — وضعیت زنده و سراسری
+
+     چرا لازم است؟ کاربر باید در همان صفحه‌ی ثبت، در فهرست گزارش‌ها و در
+     «روند رسیدگی» ببیند چند درصد از فایل‌ها رسیده است؛ و وقتی بارگذاری تمام
+     شد، همان درصد برود و فقط «فایل آپلود شد» بماند.
+
+     یک رکورد برای هر «شناسه‌ی یکتای درخواست» (client_ref) نگه داشته می‌شود و
+     در localStorage هم می‌ماند تا اگر کاربر صفحه را عوض کرد و برگشت (یا اپ را
+     بست و باز کرد) همان وضعیت دیده شود.
+     ══════════════════════════════════════════════════════════════════════ */
+  const MEDIA_PROGRESS_KEY = 'eplakMediaProgressMap';
+  const MEDIA_PROGRESS_STALE_MS = 10 * 60 * 1000;   /* ۱۰ دقیقه بی‌خبر = قدیمی */
+  let mediaProgressListeners = [];
+
+  function mediaProgressAll() {
+    try {
+      const raw = window.localStorage ? window.localStorage.getItem(MEDIA_PROGRESS_KEY) : null;
+      const data = raw ? JSON.parse(raw) : null;
+      return (data && typeof data === 'object') ? data : {};
+    } catch (e) { return {}; }
+  }
+
+  function mediaProgressSave(map) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(MEDIA_PROGRESS_KEY, JSON.stringify(map));
+    } catch (e) {}
+  }
+
+  function mediaProgressEmit(row) {
+    mediaProgressListeners.slice().forEach(fn => {
+      try { fn(row ? Object.assign({}, row) : null); } catch (e) {}
+    });
+  }
+
+  function setMediaProgress(ref, patch) {
+    const key = String(ref || '');
+    if (!key) return null;
+    const map = mediaProgressAll();
+    const prev = (map[key] && typeof map[key] === 'object') ? map[key] : {};
+    const next = Object.assign(
+      { ref: key, active: false, finished: false, ok: false, percent: 0, done: 0, total: 0 },
+      prev,
+      patch || {},
+      { at: Date.now() }
+    );
+    map[key] = next;
+    mediaProgressSave(map);
+    mediaProgressEmit(next);
+    return next;
+  }
+
+  /* خواندن وضعیت یک درخواست (با تشخیص رکورد «قدیمی») */
+  function getMediaProgress(ref) {
+    if (!ref) return mediaProgressAll();
+    const row = mediaProgressAll()[String(ref)];
+    if (!row || typeof row !== 'object') return null;
+    const stale = row.active && (Date.now() - (Number(row.at) || 0)) > MEDIA_PROGRESS_STALE_MS;
+    return stale ? Object.assign({}, row, { active: false, stale: true }) : Object.assign({}, row);
+  }
+
+  function clearMediaProgress(ref) {
+    const map = mediaProgressAll();
+    if (ref) {
+      delete map[String(ref)];
+    } else {
+      Object.keys(map).forEach(key => { delete map[key]; });
+    }
+    mediaProgressSave(map);
+    mediaProgressEmit(null);
+  }
+
+  function onMediaProgress(fn) {
+    if (typeof fn !== 'function') return function () {};
+    mediaProgressListeners.push(fn);
+    return function () {
+      mediaProgressListeners = mediaProgressListeners.filter(item => item !== fn);
+    };
+  }
+
+  /* ── کدام خطا «قطعی» است؟ ────────────────────────────────────────────────
+     تنها خطاهای حجم/نوع/سقف فایل با تکه‌ی کوچک‌تر یا مسیر پشتیبان حل نمی‌شوند.
+     هر خطای دیگر (مثلاً پاسخ غیرمنتظره‌ی سرور یا دروازه‌ی بسته) باید شانس
+     دوباره بگیرد: هم تکه‌ی کوچک‌تر، هم مسیر پشتیبان api/reports.php.
+     پیش‌تر هر پاسخ سروری «قطعی» شمرده می‌شد و فایل بی‌صدا کنار گذاشته می‌شد؛
+     نتیجه‌اش این بود که عکس/فیلم دیگر هرگز ارسال نمی‌شد. */
+  function isHardMediaError(message) {
+    const text = String(message || '');
+    if (!text) return false;
+    return /حجم|بزرگ|مجاز نیست|نوع فایل|فرمت|حداکثر|خالی است|post_max_size|upload_max_filesize|413|too large|size/i.test(text);
+  }
+
+  async function sendMediaChunk(payload, urlOverride) {
+    const url = urlOverride || (BACKEND_BASE_URL + '/media.php?action=chunk');
+    let last = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      last = await postJson(url, payload, 120000);
+      if (last && last.success === true) return last;
+      /* فقط خطای شبکه/زمان دوباره تلاش می‌شود؛ پاسخ‌های سرور (۴۰۳/۴۱۳/…) بی‌فایده‌اند */
+      if (last && last.__transport && (last.kind === 'network' || last.kind === 'timeout') && attempt < 2) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+      return last;
+    }
+    return last;
+  }
+
+  /* ارسال یک فایل با اندازه‌ی تکه‌ی مشخص.
+     خروجی: { ok, media, error, status, unsupported, blocked } */
+  async function uploadSingleMediaFile(file, size, reportId, phone, onProgress, useFallbackEndpoint, clientRef) {
+    const fileName = file.name || 'attachment';
+    const total = Math.max(1, Math.ceil(file.size / size));
+    const uploadId = (Date.now().toString(16) + Math.floor(Math.random() * 0xffffff).toString(16)).slice(0, 32);
+    const chunkUrl = BACKEND_BASE_URL + '/media.php?action=chunk';
+    const wholeUrl = BACKEND_BASE_URL + '/reports.php?action=add_media';
+
+    /* ── مسیر پایانی: یک فایل کامل از دروازه‌ی گزارش‌ها ─────────────────
+       اگر مسیر تکه‌تکه روی هاست بسته باشد (فایروال یا نسخه‌ی قدیمی)، همین
+       گزارش‌ها که همیشه باز است، فایل را یک‌جا می‌پذیرد. */
+    if (useFallbackEndpoint) {
+      if (file.size > 12 * 1024 * 1024) {
+        return { ok: false, media: null, error: 'فایل «' + fileName + '» برای مسیر پشتیبان بزرگ است', status: 0, unsupported: false, blocked: false };
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      if (!dataUrl) {
+        return { ok: false, media: null, error: 'خواندن فایل «' + fileName + '» روی گوشی ممکن نشد.', status: 0, unsupported: false, blocked: false };
+      }
+      const res = await postJson(wholeUrl, {
+        action: 'add_media',
+        phone: phone,
+        client_ref: clientRef || '',
+        reportId: reportId,
+        name: fileName,
+        mime: file.type || '',
+        data: dataUrl
+      }, 180000);
+      if (!res) return { ok: false, media: null, error: 'ارتباط با سرور برقرار نشد.', status: 0, unsupported: false, blocked: false };
+      if (res.__transport) {
+        const code = res.status || 0;
+        return {
+          ok: false, media: null,
+          error: res.error || 'ارسال فایل ناموفق بود.',
+          status: code,
+          unsupported: (code === 404 || code === 405),
+          blocked: (code === 403 || code === 413)
+        };
+      }
+      if (res.success !== true) {
+        return { ok: false, media: null, error: String(res.error || 'ارسال فایل ناموفق بود.'), status: 0, unsupported: false, blocked: false };
+      }
+      if (typeof onProgress === 'function') onProgress(100);
+      return { ok: true, media: res.media || null, error: '', status: 200, unsupported: false, blocked: false };
+    }
+
+    /* ── مسیر عادی: تکه‌تکه ───────────────────────────────────────────── */
+    for (let index = 0; index < total; index++) {
+      const start = index * size;
+      const chunk = file.slice(start, Math.min(file.size, start + size));
+      const data = await readFileAsDataUrl(chunk);
+      if (!data) {
+        return { ok: false, media: null, error: 'خواندن فایل «' + fileName + '» روی گوشی ممکن نشد.', status: 0, unsupported: false, blocked: false };
+      }
+
+      const res = await sendMediaChunk({
+        phone: phone,
+        reportId: reportId,
+        uploadId: uploadId,
+        index: index,
+        total: total,
+        name: fileName,
+        mime: file.type || '',
+        /* شناسه‌ی یکتای درخواست: بدون آن، سرور فایلِ «پیش از ثبت گزارش»
+           (reportId = 0) را رد می‌کند و عکس/فیلم هرگز بارگذاری نمی‌شود. */
+        client_ref: clientRef || '',
+        data: data
+      }, chunkUrl);
+
+      if (!res) return { ok: false, media: null, error: 'ارتباط با سرور برقرار نشد.', status: 0, unsupported: false, blocked: false };
+      if (res.__transport) {
+        const code = res.status || 0;
+        return {
+          ok: false, media: null,
+          error: res.error || 'ارسال فایل ناموفق بود.',
+          status: code,
+          unsupported: (code === 404 || code === 405),
+          blocked: (code === 403 || code === 413)
+        };
+      }
+      if (res.success !== true) {
+        const message = String(res.error || 'ارسال فایل ناموفق بود.');
+        return {
+          ok: false, media: null, error: message, status: 0,
+          unsupported: (message.indexOf('گزارش یافت نشد') > -1 || message.indexOf('کنش نامعتبر') > -1),
+          blocked: false
+        };
+      }
+      if (typeof onProgress === 'function') {
+        onProgress(Math.min(99, Math.round(((index + 1) / total) * 100)));
+      }
+      if (index === total - 1) {
+        return { ok: true, media: res.media || null, error: '', status: 200, unsupported: false, blocked: false };
+      }
+    }
+    return { ok: false, media: null, error: 'ارسال فایل کامل نشد.', status: 0, unsupported: false, blocked: false };
+  }
+
+  /* ── ارسال پیوست‌ها با نقشه‌ی پشتیبان چندمرحله‌ای ─────────────────────
+     مرحله ۱: تکه‌های ۲۰۰ کیلوبایتی.
+     مرحله ۲ و ۳: اگر هاست بدنه را رد کرد، همان فایل‌ها با تکه‌های کوچک‌تر
+                  (۱۰۰ و ۵۰ و ۲۵ کیلوبایت) از ابتدا فرستاده می‌شوند.
+     مرحله ۴: اگر مسیر تکه‌تکه اصلاً بسته بود، هر فایل یک‌جا از دروازه‌ی
+              api/reports.php?action=add_media (که همیشه باز است) می‌رود.
+     در هر مرحله، فایل‌های موفق کنار گذاشته می‌شوند تا دوباره فرستاده نشوند. */
+  async function uploadReportMediaChunked(reportId, phone, files, onProgress, opts) {
+    /* opts.clientRef → ارسال «در انتظار اتصال»: فایل پیش از ساخته شدن گزارش
+       ذخیره می‌شود و هنگام ساخت گزارش به آن متصل می‌گردد. */
+    const clientRef = (opts && opts.clientRef) ? String(opts.clientRef) : '';
+    const list = Array.from(files || []);
+    const empty = { ok: true, media: [], failed: [], error: '', unsupported: false, blocked: false, status: 0 };
+    if ((!reportId && !clientRef) || !list.length) return empty;
+
+    const savedMedia = [];
+    let remaining = list.slice();
+    let hardFailed = [];       /* خطای منطقی (حجم/نوع) — تکرار با تکه‌ی کوچک‌تر بی‌فایده است */
+    let lastError = '';
+    let lastStatus = 0;
+    let unsupported = false;
+    let blocked = false;
+
+    /* درصد واقعی: هم فایل‌های تمام‌شده شمرده می‌شوند و هم پیشرفت تکه‌های
+       فایل‌هایی که همین لحظه در حال ارسال‌اند (چند فایل هم‌زمان بالا می‌رود).
+       این درصد هم به onProgress داده می‌شود و هم در وضعیت سراسری منتشر
+       می‌شود تا صفحه‌ی موفقیت، فهرست گزارش‌ها و «روند رسیدگی» زنده به‌روز شوند. */
+    const progressRef = clientRef || ('id:' + (Number(reportId) || 0));
+    const partial = new Map();
+    let completedCount = 0;
+    let stageBase = 0;
+
+    const publish = () => {
+      let fracSum = 0;
+      partial.forEach(value => { fracSum += value; });
+      const percent = list.length
+        ? Math.max(0, Math.min(99, Math.round(((completedCount + fracSum) / list.length) * 100)))
+        : 0;
+      if (typeof onProgress === 'function') onProgress(percent);
+      setMediaProgress(progressRef, {
+        active: true,
+        finished: false,
+        percent: percent,
+        done: completedCount,
+        total: list.length
+      });
+    };
+
+    const markFileProgress = (file, perFilePercent) => {
+      partial.set(file, Math.max(0, Math.min(1, (Number(perFilePercent) || 0) / 100)));
+      publish();
+    };
+
+    const markStageDone = (finished) => {
+      completedCount = Math.min(list.length, stageBase + (Number(finished) || 0));
+      publish();
+    };
+
+    if (list.length) {
+      setMediaProgress(progressRef, {
+        active: true, finished: false, ok: false, percent: 0, done: 0, total: list.length
+      });
+    }
+
+    const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
+    const sizes = (isFinite(custom) && custom >= MEDIA_CHUNK_MIN)
+      ? [custom].concat(MEDIA_CHUNK_STEPS.filter(s => s < custom))
+      : MEDIA_CHUNK_STEPS.slice();
+
+    for (let stage = 0; stage < sizes.length && remaining.length; stage++) {
+      const size = sizes[stage];
+      const stillFailed = [];
+      let goGateway = false;      /* پاسخ سروری منطقی → مستقیم به دروازه‌ی پشتیبان */
+      /* چند فایل هم‌زمان فرستاده می‌شوند تا عکس و فیلم با هم بالا بروند */
+      stageBase = completedCount;
+      const results = await runMediaPool(remaining, (file) => {
+        return uploadSingleMediaFile(file, size, reportId, phone, (p) => markFileProgress(file, p), false, clientRef);
+      }, (finished) => markStageDone(finished));
+      results.forEach((res, idx) => {
+        const file = remaining[idx];
+        if (res && res.ok) {
+          if (res.media) savedMedia.push(res.media);
+          partial.delete(file);
+          publish();
+        } else {
+          lastError = (res && res.error) || lastError;
+          lastStatus = (res && res.status) || lastStatus;
+          if (res && res.unsupported) unsupported = true;
+          if (res && res.blocked) blocked = true;
+          /* فقط خطای حجم/نوع/سقف «قطعی» است؛ بقیه شانس دوباره می‌گیرند. */
+          if (isHardMediaError((res && res.error) || '')) {
+            hardFailed.push(file);
+          } else {
+            stillFailed.push(file);
+            if (res && res.status === 0 && !res.blocked && !res.unsupported) goGateway = true;
+          }
+        }
+      });
+      remaining = stillFailed;
+      /* تکه‌ی کوچک‌تر، پاسخ منطقی سرور را تغییر نمی‌دهد؛ زودتر به مسیر
+         پشتیبان (api/reports.php?action=add_media) می‌رویم. */
+      if (goGateway) break;
+    }
+
+    /* مرحله‌ی پشتیبان: دروازه‌ی گزارش‌ها (بدون تکه‌تکه) */
+    if (remaining.length) {
+      const stillFailed = [];
+      stageBase = completedCount;
+      const results = await runMediaPool(remaining, (file) => {
+        return uploadSingleMediaFile(file, 0, reportId, phone, (p) => markFileProgress(file, p), true, clientRef);
+      }, (finished) => markStageDone(finished));
+      results.forEach((res, idx) => {
+        const file = remaining[idx];
+        if (res && res.ok) {
+          if (res.media) savedMedia.push(res.media);
+          partial.delete(file);
+          publish();
+        } else {
+          stillFailed.push(file);
+          lastError = (res && res.error) || lastError;
+          lastStatus = (res && res.status) || lastStatus;
+          if (res && res.unsupported) unsupported = true;
+          if (res && res.blocked) blocked = true;
+        }
+      });
+      remaining = stillFailed;
+    }
+
+    partial.clear();
+    if (typeof onProgress === 'function') onProgress(100);
+
+    const failedFiles = remaining.concat(hardFailed);
+    const result = {
+      ok: failedFiles.length === 0 && savedMedia.length > 0,
+      media: savedMedia,
+      failed: failedFiles.map(f => f.name || 'attachment'),
+      error: lastError,
+      unsupported: unsupported,
+      blocked: blocked,
+      status: lastStatus
+    };
+
+    /* وضعیت پایانی: «در حال بارگذاری» تمام می‌شود تا لایه‌ی نمایش بتواند
+       درصد را بردارد و فقط «فایل آپلود شد» نشان بدهد. */
+    setMediaProgress(progressRef, {
+      active: false,
+      finished: true,
+      ok: result.ok,
+      percent: result.ok
+        ? 100
+        : Math.max(0, Math.min(99, Math.round((savedMedia.length / Math.max(1, list.length)) * 100))),
+      done: savedMedia.length,
+      total: list.length
+    });
+
+    return result;
+  }
+
+
+  /* ── صف پیوست‌های ناموفق (نگه‌داشتن فایل در گوشی تا ارسال موفق) ──────────
+     اگر هنگام ثبت گزارش، اینترنت ضعیف باشد یا سرور فایل را نپذیرد، فایل در
+     حافظه‌ی مرورگر/اپ (IndexedDB) ذخیره می‌شود و در نخستین فرصت — باز شدن
+     دوباره‌ی اپ یا برگشتن اینترنت — خودکار دوباره فرستاده می‌شود. پس کاربر
+     هیچ‌وقت عکس/فیلمش را از دست نمی‌دهد و لازم نیست کاری انجام دهد.
+     اگر مرورگر از IndexedDB پشتیبانی نکند، این بخش بی‌صدا کنار گذاشته
+     می‌شود و رفتار قبلی (دکمه‌ی تلاش دوباره) برجا می‌ماند. */
+  const PENDING_DB = 'eplak_pending_media';
+  const PENDING_STORE = 'items';
+
+  function openPendingDb() {
+    return new Promise(resolve => {
+      try {
+        if (!window.indexedDB) {
+          resolve(null);
+          return;
+        }
+        const req = window.indexedDB.open(PENDING_DB, 1);
+        req.onupgradeneeded = function () {
+          const db = req.result;
+          if (db && !db.objectStoreNames.contains(PENDING_STORE)) {
+            db.createObjectStore(PENDING_STORE, { keyPath: 'key' });
+          }
+        };
+        req.onsuccess = function () { resolve(req.result || null); };
+        req.onerror = function () { resolve(null); };
+        req.onblocked = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+
+  function pendingTx(db, mode) {
+    return db.transaction(PENDING_STORE, mode).objectStore(PENDING_STORE);
+  }
+
+  /* خواندن همه‌ی ردیف‌های صف (یک‌جا و با مدیریت خطا) */
+  function pendingDbAll(db) {
+    return new Promise(resolve => {
+      try {
+        const req = pendingTx(db, 'readonly').getAll();
+        req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
+        req.onerror = function () { resolve([]); };
+      } catch (e) { resolve([]); }
+    });
+  }
+
+  /* حذف ردیف‌های مشخص از صف.
+     نکته‌ی مهم (ریشه‌ی باگ «عکس و فیلم مجدد بارگذاری نمی‌شود»): پیش‌تر اینجا
+     به‌جای store از transaction استفاده می‌شد و delete روی «فروشگاه فایل»
+     صدا زده می‌شد که وجود ندارد؛ پس هیچ ردیفی پاک نمی‌شد و تابع حتی پس از
+     ارسال موفق، «نرسید» برمی‌گرداند. در نتیجه هر تلاش دوباره از اول شروع
+     می‌شد و گزارش هیچ‌وقت ساخته نمی‌شد. */
+  function pendingDbDelete(db, keys) {
+    const list = Array.from(keys || []).filter(Boolean);
+    if (!list.length) return Promise.resolve(true);
+    return new Promise(resolve => {
+      try {
+        const store = pendingTx(db, 'readwrite');
+        list.forEach(key => { try { store.delete(key); } catch (e) {} });
+        store.transaction.oncomplete = function () { resolve(true); };
+        store.transaction.onerror = function () { resolve(false); };
+        store.transaction.onabort = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+
+  /* وضعیت صف یک درخواست: چند فایل مانده و چندتایش قابل خواندن است */
+  async function pendingMediaRefState(clientRef, phone) {
+    const ref = clientRef ? String(clientRef) : '';
+    const empty = { queued: 0, readable: 0 };
+    if (!ref || !phone) return empty;
+    const db = await openPendingDb();
+    if (!db) return empty;
+    const rows = await pendingDbAll(db);
+    const mine = rows.filter(r => String(r.clientRef || '') === ref && String(r.phone) === String(phone));
+    const readable = mine.filter(r => r && r.blob && typeof r.blob === 'object' && (Number(r.blob.size) || 0) > 0);
+    return { queued: mine.length, readable: readable.length };
+  }
+
+  /* افزودن فایل‌های ناموفق به صف (برای ارسال خودکار در فرصت بعدی) */
+  async function queuePendingMedia(reportId, phone, files, clientRef) {
+    const list = Array.from(files || []).filter(f => f && typeof f === 'object' && (f.size || 0) > 0);
+    const ref = clientRef ? String(clientRef) : '';
+    /* بدون شناسه‌ی گزارش هم می‌توان فایل را صف کرد، به شرط داشتن شناسه‌ی
+       یکتای درخواست (مسیر «اول فایل، بعد گزارش»). */
+    if ((!reportId && !ref) || !phone || !list.length) return false;
+    const db = await openPendingDb();
+    if (!db) return false;
+    const stamp = Date.now();
+    return new Promise(resolve => {
+      try {
+        const store = pendingTx(db, 'readwrite');
+        list.forEach((file, i) => {
+          store.put({
+            key: (ref ? ref : String(reportId)) + '-' + stamp + '-' + i,
+            reportId: Number(reportId) || 0,
+            clientRef: ref,
+            phone: String(phone),
+            name: file.name || ('attachment-' + (i + 1)),
+            type: file.type || '',
+            size: Number(file.size) || 0,
+            blob: file,
+            addedAt: new Date().toISOString()
+          });
+        });
+        store.transaction.oncomplete = function () { resolve(true); };
+        store.transaction.onerror = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+
+  /* تعداد فایل‌های در انتظار ارسال */
+  async function countPendingMedia() {
+    const db = await openPendingDb();
+    if (!db) return 0;
+    return new Promise(resolve => {
+      try {
+        const req = pendingTx(db, 'readonly').count();
+        req.onsuccess = function () { resolve(Number(req.result) || 0); };
+        req.onerror = function () { resolve(0); };
+      } catch (e) { resolve(0); }
+    });
+  }
+
+  /* تلاش دوباره برای همه‌ی فایل‌های صف (هنگام باز شدن اپ یا برگشتن اینترنت) */
+  /* ── ارسال فایل‌های صف‌شده‌ی یک «درخواست» (شناسه‌ی یکتا) ────────────────
+     برمی‌گرداند true اگر همه‌ی فایل‌های آن درخواست رسیده باشند؛ تا وقتی
+     false است، اپ گزارش را نمی‌سازد و کد پیگیری صادر نمی‌شود. */
+  async function flushPendingMediaRef(clientRef, phone, reportId) {
+    const ref = clientRef ? String(clientRef) : '';
+    if (!ref || !phone) return false;
+    const db = await openPendingDb();
+    if (!db) return false;
+    const rows = await pendingDbAll(db);
+    const mine = rows.filter(r => String(r.clientRef || '') === ref && String(r.phone) === String(phone));
+    if (!mine.length) return true;    /* چیزی برای این درخواست در صف نمانده است */
+    mine.sort((a, b) => String(a.addedAt).localeCompare(String(b.addedAt)));
+    /* فایل‌هایی که بایتشان در حافظه نمانده است (باز شدن دوباره‌ی اپ روی بعضی
+       وب‌ویوها) ارسال‌شدنی نیستند؛ گزارش در انتظار می‌ماند تا کاربر دوباره
+       همان عکس/فیلم را پیوست کند (با همان شناسه، پس کد پیگیری تکراری نمی‌شود). */
+    const usable = mine.filter(r => r && r.blob && typeof r.blob === 'object' && (Number(r.blob.size) || 0) > 0);
+    if (!usable.length) return false;
+    const res = await uploadReportMediaChunked(Number(reportId) || 0, String(phone), usable.map(i => i.blob), null, { clientRef: ref });
+    const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
+    if (res && res.ok && okCount > 0) {
+      /* فقط ردیف‌هایی پاک می‌شوند که واقعاً به سرور رسیده‌اند */
+      await pendingDbDelete(db, usable.map(item => item.key));
+      return true;   /* فایل‌های همین درخواست رسیدند */
+    }
+    return false;
+  }
+
+  async function flushPendingMedia(onReportDone) {
+    const db = await openPendingDb();
+    if (!db) return { sent: 0, left: 0 };
+    const rows = await pendingDbAll(db);
+    if (!rows.length) return { sent: 0, left: 0 };
+
+    /* گروه‌بندی بر اساس گزارش؛ ترتیب تکه‌ها بر اساس زمان افزوده‌شدن است */
+    rows.sort((a, b) => String(a.addedAt).localeCompare(String(b.addedAt)));
+    const groups = new Map();
+    rows.forEach(row => {
+      const ref = row.clientRef ? String(row.clientRef) : '';
+      const key = (ref ? ('ref:' + ref) : ('id:' + String(row.reportId))) + '|' + String(row.phone);
+      if (!groups.has(key)) groups.set(key, { reportId: Number(row.reportId) || 0, clientRef: ref, phone: row.phone, items: [] });
+      groups.get(key).items.push(row);
+    });
+
+    let sent = 0;
+    const failedGroups = new Set();
+    const leftovers = [];
+    for (const [key, group] of groups.entries()) {
+      const res = await uploadReportMediaChunked(group.reportId, group.phone, group.items.map(i => i.blob), null,
+        group.clientRef ? { clientRef: group.clientRef } : null);
+      const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
+      if (res && res.ok && okCount > 0) {
+        sent += group.items.length;
+        if (typeof onReportDone === 'function') {
+          try { onReportDone(group.reportId, group.clientRef, group.items.length); } catch (e) {}
+        }
+      } else {
+        failedGroups.add(key);
+      }
+    }
+    groups.forEach((group, key) => {
+      if (failedGroups.has(key)) group.items.forEach(item => leftovers.push(item));
+    });
+
+    /* صف بازنویسی می‌شود: فقط فایل‌های ناموفق باقی می‌مانند */
+    if (sent > 0) {
+      await new Promise(resolve => {
+        try {
+          const store = pendingTx(db, 'readwrite');
+          store.clear();
+          leftovers.forEach(item => store.put(item));
+          store.transaction.oncomplete = function () { resolve(true); };
+          store.transaction.onerror = function () { resolve(false); };
+        } catch (e) { resolve(false); }
+      });
+    }
+
+    return { sent: sent, left: await countPendingMedia() };
+  }
+
+  window.eplakQueuePendingMedia = queuePendingMedia;
+  window.eplakFlushPendingMedia = flushPendingMedia;
+  window.eplakFlushPendingMediaRef = flushPendingMediaRef;
+  window.eplakPendingMediaRefState = pendingMediaRefState;
+  window.eplakMediaProgress        = getMediaProgress;
+  window.eplakSetMediaProgress     = setMediaProgress;
+  window.eplakOnMediaProgress      = onMediaProgress;
+  window.eplakClearMediaProgress   = clearMediaProgress;
+  window.eplakCountPendingMedia = countPendingMedia;
+
+  /* وضعیت پیوست‌های یک گزارش روی سرور (برای تأیید نهایی که فایل‌ها ذخیره شدند) */
+  async function reportMediaStatus(reportId, phone) {
+    if (!reportId || !phone) return null;
+    const res = await postJson(BACKEND_BASE_URL + '/media.php?action=media_status', { phone: phone, reportId: reportId }, 30000);
+    if (!res || res.__transport || res.success !== true) return null;
+    return {
+      count: Number(res.media_count || 0),
+      max: Number(res.max || 0),
+      media: Array.isArray(res.media) ? res.media : []
+    };
+  }
+
+  async function syncFormDataToBackend(endpoint, formData) {
+    if (!formData || typeof FormData === 'undefined' || !(formData instanceof FormData)) return null;
     try {
       const response = await fetch(BACKEND_BASE_URL + '/' + endpoint + '.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: formData
       });
       if (!response.ok) {
-        console.warn('[backend] request failed', endpoint, await response.text());
+        console.warn('[backend] form request failed', endpoint, await response.text());
         return null;
       }
       return await response.json();
     } catch (error) {
-      console.warn('[backend] unavailable', endpoint, error.message);
+      console.warn('[backend] form unavailable', endpoint, error.message);
       return null;
     }
   }
+  window.syncFormDataToBackend = syncFormDataToBackend;
 
   function syncUserProfileToBackend(phone = getCurrentPhone()) {
     if (!phone) return;
@@ -386,8 +1233,60 @@
     if (typeof window.clearTicketsInMemory === 'function') window.clearTicketsInMemory();
   }
 
+  /* ─── «حساب داخل اپ ذخیره نشود» ───────────────────────────────────
+     درخواست کارفرما: اپ اندروید بعد از بسته شدن (خروج با دوبار زدن دکمه‌ی
+     بازگشت) باید دوباره کد تایید بخواهد. بنابراین هر بار که اپ از صفر بالا
+     می‌آید، اطلاعات ورود از دستگاه پاک می‌شود؛ مگر کاربر همان لحظه کد تایید
+     را وارد کرده باشد (markLoginDone در اندروید ثبت می‌شود). */
+  function clearStoredSession() {
+    try {
+      setCurrentPhone('');
+      if (typeof userProfile === 'object' && userProfile) {
+        userProfile.rawPhone = '';
+        userProfile.phone = '';
+        userProfile.name = DEFAULT_NAME;
+      }
+      if (typeof reports !== 'undefined') reports.length = 0;
+      if (typeof payments !== 'undefined') payments.length = 0;
+      if (typeof notifications !== 'undefined') notifications.length = 0;
+      if (typeof favoriteIds !== 'undefined') favoriteIds.length = 0;
+    } catch (e) {}
+  }
+  window.clearStoredSession = clearStoredSession;
+
+  /* آیا اپ اندروید می‌گوید «این بالا آمدن تازه است و باید کد تایید گرفته شود»؟ */
+  function nativeRequiresLogin() {
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.shouldRequireLogin === 'function') {
+        return window.AndroidApp.shouldRequireLogin() === true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  /* پاک‌سازی اطلاعات ورود پیش از خروج کامل از اپ (دوبار زدن دکمه‌ی بازگشت) */
+  function prepareAppExit() {
+    clearStoredSession();
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.prepareExit === 'function') {
+        window.AndroidApp.prepareExit();
+      }
+    } catch (e) {}
+  }
+  window.prepareAppExit = prepareAppExit;
+
   /* ─── بازیابی session پس از رفرش ──────────────────────────────── */
   function restoreSession() {
+    /* در اپ اندروید: اگر این بالا آمدن تازه است، حساب بازیابی نمی‌شود */
+    if (nativeRequiresLogin()) {
+      clearStoredSession();
+      try {
+        if (typeof window.updateProfileUI === 'function') window.updateProfileUI();
+        if (typeof window.showScreen === 'function') window.showScreen('screen-login', { skipHistory: true });
+      } catch (e) {}
+      return false;
+    }
+
     const phone = getCurrentPhone();
     if (!phone) return false;
 
@@ -556,6 +1455,24 @@
   window.saveNotifications   = saveNotifications;
   window.saveFavorites       = saveFavorites;
   window.syncDataToBackend   = syncDataToBackend;
+  window.syncFormDataToBackendWithProgress = syncFormDataToBackendWithProgress;
+  window.syncJsonToBackendWithProgress    = syncJsonToBackendWithProgress;
+  window.uploadReportMediaChunked         = uploadReportMediaChunked;
+  window.eplakReadFileAsDataUrl           = readFileAsDataUrl;
+  window.eplakMediaStatus                 = reportMediaStatus;
+  window.eplakQueuePendingMedia           = queuePendingMedia;
+  window.eplakFlushPendingMedia           = flushPendingMedia;
+  window.eplakFlushPendingMediaRef        = flushPendingMediaRef;
+  window.eplakPendingMediaRefState        = pendingMediaRefState;
+  window.eplakMediaProgress               = getMediaProgress;
+  window.eplakSetMediaProgress            = setMediaProgress;
+  window.eplakOnMediaProgress             = onMediaProgress;
+  window.eplakClearMediaProgress          = clearMediaProgress;
+  window.eplakCountPendingMedia           = countPendingMedia;
+  window.eplakTransportMessage            = transportMessage;
+  window.eplakIsTransportFailure          = isTransportFailure;
+  window.eplakJsonContentType             = function () { return JSON_CONTENT_TYPE; };
+  window.eplakMediaChunkSize              = mediaChunkSize;
   window.syncUserProfileToBackend = syncUserProfileToBackend;
 
 })();

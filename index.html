@@ -36,19 +36,51 @@
 <link rel="apple-touch-icon" sizes="180x180" href="assets/img/apple-touch-icon.png">
 
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/style.css?v=85">
-<script src="assets/js/icons.js?v=12"></script>
+<link rel="stylesheet" href="assets/css/style.css?v=90">
+<script src="assets/js/icons.js?v=13"></script>
+
+<!-- اگر همین حالا اینترنت قطع است، پرده‌ی «بدون اینترنت» از همان لحظه‌ی اول
+     کشیده می‌شود تا حتی یک صفحه هم بدون اتصال لود نشود. -->
+<script>
+try { if (navigator.onLine === false) { document.documentElement.classList.add('eplak-offline'); } } catch (e) {}
+</script>
+<style>
+  /* ── پرده‌ی «بدون اینترنت اتصال ممکن نیست» ───────────────────────────── */
+  #eplakOfflineGate { display: none; }
+  html.eplak-offline #eplakOfflineGate {
+    display: flex; position: fixed; inset: 0; z-index: 999999;
+    align-items: center; justify-content: center; padding: 24px;
+    background: linear-gradient(180deg, #0d1527 0%, #16233c 100%);
+    color: #fff; text-align: center; direction: rtl;
+    font-family: Vazirmatn, Tahoma, sans-serif;
+  }
+  html.eplak-offline body { overflow: hidden !important; }
+  /* وقتی اینترنت نیست، محتوای اپ اصلاً نمایش داده نمی‌شود */
+  html.eplak-offline .phone-frame { visibility: hidden !important; }
+  #eplakOfflineGate .eplak-offline-card { max-width: 330px; width: 100%; }
+  #eplakOfflineGate .eplak-offline-icon { font-size: 46px; line-height: 1; margin-bottom: 14px; }
+  #eplakOfflineGate h2 { font-size: 17px; font-weight: 800; margin: 0 0 10px; }
+  #eplakOfflineGate p { font-size: 13px; line-height: 2; color: #cbd5e1; margin: 0 0 8px; }
+  #eplakOfflineState { font-size: 11.5px; color: #94a3b8; min-height: 18px; display: block; margin-bottom: 14px; }
+  #eplakOfflineRetry {
+    border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer;
+    background: #00C9A7; color: #06231d; font-weight: 800; font-size: 13px;
+    font-family: inherit;
+  }
+</style>
 
 <script>
+/* Service Worker دیگر حذف نمی‌شود؛ برای رسیدن «اعلان پس‌زمینه» (نوتیفیکیشن گوشی
+   در حالت قفل/بسته بودن برنامه) باید ثبت شود. ثبت و مدیریت اشتراک در
+   modules/live.js انجام می‌شود و sw.js اعلان‌ها را نمایش می‌دهد. */
 (function() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(regs) {
-      for (var i = 0; i < regs.length; i++) { regs[i].unregister(); }
-    });
-  }
-  if ('caches' in window) {
-    caches.keys().then(function(keys) {
-      for (var i = 0; i < keys.length; i++) { caches.delete(keys[i]); }
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('sw.js').then(function(reg) {
+        console.log('[push] service worker registered:', reg.scope);
+      }).catch(function(err) {
+        console.warn('[push] service worker registration failed:', err && err.message);
+      });
     });
   }
 })();
@@ -1212,7 +1244,7 @@
         <div class="menu-item" onclick="showScreen('screen-reports')">
           <div class="menu-item-right">
             <div class="menu-item-icon" style="background:linear-gradient(135deg, rgba(0,201,167,0.2), rgba(0,180,140,0.06)); color:#00c9a7; border-color:rgba(0,201,167,0.25);">
-              <span style="font-size:16px;">🎫</span>
+              <span data-eplak-icon="ticket" data-icon-size="16" style="display:inline-flex; color:#00c9a7;"></span>
             </div>
             <span class="menu-item-label">تیکت‌ها و مکاتبات اداری</span>
           </div>
@@ -1372,8 +1404,8 @@
         <!-- Filter Tabs -->
         <div style="display:flex; gap:8px; padding:0 16px; overflow-x:auto;" id="reportsFilterTabs">
           <button class="filter-tab active" data-filter="all" onclick="filterReports('all', this)">همه</button>
-          <button class="filter-tab" data-filter="pending" onclick="filterReports('pending', this)">در انتظار</button>
-          <button class="filter-tab" data-filter="done" onclick="filterReports('done', this)">انجام شده</button>
+          <button class="filter-tab" data-filter="pending" onclick="filterReports('pending', this)">در حال انتظار</button>
+          <button class="filter-tab" data-filter="done" onclick="filterReports('done', this)">انجام شد</button>
           <button class="filter-tab" data-filter="review" onclick="filterReports('review', this)">بررسی</button>
         </div>
 
@@ -1393,8 +1425,8 @@
         <!-- Filter Tabs -->
         <div style="display:flex; gap:8px; padding:0 16px; overflow-x:auto;" id="ticketsFilterTabs">
           <button class="filter-tab active" data-tfilter="all" onclick="filterUserTickets('all', this)">همه</button>
-          <button class="filter-tab" data-tfilter="pending" onclick="filterUserTickets('pending', this)">در انتظار</button>
-          <button class="filter-tab" data-tfilter="done" onclick="filterUserTickets('done', this)">انجام شده</button>
+          <button class="filter-tab" data-tfilter="pending" onclick="filterUserTickets('pending', this)">در حال انتظار</button>
+          <button class="filter-tab" data-tfilter="done" onclick="filterUserTickets('done', this)">انجام شد</button>
           <button class="filter-tab" data-tfilter="review" onclick="filterUserTickets('review', this)">بررسی</button>
         </div>
 
@@ -1543,7 +1575,7 @@
           </div>
           <div class="stat-card-text">
             <div class="stat-card-value" id="dashPendingCount">۰</div>
-            <div class="stat-card-label" data-i18n="dash_stat_pending">در انتظار بررسی</div>
+            <div class="stat-card-label" data-i18n="dash_stat_pending">در حال انتظار</div>
           </div>
         </div>
         <div class="stat-card" onclick="filterReportsAndGo('done')">
@@ -1821,14 +1853,21 @@
       </div>
 
       <div style="padding:0 16px;">
-        <div class="glass-card" style="height:160px; display:flex; align-items:center; justify-content:center; position:relative; background:linear-gradient(135deg, rgba(0,80,70,0.25), rgba(0,60,90,0.25));">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:40px;height:40px;filter:drop-shadow(0 4px 8px rgba(239,68,68,0.4));"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="#ef4444" fill-opacity="0.25"/><circle cx="12" cy="10" r="3" fill="#ef4444"/></svg>
-          <div style="position:absolute; bottom:10px; right:10px; left:10px; font-size:11px; color:var(--text-muted); text-align:center;">نقشه موقعیت انتخابی (نمایشی)</div>
+        <!-- نقشه‌ی واقعی موقعیت (کاشی‌های OpenStreetMap — بدون کلید API)
+             نشانگر همیشه در مرکز نقشه است؛ کاربر می‌تواند نقشه را بکشد تا
+             نشانگر دقیقاً روی محل مشکل قرار بگیرد. -->
+        <div id="reportMapPicker" style="height:200px; width:100%;"></div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px;">
+          <span id="reportCoordsText" style="font-size:11px; color:var(--text-muted); direction:rtl; text-align:right;">موقعیتی انتخاب نشده است</span>
+          <button type="button" onclick="openReportCoordsInMap()" style="border:0; background:rgba(0,201,167,0.14); color:var(--teal); font-size:11px; font-weight:700; border-radius:10px; padding:7px 11px; cursor:pointer; white-space:nowrap;">مشاهده در نقشه</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:6px; line-height:1.9;">
+          نشانگر را با کشیدن نقشه روی محل دقیق مشکل بگذارید. دکمه‌ی زیر موقعیت GPS گوشی را می‌گیرد.
         </div>
       </div>
 
       <div style="padding:0 16px;">
-        <button class="btn-teal" style="background:linear-gradient(135deg,#1d6fd9,#1457ad); box-shadow:0 4px 24px rgba(30,110,220,0.25);" onclick="useCurrentLocation()">
+        <button id="reportGpsBtn" class="btn-teal" style="background:linear-gradient(135deg,#1d6fd9,#1457ad); box-shadow:0 4px 24px rgba(30,110,220,0.25);" onclick="useCurrentLocation()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg><span>استفاده از موقعیت فعلی من</span>
         </button>
       </div>
@@ -1873,7 +1912,7 @@
           <span data-i18n="back">بازگشت</span>
         </button>
         <div style="display:flex; align-items:center; gap:8px;">
-          <span class="form-title" data-i18n="report_header_media">افزودن تصویر</span>
+          <span class="form-title" data-i18n="report_header_media">افزودن عکس یا فیلم</span>
           <span style="font-size:18px;">←</span>
         </div>
       </div>
@@ -1889,12 +1928,28 @@
       </div>
 
       <div style="padding:0 16px;">
-        <label for="reportPhotoInput" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:130px; border:2px dashed var(--card-border); border-radius:16px; background:var(--step-bg); cursor:pointer;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:34px;height:34px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="var(--teal)" fill-opacity="0.16"/><circle cx="12" cy="13" r="4" fill="var(--teal)" fill-opacity="0.25"/></svg>
-          <span style="font-size:13px; font-weight:700; color:var(--text-muted);">برای افزودن تصویر ضربه بزنید</span>
-          <span style="font-size:11px; color:var(--text-muted);">حداکثر ۳ تصویر</span>
+        <!-- ── سه راه برای پیوست: دوربین داخل اپ (عکس)، دوربین داخل اپ (فیلم) و گالری ── -->
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <button type="button" class="btn-teal" style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px;" onclick="openReportCamera('photo')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span style="font-size:13px; font-weight:700;">گرفتن عکس</span>
+          </button>
+          <button type="button" class="btn-teal" style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px;" onclick="openReportCamera('video')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            <span style="font-size:13px; font-weight:700;">گرفتن فیلم</span>
+          </button>
+        </div>
+        <label for="reportPhotoInput" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:112px; border:2px dashed var(--card-border); border-radius:16px; background:var(--step-bg); cursor:pointer;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="var(--teal)" fill-opacity="0.14"/><circle cx="8.5" cy="8.5" r="1.5" fill="var(--teal)" fill-opacity="0.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <span style="font-size:13px; font-weight:700; color:var(--text-muted);">یا انتخاب عکس/فیلم از گالری گوشی</span>
+          <span style="font-size:11px; color:var(--text-muted);">حداکثر ۳ فایل — عکس یا فیلم</span>
+          <span style="font-size:10.5px; color:var(--text-muted); opacity:0.85;">می‌توانید چند فایل را هم‌زمان انتخاب کنید</span>
         </label>
-        <input type="file" id="reportPhotoInput" accept="image/*" multiple style="display:none;" onchange="addReportPhotos(this)">
+        <!-- accept دوگانه (عکس و فیلم) تا در اندروید هم گالری عکس و هم فیلم را نشان دهد -->
+        <input type="file" id="reportPhotoInput" accept="image/*,video/*" multiple style="display:none;" onchange="addReportPhotos(this)">
+        <!-- دوربینِ خود گوشی: اگر دوربین داخل اپ اجازه نگیرد، همین ورودی دوربین اصلی را باز می‌کند -->
+        <input type="file" id="reportCameraPhotoInput" accept="image/*" capture="environment" style="display:none;" onchange="addCapturedFiles(this.files); this.value='';">
+        <input type="file" id="reportCameraVideoInput" accept="video/*" capture="camcorder" style="display:none;" onchange="addCapturedFiles(this.files); this.value='';">
       </div>
 
       <div id="reportPhotosPreview" style="display:flex; gap:10px; padding:0 16px; flex-wrap:wrap;"></div>
@@ -2003,6 +2058,12 @@
         <span style="font-size:13px; color:var(--text-muted);">کد پیگیری:</span>
         <span id="successTrackCode" style="font-size:15px; font-weight:800; color:var(--teal); direction:ltr;">—</span>
       </div>
+      <!-- وضعیت ارسال عکس/فیلم: درصد پیشرفت و تأیید نهایی سرور -->
+      <div id="reportUploadBar" class="upload-bar" style="display:none;">
+        <div class="upload-bar-track"><div class="upload-bar-fill" id="reportUploadBarFill"></div></div>
+        <p class="upload-bar-label" id="reportUploadBarLabel">بارگذاری عکس و فیلم…</p>
+      </div>
+      <div id="reportUploadStatus" style="display:none; font-size:12.5px; line-height:1.9; color:var(--text-muted); text-align:center; padding:0 6px;"></div>
       <div style="width:100%; display:flex; flex-direction:column; gap:10px; margin-top:6px;">
         <button class="btn-teal" onclick="showScreen('screen-reports')">مشاهده گزارش‌های من</button>
         <button class="btn-teal" style="background:transparent; box-shadow:none; border:1px solid var(--card-border); color:var(--text-muted);" onclick="showScreen('screen-home')">بازگشت به خانه</button>
@@ -2034,7 +2095,7 @@
             <h3 id="detailTitle" style="font-size:15px; font-weight:800;">—</h3>
             <p id="detailDate" style="font-size:12px; color:var(--text-muted); margin-top:2px;">—</p>
           </div>
-          <span id="detailStatus" class="report-status status-pending">در انتظار</span>
+          <span id="detailStatus" class="report-status status-pending">در حال انتظار</span>
         </div>
         <div class="divider"></div>
         <div style="text-align:right;">
@@ -2055,6 +2116,12 @@
         </div>
         <div id="detailReplyWrap" style="display:none; margin-top:8px; padding-top:8px; border-top:1px solid var(--card-border);"></div>
       </div>
+
+      <!-- عکس‌ها و فیلم‌های ارسالی شهروند (modules/reports.js آن را پر می‌کند) -->
+      <div id="detailMediaWrap" style="display:none;"></div>
+
+      <!-- خلاصه‌ی وضعیت (هم‌خوان با ستون وضعیت در پنل ادمین) -->
+      <div id="detailStatusSummary"></div>
 
       <div class="section-title" style="padding:0 4px;">روند رسیدگی</div>
       <div class="glass-card" style="padding:18px;">
@@ -2098,7 +2165,7 @@
     <div class="screen-content" style="position:relative;z-index:10; gap:14px; padding:0 16px 20px;">
       
       <div class="glass-card" style="padding:14px 16px; display:flex; align-items:center; gap:12px; background:rgba(0,201,167,0.06); border:1px solid rgba(0,201,167,0.2);">
-        <span style="font-size:24px;">🎫</span>
+        <span data-eplak-icon="ticket" data-icon-size="24" style="display:inline-flex; color:#00c9a7;"></span>
         <div style="text-align:right;">
           <h4 style="font-size:13.5px; font-weight:800; color:var(--teal); margin:0;">ارتباط مستقیم با واحد مدیریت</h4>
           <p style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">پیام شما مستقیماً در پنل تیکت‌های مدیریت شهرداری ثبت و توسط کارشناسان بررسی می‌شود.</p>
@@ -2183,7 +2250,7 @@
       <!-- معرفی ملاقات مردمی -->
       <div class="glass-card" style="padding:16px; display:flex; align-items:center; gap:12px; background:linear-gradient(135deg, rgba(0,201,167,0.15), rgba(5,150,105,0.06)); border:1.5px solid rgba(0,201,167,0.35);">
         <div style="width:48px; height:48px; border-radius:14px; background:linear-gradient(135deg, #00c9a7, #059669); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; box-shadow:0 4px 14px rgba(0,201,167,0.35);">
-          🏛️
+          <span data-eplak-icon="building" data-icon-size="26" style="display:inline-flex; color:#fff;"></span>
         </div>
         <div style="text-align:right;">
           <h3 style="font-size:14px; font-weight:800; color:var(--text-primary); margin:0 0 4px;">ملاقات عمومی و چهره‌به‌چهره</h3>
@@ -2320,7 +2387,7 @@
       <!-- پاسخ مدیریت شهرداری -->
       <div id="ticketDetailReplyCard" class="glass-card" style="display:none; padding:16px; border:1px solid rgba(0,201,167,0.35); background:rgba(0,201,167,0.06); flex-direction:column; gap:8px;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:18px;">🏛️</span>
+          <span data-eplak-icon="building" data-icon-size="18" style="display:inline-flex; color:#00c9a7;"></span>
           <span style="font-size:13px; font-weight:800; color:var(--teal);">پاسخ کارشناس / مدیریت شهرداری:</span>
         </div>
         <p id="ticketDetailReply" style="font-size:13px; line-height:1.9; color:var(--text-primary); margin:0; white-space:pre-line; text-align:right;">—</p>
@@ -2368,8 +2435,8 @@
       <!-- تب‌های فیلتر پیگیری: همه / گزارش‌ها / تیکت‌ها -->
       <div style="display:flex; gap:8px; overflow-x:auto; margin-top:2px;" id="trackFilterTabs">
         <button class="filter-tab active" data-trackfilter="all" onclick="filterTrackList('all', this)">همه موارد</button>
-        <button class="filter-tab" data-trackfilter="reports" onclick="filterTrackList('reports', this)">📋 گزارش‌ها</button>
-        <button class="filter-tab" data-trackfilter="tickets" onclick="filterTrackList('tickets', this)">🎫 تیکت‌ها</button>
+        <button class="filter-tab" data-trackfilter="reports" onclick="filterTrackList('reports', this)"><span data-eplak-icon="clipboard" data-icon-size="14" class="filter-tab-icon"></span>گزارش‌ها</button>
+        <button class="filter-tab" data-trackfilter="tickets" onclick="filterTrackList('tickets', this)"><span data-eplak-icon="ticket" data-icon-size="14" class="filter-tab-icon"></span>تیکت‌ها</button>
       </div>
 
       <div class="reports-list" id="trackRecentList"></div>
@@ -2412,32 +2479,9 @@
       <!-- ===== Tab Panel: دانستنی‌های ورامین (Heritage Knowledge) ===== -->
       <div class="news-tab-panel active" id="newsPanelKnowledge">
 
-        <div class="heritage-card" onclick="openHeritageDetail('mosque')">
-          <div class="heritage-photo-layer">
-            <img src="assets/img/varamin-mosque.jpg" alt="مسجد جامع ورامین" class="heritage-photo">
-          </div>
-          <div class="heritage-shade"></div>
-          <span class="heritage-pin" data-i18n="heritage_mosque_pin">۷۲۲ ه.ق · دوره ایلخانی</span>
-          <div class="heritage-info">
-            <h4 data-i18n="heritage_mosque_title">مسجد جامع ورامین</h4>
-            <p data-i18n="heritage_mosque_desc">تنها نمونه کامل مساجد چهارایوانی ایران؛ شاهکاری از کاشی‌کاری معرق، گچ‌بری و آجرکاری دوران ایلخانی که با همت سلطان محمد خدابنده آغاز و در روزگار فرزندش ابوسعید بهادرخان به پایان رسید.</p>
-            <span class="heritage-readmore" data-i18n="read_more_arrow">مطالعه بیشتر ←</span>
-          </div>
-        </div>
-
-        <div class="heritage-card" onclick="openHeritageDetail('tower')">
-          <div class="heritage-photo-layer">
-            <img src="assets/img/varamin-tower.jpg" alt="برج علاءالدوله ورامین" class="heritage-photo heritage-photo-tower">
-          </div>
-          <div class="heritage-shade"></div>
-          <span class="heritage-pin" data-i18n="heritage_tower_pin">۶۸۸ ه.ق · آرامگاهی</span>
-          <div class="heritage-info">
-            <h4 data-i18n="heritage_tower_title">برج علاءالدوله ورامین</h4>
-            <p data-i18n="heritage_tower_desc">برج آرامگاهی استوانه‌ای با گنبدی مخروطی بلند، یادگار فخرالدین برای پدرش حسن علاءالدوله، حاکم ری؛ از قدیمی‌ترین آثار ثبت‌شده ملی ایران با تزئینات آجرکاری و کاشی فیروزه‌ای.</p>
-            <span class="heritage-readmore" data-i18n="read_more_arrow">مطالعه بیشتر ←</span>
-          </div>
-        </div>
-
+        <!-- دانستنی‌های ورامین از پنل مدیریت خوانده می‌شود؛ برای اینکه سایت بدون
+             اینترنت هم خالی نباشد، نسخه‌ی پیش‌فرض همین دو بنا به‌صورت خودکار توسط
+             modules/live.js در همین کانتینر ساخته می‌شود. -->
         <!-- دانستنی‌های قابل مدیریت از پنل ادمین (modules/live.js آن را پر می‌کند) -->
         <div id="knowledgeListWrap" style="display:flex; flex-direction:column; gap:12px; margin-bottom:14px;"></div>
 
@@ -2730,10 +2774,16 @@
         <span data-i18n="back">بازگشت</span>
       </button>
       <div style="font-size:16px; font-weight:800;" data-i18n="notif_title">اعلان‌ها</div>
-      <button class="edit-btn" style="font-size:11px; width:auto; padding:8px 10px;" onclick="markAllNotifsRead()">خواندن همه</button>
+      <div style="display:flex; gap:6px;">
+        <button class="edit-btn" style="font-size:11px; width:auto; padding:8px 10px;" onclick="markAllNotifsRead()" data-i18n="notif_read_all">خواندن همه</button>
+        <button class="edit-btn" style="font-size:11px; width:auto; padding:8px 10px; background:rgba(255,60,60,0.12); color:#FF6666; border-color:rgba(255,60,60,0.25);" onclick="deleteAllNotifs()" data-i18n="notif_delete_all">حذف همه</button>
+      </div>
     </div>
 
     <div class="screen-content" style="position:relative;z-index:10; gap:10px; padding:0 16px 20px;">
+      <!-- وضعیت اعلان روی همین دستگاه (با جاوااسکریپت پر می‌شود) -->
+      <div id="notifDeviceNotice" style="display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:14px; padding:12px 14px; font-size:12.5px; line-height:1.9; color:#7c2d12;">
+      </div>
       <div class="reports-list" id="notifListWrap"></div>
       <div class="bottom-pad"></div>
     </div>
@@ -3007,35 +3057,47 @@ title="شماره موبایل هویت حساب شماست و قابل تغیی
 
 
 
+<!-- ============ پرده‌ی «بدون اینترنت» (بیرون از قالب گوشی؛ تمام‌صفحه) ============ -->
+<div id="eplakOfflineGate" role="alert" aria-live="assertive">
+  <div class="eplak-offline-card">
+    <div class="eplak-offline-icon" data-eplak-icon="wifi-off" data-icon-size="46"></div>
+    <h2 id="eplakOfflineTitle">بدون اینترنت اتصال ممکن نیست</h2>
+    <p id="eplakOfflineDesc">این برنامه فقط در حالت آنلاین کار می‌کند. اتصال اینترنت گوشی را بررسی کنید و دوباره تلاش کنید.</p>
+    <span id="eplakOfflineState">در حال بررسی اتصال…</span>
+    <button type="button" id="eplakOfflineRetry">تلاش مجدد</button>
+  </div>
+</div>
+
 <!-- ===== Core ===== -->
 <script src="core/sound.js?v=10"></script>
-<script src="core/i18n.js?v=11"></script>
-<script src="core/state.js?v=10"></script>
-<script src="core/storage.js?v=11"></script>
-<script src="core/router.js?v=10"></script>
+<script src="core/i18n.js?v=14"></script>
+<script src="core/state.js?v=11"></script>
+<script src="core/storage.js?v=21"></script>
+<script src="modules/online-guard.js?v=1"></script>
+<script src="core/router.js?v=13"></script>
 
 <!-- ===== Modules ===== -->
-<script src="modules/auth.js?v=10"></script>
+<script src="modules/auth.js?v=11"></script>
 <script src="modules/home.js?v=20"></script>
-<script src="modules/reports.js?v=15"></script>
-<script src="modules/dashboard.js?v=10"></script>
-<script src="modules/profile.js?v=11"></script>
-<script src="modules/services.js?v=14"></script>
-<script src="modules/live.js?v=10"></script>
+<script src="assets/js/ep-map.js?v=3"></script>
+<script src="assets/js/ep-camera.js?v=1"></script>
+<script src="modules/reports.js?v=27"></script>
+<script src="modules/dashboard.js?v=13"></script>
+<script src="modules/profile.js?v=12"></script>
+<script src="modules/services.js?v=13"></script>
+<script src="modules/live.js?v=14"></script>
 <script src="modules/weather-3d.js?v=47"></script>
-<script src="modules/city-live.js?v=57"></script>
-<script src="modules/clock-lux.js?v=4"></script>
+<script src="modules/city-live.js?v=13"></script>
+<script src="modules/clock-lux.js?v=5"></script>
 
 <!-- ===== App entry point (runs init after everything is loaded) ===== -->
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 
 <!-- ===== PWA Service Worker & iOS Native Bridge Helper ===== -->
 <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-    for (let r of registrations) { r.unregister(); }
-  });
-}
+/* (قبلاً این‌جا Service Worker حذف می‌شد که باعث می‌شد اعلان‌های پس‌زمینه هیچ‌وقت
+    به گوشی نرسند. اکنون ثبت سرویس‌ورکر در بالای همین صفحه انجام می‌شود و اشتراک
+    اعلان در modules/live.js مدیریت می‌شود.) */
 
 // iOS Native Bridge Support
 window.triggerHaptic = function(style) {

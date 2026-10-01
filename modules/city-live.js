@@ -842,7 +842,7 @@
 
     html += ''
       + '<div class="prayer-calendar-footer">'
-      +   '<span class="pcf-icon">🌙</span>'
+      +   '<span class="pcf-icon">' + (window.EplakIcons ? window.EplakIcons.get('moon', { size: 15 }) : '🌙') + '</span>'
       +   '<span class="pcf-text">' + fa(hijriText) + '</span>'
       + '</div>';
 
