@@ -509,3 +509,141 @@ the existing report and code, so even an old app cannot create two reports with 
 4. Test: submit a report with a photo **and** a video (one from the camera, one from the gallery).
    You should see “در حال بارگذاری… ٪” and then **one tracking code**, and in the report details
    **one row** with that photo/video.
+
+## 26) Round 27 — “How much of the photo/video is uploaded” inside the flow + location map served from our own server
+
+### 1. What was asked
+1. Inside the **processing flow**, show **what percentage** of the photo/video
+   files has been uploaded; once the upload finishes, that percentage should go
+   away and only **“file uploaded”** should remain.
+2. The location map was not visible; use the same kind of map that apps like
+   **Snapp** and **Neshan** use.
+
+### 2. Upload percentage
+**Engine (core/storage.js):**
+- A global live status was added: `setMediaProgress` / `eplakMediaProgress` /
+  `eplakOnMediaProgress` / `eplakClearMediaProgress`.
+- One record per **unique request id** (`client_ref`) is kept in `localStorage`
+  under `eplakMediaProgressMap`: `{active, finished, ok, percent, done, total, at}`
+  — so the same status is visible after changing screens or reopening the app.
+- The percentage is **real**, not estimated: finished files plus the chunk
+  progress of the files currently in flight (several files upload in parallel).
+- Retry and the offline queue also go through `uploadReportMediaChunked`, so the
+  percentage is published there too.
+
+**Display (modules/reports.js + index.html + style.css):**
+- Submission screen: the `reportUploadBar` progress bar with the label
+  “uploading photo and video: 45% — 1 of 2 files”.
+- **Processing flow** in the report details: an “attachments upload” step with a
+  `.media-progress` bar and a percentage badge, updated **live**
+  (`subscribeDetailMediaStep` on `eplakOnMediaProgress`).
+- Reports list / tracking-code label: “uploading photo/video… 45%”.
+- **After the upload finishes:** the bar and the percentage are removed and only
+  **“file uploaded”** remains (`showUploadDoneNote` / `hideUploadBar`).
+- If the upload stays incomplete, the step shows “unfinished” with the retry
+  hint and no tracking code is issued (unchanged from previous rounds).
+- Stale record: if nothing arrives for more than 10 minutes, `active` is treated
+  as stale so a percentage can never stick; records older than 7 days are pruned
+  (`pruneMediaProgress`).
+- A report without attachments does not show this step at all.
+
+**Admin panel (admin/report_detail.php):** the same “attachments (photo and
+video)” step was added to the processing flow: **“file uploaded”** (with the
+photo/video counts) when the files are on the server, and **“uploading…”** with
+their count when staged rows exist (`report_media` with `report_id = 0` and the
+same `client_ref`).
+
+### 3. Location map: why it was blank and how it works now
+**Root causes (two):**
+1. Tiles were fetched only from `tile.openstreetmap.org`. That server answers
+   **403** to requests without a valid `Referer` — and the Android app opens the
+   page from `file:///android_asset/index.html`, i.e. exactly without one.
+2. Direct phone access to foreign tile servers is slow or blocked in Iran.
+
+**What do Snapp and Neshan do?** Both use **OpenStreetMap data** but serve the
+tiles from **servers inside the country** (Neshan also hands out a free API key).
+That is what we do now.
+
+**Server side:**
+- `shared/maptiles.php`: the source registry, the “auto” order based on recent
+  health (`map_src_health`), the on-disk cache, image validation, the reverse
+  geocoder and the test helper.
+- `api/maptile.php`: the tile proxy used by both the app and the site.
+  - `?z=&x=&y=[&src=]` → a tile (default `src=auto`: sources are tried in order
+    and the result is cached in `uploads/map-cache`, with `ETag` and
+    `Cache-Control: max-age=604800`).
+  - `?action=config` → ready sources + default source + URL templates (this is
+    how the app learns whether Neshan is enabled).
+  - `?action=test` → a real test of every source from the server (a Tehran tile).
+  - `?action=reverse&lat=&lng=` → a Persian address (Neshan first when a key is
+    set, otherwise Nominatim).
+  - `?action=static&...` → the Neshan static map (one image with Persian labels).
+- Sources: `esri` (street), `esri_sat` (satellite), `esri_topo`, `carto`,
+  `osmfr`, `osm`, `wikimedia` — all keyless; `neshan` with a free key; `custom`
+  with your own template (https only, `{z}/{x}/{y}`).
+- `.htaccess`: a long cache was added **only** for `maptile.php` (all other
+  `.php` files stay `no-store` so the newest version is always served).
+
+**App/site side (assets/js/ep-map.js):**
+- Tiles are first requested from **our own server** (`api/maptile.php`); this
+  also works from `file://` in the APK because it is the same path the photo and
+  video uploads already use.
+- If the proxy is unavailable (server not updated yet) or a source is blocked,
+  the next source/path is tried **automatically**: the proxy with different
+  sources, then direct fetches from open sources; after 3 consecutive errors the
+  next attempt is used.
+- The winning combination is remembered on the phone (`eplakMapPrefs`) so the
+  next map opens immediately.
+- Two buttons on the map: **“satellite”** and **“source”** (manual switching),
+  plus “try the map again” in the error panel.
+- If no source opens, submitting a report still works: “map did not open” is
+  shown together with the **coordinates**, and the coordinates are still saved.
+- Reverse geocoding goes through the server first (`action=reverse`) and falls
+  back to Nominatim when needed.
+
+**Admin panel (Settings → “Location map”):**
+- Default source (recommended: **auto**), the **Neshan** key (free from
+  `platform.neshan.org` → developer panel → create API key → type “web map /
+  Static Map” → put the site domain/IP in “allowed domains/IPs”), and a custom
+  tile template.
+- A **“test map sources from the server”** button: every source fetches a sample
+  tile and the result (HTTP code, time, size) is shown, plus the geocoder status.
+- A **live map preview** using the same engine as the app, so you can be sure the
+  map opens without installing the APK.
+
+### 4. Database changes
+No structural change is required (still `2026-10-03.1`). Four new keys are used
+in `app_settings`: `map_default_source`, `map_neshan_key`, `map_custom_tiles`,
+`map_src_health`.
+
+### 5. Tests
+- 49 new tests: 22 server-side (real PHP runs: the source registry and readiness,
+  building Esri/OSM/Neshan/custom tile URLs, rejecting unknown sources and
+  out-of-range tiles, rejecting non-image responses, content-type detection, the
+  **cache-path escape guard**, the Persian address formatter, and the
+  `config`/`test`/`reverse`/`static` actions) and 27 app-side — including a
+  **real run** of the map engine in a fake DOM (proxy first, automatic switch to
+  the next source on tile errors, fallback to direct fetching, the “map did not
+  open” panel with coordinates, remembering the winning combination, satellite
+  view, the Neshan static source, the “source” button) and a **real run** of the
+  live upload status (percentage published, stored per unique id, stale record)
+  plus a real run of the “attachments upload” step (percentage + bar while
+  uploading, and only “file uploaded” afterwards).
+- Result: NOTIFY 32 · APP 179 · PUSHCRYPTO 8 · FCM 28 · BACKEND 161 · RESCUE 19 ·
+  ONLINE 55 · GEO/MEDIA 164 — all green (646 tests).
+
+### Deployment steps
+1. **Extract** the new `eplak-fixed-update.zip` into the `eplak-fixed` folder on
+   the host (Overwrite). No database structure change.
+2. The `uploads/map-cache` folder is created automatically (tile cache). If
+   `uploads` is not writable the map still works, but tiles are re-fetched.
+3. Admin panel → **Settings** → the **“Location map”** card → press **“test map
+   sources from the server”** to see which source is reachable from your host;
+   the live preview is in the same card. Keep the default source on **auto**.
+4. (Optional, for Persian labels) get a free **Neshan** key from
+   `platform.neshan.org` and save it in the same card.
+5. Install the new APK (**2.0.32** or newer): the upload progress bar, the
+   “attachments upload” step and the multi-source map exist only there.
+6. Test: submit a report with a photo and a video → watch “uploading photo and
+   video: …%” → afterwards only **“file uploaded”** and one tracking code → in
+   the report details, the “attachments” step and the location map open.

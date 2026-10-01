@@ -62,6 +62,14 @@ AddDefaultCharset UTF-8
     Header set Expires "0"
   </FilesMatch>
 
+  # استثنا: کاشی‌های نقشه از api/maptile.php سرو می‌شوند و «تصویر» هستند؛
+  # کش بلندمدت داشته باشند تا نقشه سریع باز شود و پهنای باند هاست نرود.
+  <Files "maptile.php">
+    Header unset Pragma
+    Header unset Expires
+    Header set Cache-Control "public, max-age=604800"
+  </Files>
+
   # سرویس‌ورکر باید بدون کش بررسی شود تا نسخه‌ی تازه‌اش فعال شود
   <FilesMatch "^sw\.js$">
     Header set Cache-Control "no-cache, must-revalidate, max-age=0"

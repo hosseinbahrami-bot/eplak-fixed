@@ -37,6 +37,25 @@ $reportMedia  = $report ? getReportMedia($pdo, (int) $report['id']) : [];
 $mediaImages  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') !== 'video'));
 $mediaVideos  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') === 'video'));
 
+/* فایل‌های «در انتظار اتصال»: شهروند هنوز در حال بارگذاری عکس/فیلم است و
+   گزارش ساخته شده ولی پیوست‌ها نرسیده‌اند (با شناسه‌ی یکتای درخواست پیدا
+   می‌شوند). همان چیزی که شهروند در اپ می‌بیند، اینجا هم نشان داده می‌شود. */
+$reportClientRef = '';
+$stagedMediaCount = 0;
+try {
+    if ($report && eplakTableHasColumn($pdo, 'reports', 'client_ref')) {
+        $refStmt = $pdo->prepare('SELECT client_ref FROM reports WHERE id = :id LIMIT 1');
+        $refStmt->execute([':id' => (int) $report['id']]);
+        $reportClientRef = strtoupper(trim((string) $refStmt->fetchColumn()));
+    }
+    if ($reportClientRef !== '') {
+        $stagedMediaCount = eplakMediaStagedCount($pdo, $reportClientRef);
+    }
+} catch (Throwable $e) {
+    $stagedMediaCount = 0;
+}
+$mediaUploading = ($stagedMediaCount > 0);
+
 // دریافت اطلاعات کاربر
 $userInfo = null;
 if ($report && !empty($report['user_phone'])) {
@@ -50,7 +69,8 @@ if ($report && !empty($report['user_phone'])) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>جزئیات گزارش</title>
   <link rel="stylesheet" href="assets/style.css?v=9">
-  <script src="../assets/js/ep-map.js?v=1"></script>
+  <script>window.EPLAK_API_BASE_URL = '../api';</script>
+  <script src="../assets/js/ep-map.js?v=3"></script>
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -381,6 +401,40 @@ if ($report && !empty($report['user_phone'])) {
         </h2>
 
         <div class="flow-list">
+          <?php if (count($reportMedia) > 0 || $mediaUploading): ?>
+            <!-- گام «پیوست‌ها» — همان چیزی که شهروند در اپ می‌بیند:
+                 هنگام بارگذاری، وضعیت «در حال بارگذاری…» و پس از رسیدن
+                 فایل‌ها فقط «فایل آپلود شد». -->
+            <?php $mediaDone = count($reportMedia) > 0; ?>
+            <div class="flow-step is-<?= $mediaDone ? 'done' : 'current' ?>">
+              <div class="flow-marker">
+                <div class="flow-dot"><i class="fas <?= $mediaDone ? 'fa-circle-check' : 'fa-cloud-arrow-up' ?>"></i></div>
+                <div class="flow-line <?= $mediaDone ? 'done' : '' ?>"></div>
+              </div>
+              <div class="flow-body">
+                <div class="flow-head">
+                  <strong>پیوست‌ها (عکس و فیلم)</strong>
+                  <span class="flow-badge <?= $mediaDone ? 'done' : 'current' ?>">
+                    <?= $mediaDone ? 'فایل آپلود شد' : 'در حال بارگذاری…' ?>
+                  </span>
+                </div>
+                <?php if ($mediaDone): ?>
+                  <p class="flow-note">
+                    فایل آپلود شد — <?= eplakFaDigits((string) count($mediaImages)) ?> عکس و
+                    <?= eplakFaDigits((string) count($mediaVideos)) ?> فیلم روی سرور ذخیره شده است.
+                    <?php if ($mediaUploading): ?>
+                      <br>هم‌اکنون <?= eplakFaDigits((string) $stagedMediaCount) ?> فایل دیگر از گوشی شهروند در راه است.
+                    <?php endif; ?>
+                  </p>
+                <?php else: ?>
+                  <p class="flow-note">
+                    <?= eplakFaDigits((string) $stagedMediaCount) ?> فایل از گوشی شهروند در حال بارگذاری است؛
+                    تا رسیدن همه‌ی عکس/فیلم‌ها، کد پیگیری صادر نمی‌شود.
+                  </p>
+                <?php endif; ?>
+              </div>
+            </div>
+          <?php endif; ?>
           <?php foreach ($flowStages as $stage): ?>
             <div class="flow-step is-<?= htmlspecialchars($stage['state']) ?>">
               <div class="flow-marker">

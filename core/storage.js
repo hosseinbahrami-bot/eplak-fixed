@@ -297,6 +297,86 @@
     return (isFinite(custom) && custom >= MEDIA_CHUNK_MIN) ? custom : MEDIA_CHUNK_DEFAULT;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     «چند درصد از عکس و فیلم آپلود شد؟» — وضعیت زنده و سراسری
+
+     چرا لازم است؟ کاربر باید در همان صفحه‌ی ثبت، در فهرست گزارش‌ها و در
+     «روند رسیدگی» ببیند چند درصد از فایل‌ها رسیده است؛ و وقتی بارگذاری تمام
+     شد، همان درصد برود و فقط «فایل آپلود شد» بماند.
+
+     یک رکورد برای هر «شناسه‌ی یکتای درخواست» (client_ref) نگه داشته می‌شود و
+     در localStorage هم می‌ماند تا اگر کاربر صفحه را عوض کرد و برگشت (یا اپ را
+     بست و باز کرد) همان وضعیت دیده شود.
+     ══════════════════════════════════════════════════════════════════════ */
+  const MEDIA_PROGRESS_KEY = 'eplakMediaProgressMap';
+  const MEDIA_PROGRESS_STALE_MS = 10 * 60 * 1000;   /* ۱۰ دقیقه بی‌خبر = قدیمی */
+  let mediaProgressListeners = [];
+
+  function mediaProgressAll() {
+    try {
+      const raw = window.localStorage ? window.localStorage.getItem(MEDIA_PROGRESS_KEY) : null;
+      const data = raw ? JSON.parse(raw) : null;
+      return (data && typeof data === 'object') ? data : {};
+    } catch (e) { return {}; }
+  }
+
+  function mediaProgressSave(map) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(MEDIA_PROGRESS_KEY, JSON.stringify(map));
+    } catch (e) {}
+  }
+
+  function mediaProgressEmit(row) {
+    mediaProgressListeners.slice().forEach(fn => {
+      try { fn(row ? Object.assign({}, row) : null); } catch (e) {}
+    });
+  }
+
+  function setMediaProgress(ref, patch) {
+    const key = String(ref || '');
+    if (!key) return null;
+    const map = mediaProgressAll();
+    const prev = (map[key] && typeof map[key] === 'object') ? map[key] : {};
+    const next = Object.assign(
+      { ref: key, active: false, finished: false, ok: false, percent: 0, done: 0, total: 0 },
+      prev,
+      patch || {},
+      { at: Date.now() }
+    );
+    map[key] = next;
+    mediaProgressSave(map);
+    mediaProgressEmit(next);
+    return next;
+  }
+
+  /* خواندن وضعیت یک درخواست (با تشخیص رکورد «قدیمی») */
+  function getMediaProgress(ref) {
+    if (!ref) return mediaProgressAll();
+    const row = mediaProgressAll()[String(ref)];
+    if (!row || typeof row !== 'object') return null;
+    const stale = row.active && (Date.now() - (Number(row.at) || 0)) > MEDIA_PROGRESS_STALE_MS;
+    return stale ? Object.assign({}, row, { active: false, stale: true }) : Object.assign({}, row);
+  }
+
+  function clearMediaProgress(ref) {
+    const map = mediaProgressAll();
+    if (ref) {
+      delete map[String(ref)];
+    } else {
+      Object.keys(map).forEach(key => { delete map[key]; });
+    }
+    mediaProgressSave(map);
+    mediaProgressEmit(null);
+  }
+
+  function onMediaProgress(fn) {
+    if (typeof fn !== 'function') return function () {};
+    mediaProgressListeners.push(fn);
+    return function () {
+      mediaProgressListeners = mediaProgressListeners.filter(item => item !== fn);
+    };
+  }
+
   /* ── کدام خطا «قطعی» است؟ ────────────────────────────────────────────────
      تنها خطاهای حجم/نوع/سقف فایل با تکه‌ی کوچک‌تر یا مسیر پشتیبان حل نمی‌شوند.
      هر خطای دیگر (مثلاً پاسخ غیرمنتظره‌ی سرور یا دروازه‌ی بسته) باید شانس
@@ -447,17 +527,46 @@
     let unsupported = false;
     let blocked = false;
 
-    let progressDone = 0;          /* تعداد فایل‌های تمام‌شده (برای درصد دقیق) */
-    const reportProgress = () => {
-      if (typeof onProgress === 'function' && list.length) {
-        if (progressDone < list.length - remaining.length) progressDone = list.length - remaining.length;
-        onProgress(Math.min(99, Math.round((progressDone / list.length) * 100)));
-      }
+    /* درصد واقعی: هم فایل‌های تمام‌شده شمرده می‌شوند و هم پیشرفت تکه‌های
+       فایل‌هایی که همین لحظه در حال ارسال‌اند (چند فایل هم‌زمان بالا می‌رود).
+       این درصد هم به onProgress داده می‌شود و هم در وضعیت سراسری منتشر
+       می‌شود تا صفحه‌ی موفقیت، فهرست گزارش‌ها و «روند رسیدگی» زنده به‌روز شوند. */
+    const progressRef = clientRef || ('id:' + (Number(reportId) || 0));
+    const partial = new Map();
+    let completedCount = 0;
+    let stageBase = 0;
+
+    const publish = () => {
+      let fracSum = 0;
+      partial.forEach(value => { fracSum += value; });
+      const percent = list.length
+        ? Math.max(0, Math.min(99, Math.round(((completedCount + fracSum) / list.length) * 100)))
+        : 0;
+      if (typeof onProgress === 'function') onProgress(percent);
+      setMediaProgress(progressRef, {
+        active: true,
+        finished: false,
+        percent: percent,
+        done: completedCount,
+        total: list.length
+      });
     };
-    const markProgressDone = () => {
-      progressDone = Math.min(list.length, progressDone + 1);
-      reportProgress();
+
+    const markFileProgress = (file, perFilePercent) => {
+      partial.set(file, Math.max(0, Math.min(1, (Number(perFilePercent) || 0) / 100)));
+      publish();
     };
+
+    const markStageDone = (finished) => {
+      completedCount = Math.min(list.length, stageBase + (Number(finished) || 0));
+      publish();
+    };
+
+    if (list.length) {
+      setMediaProgress(progressRef, {
+        active: true, finished: false, ok: false, percent: 0, done: 0, total: list.length
+      });
+    }
 
     const custom = Number(window.EPLAK_MEDIA_CHUNK_SIZE);
     const sizes = (isFinite(custom) && custom >= MEDIA_CHUNK_MIN)
@@ -469,14 +578,16 @@
       const stillFailed = [];
       let goGateway = false;      /* پاسخ سروری منطقی → مستقیم به دروازه‌ی پشتیبان */
       /* چند فایل هم‌زمان فرستاده می‌شوند تا عکس و فیلم با هم بالا بروند */
+      stageBase = completedCount;
       const results = await runMediaPool(remaining, (file) => {
-        return uploadSingleMediaFile(file, size, reportId, phone, () => {}, false, clientRef);
-      }, () => markProgressDone());
+        return uploadSingleMediaFile(file, size, reportId, phone, (p) => markFileProgress(file, p), false, clientRef);
+      }, (finished) => markStageDone(finished));
       results.forEach((res, idx) => {
         const file = remaining[idx];
         if (res && res.ok) {
           if (res.media) savedMedia.push(res.media);
-          reportProgress();
+          partial.delete(file);
+          publish();
         } else {
           lastError = (res && res.error) || lastError;
           lastStatus = (res && res.status) || lastStatus;
@@ -500,14 +611,16 @@
     /* مرحله‌ی پشتیبان: دروازه‌ی گزارش‌ها (بدون تکه‌تکه) */
     if (remaining.length) {
       const stillFailed = [];
+      stageBase = completedCount;
       const results = await runMediaPool(remaining, (file) => {
-        return uploadSingleMediaFile(file, 0, reportId, phone, () => {}, true, clientRef);
-      }, () => markProgressDone());
+        return uploadSingleMediaFile(file, 0, reportId, phone, (p) => markFileProgress(file, p), true, clientRef);
+      }, (finished) => markStageDone(finished));
       results.forEach((res, idx) => {
         const file = remaining[idx];
         if (res && res.ok) {
           if (res.media) savedMedia.push(res.media);
-          reportProgress();
+          partial.delete(file);
+          publish();
         } else {
           stillFailed.push(file);
           lastError = (res && res.error) || lastError;
@@ -519,10 +632,11 @@
       remaining = stillFailed;
     }
 
+    partial.clear();
     if (typeof onProgress === 'function') onProgress(100);
 
     const failedFiles = remaining.concat(hardFailed);
-    return {
+    const result = {
       ok: failedFiles.length === 0 && savedMedia.length > 0,
       media: savedMedia,
       failed: failedFiles.map(f => f.name || 'attachment'),
@@ -531,6 +645,21 @@
       blocked: blocked,
       status: lastStatus
     };
+
+    /* وضعیت پایانی: «در حال بارگذاری» تمام می‌شود تا لایه‌ی نمایش بتواند
+       درصد را بردارد و فقط «فایل آپلود شد» نشان بدهد. */
+    setMediaProgress(progressRef, {
+      active: false,
+      finished: true,
+      ok: result.ok,
+      percent: result.ok
+        ? 100
+        : Math.max(0, Math.min(99, Math.round((savedMedia.length / Math.max(1, list.length)) * 100))),
+      done: savedMedia.length,
+      total: list.length
+    });
+
+    return result;
   }
 
 
@@ -742,6 +871,10 @@
   window.eplakFlushPendingMedia = flushPendingMedia;
   window.eplakFlushPendingMediaRef = flushPendingMediaRef;
   window.eplakPendingMediaRefState = pendingMediaRefState;
+  window.eplakMediaProgress        = getMediaProgress;
+  window.eplakSetMediaProgress     = setMediaProgress;
+  window.eplakOnMediaProgress      = onMediaProgress;
+  window.eplakClearMediaProgress   = clearMediaProgress;
   window.eplakCountPendingMedia = countPendingMedia;
 
   /* وضعیت پیوست‌های یک گزارش روی سرور (برای تأیید نهایی که فایل‌ها ذخیره شدند) */
@@ -1331,6 +1464,10 @@
   window.eplakFlushPendingMedia           = flushPendingMedia;
   window.eplakFlushPendingMediaRef        = flushPendingMediaRef;
   window.eplakPendingMediaRefState        = pendingMediaRefState;
+  window.eplakMediaProgress               = getMediaProgress;
+  window.eplakSetMediaProgress            = setMediaProgress;
+  window.eplakOnMediaProgress             = onMediaProgress;
+  window.eplakClearMediaProgress          = clearMediaProgress;
   window.eplakCountPendingMedia           = countPendingMedia;
   window.eplakTransportMessage            = transportMessage;
   window.eplakIsTransportFailure          = isTransportFailure;

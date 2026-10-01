@@ -1041,6 +1041,124 @@ ok('اعلان ویرایش هم وضعیت فارسی و پاسخ تازه را
   && String(ticketEdit?.body || '').includes('پاسخ تکمیلی مدیریت'),
   String(ticketEdit?.body).slice(0, 140));
 
+/* ══════════ نقشه‌ی موقعیت: پروکسی کاشی سمت سرور (دور ۲۷) ══════════ */
+console.log('\n=== نقشه‌ی موقعیت: منابع، پروکسی کاشی و آدرس‌یاب (اجرای واقعی PHP) ===');
+const mapEngine = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+require_once '${APP}/shared/maptiles.php';
+$out = [];
+$reg = eplakMapSourceRegistry($pdo);
+$out['ids'] = array_keys($reg);
+$out['neshan_before'] = !empty($reg['neshan']['ready']);
+$out['custom_before'] = !empty($reg['custom']['ready']);
+$out['esri_ready'] = !empty($reg['esri']['ready']);
+$out['order'] = eplakMapAutoOrder($pdo);
+$out['esri_url'] = eplakMapBuildUrl($reg['esri'], ['z' => 15, 'x' => 21084, 'y' => 12942]);
+$out['osm_url'] = eplakMapBuildUrl($reg['osm'], ['z' => 15, 'x' => 21084, 'y' => 12942]);
+$out['bad_source'] = eplakMapGetTile($pdo, 'nope', 15, 1, 1);
+$out['out_of_range'] = eplakMapGetTile($pdo, 'esri', 3, 99, 99);
+$out['png_ok'] = eplakMapLooksLikeImage(str_repeat('A', 400), 'image/png');
+$out['html_bad'] = eplakMapLooksLikeImage(str_repeat('<html><body>blocked</body></html>', 40), 'text/html');
+$out['small_bad'] = eplakMapLooksLikeImage('abc', 'image/png');
+$pngBytes = chr(137) . 'PNG' . chr(13) . chr(10) . chr(26) . chr(10) . str_repeat('A', 300);
+$out['ct_png'] = eplakMapContentType($pngBytes, '');
+$out['ct_header'] = eplakMapContentType(str_repeat('A', 300), 'image/webp');
+$out['cache_path'] = eplakMapCachePath('../../etc/passwd', '../../../evil.img');
+$out['cache_root'] = eplakMapCacheDir();
+$out['address'] = eplakMapShortAddress(['address' => ['road' => 'خیابان امام خمینی', 'house_number' => '۱۲', 'city' => 'ورامین']], 35.32, 51.64);
+$out['address_empty'] = eplakMapShortAddress(null, 35.32, 51.64);
+$out['address_test_fn'] = function_exists('eplakMapTestSources');
+eplakSetAppSetting($pdo, 'map_neshan_key', 'service.abc123456789');
+$reg2 = eplakMapSourceRegistry($pdo);
+$out['neshan_after'] = !empty($reg2['neshan']['ready']);
+$out['neshan_url'] = eplakMapBuildUrl($reg2['neshan'], ['lat' => 35.3242, 'lng' => 51.6455, 'z' => 15, 'w' => 640, 'h' => 400]);
+eplakSetAppSetting($pdo, 'map_custom_tiles', 'http://insecure.example.com/{z}/{x}/{y}.png');
+$regBad = eplakMapSourceRegistry($pdo);
+$out['custom_http_rejected'] = empty($regBad['custom']['ready']);
+eplakSetAppSetting($pdo, 'map_custom_tiles', 'https://tiles.example.com/{z}/{x}/{y}.png?key=1');
+$reg3 = eplakMapSourceRegistry($pdo);
+$out['custom_ok'] = !empty($reg3['custom']['ready']);
+$out['custom_url'] = eplakMapBuildUrl($reg3['custom'], ['z' => 12, 'x' => 5, 'y' => 7]);
+eplakSetAppSetting($pdo, 'map_default_source', 'carto');
+$out['default'] = (string) eplakAppSetting($pdo, 'map_default_source', 'auto');
+echo json_encode($out);`));
+
+ok('منابع نقشه بدون کلید آماده‌اند (Esri/کارتو/OSM/ویکی‌مدیا)',
+  mapEngine?.esri_ready === true
+  && ['esri', 'esri_sat', 'esri_topo', 'carto', 'osmfr', 'osm', 'wikimedia', 'neshan', 'custom'].every((id) => (mapEngine?.ids || []).includes(id)),
+  JSON.stringify(mapEngine?.ids));
+ok('«نشان» و «آدرس دلخواه» تا وقتی کلید/آدرس ثبت نشود فعال نمی‌شوند',
+  mapEngine?.neshan_before === false && mapEngine?.custom_before === false);
+ok('آدرس کاشی Esri با ترتیب z/y/x ساخته می‌شود',
+  String(mapEngine?.esri_url) === 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/15/12942/21084',
+  String(mapEngine?.esri_url));
+ok('آدرس کاشی OpenStreetMap با z/x/y ساخته می‌شود',
+  String(mapEngine?.osm_url) === 'https://tile.openstreetmap.org/15/21084/12942.png', String(mapEngine?.osm_url));
+ok('منبع ناشناخته رد می‌شود (فهرست سفید)', mapEngine?.bad_source?.ok === false && /نامعتبر/.test(String(mapEngine?.bad_source?.error)));
+ok('کاشی بیرون از محدوده‌ی بزرگ‌نمایی رد می‌شود',
+  mapEngine?.out_of_range?.ok === false && /بیرون از محدوده/.test(String(mapEngine?.out_of_range?.error)));
+ok('پاسخ غیرتصویری (صفحه‌ی فایروال) کاشی شمرده نمی‌شود',
+  mapEngine?.png_ok === true && mapEngine?.html_bad === false && mapEngine?.small_bad === false);
+ok('نوع محتوا از بایت‌ها یا سرآیند تشخیص داده می‌شود',
+  mapEngine?.ct_png === 'image/png' && mapEngine?.ct_header === 'image/webp', JSON.stringify([mapEngine?.ct_png, mapEngine?.ct_header]));
+ok('نام منبع/فایل کش از پوشه‌ی کاشی‌ها بیرون نمی‌زند',
+  String(mapEngine?.cache_path).indexOf('..') === -1
+  && String(mapEngine?.cache_path).startsWith(String(mapEngine?.cache_root)),
+  String(mapEngine?.cache_path));
+ok('آدرس فارسی از پاسخ آدرس‌یاب ساخته می‌شود',
+  /خیابان امام خمینی/.test(String(mapEngine?.address)) && /پلاک ۱۲/.test(String(mapEngine?.address))
+  && /ورامین/.test(String(mapEngine?.address)), String(mapEngine?.address));
+ok('پاسخ خالی آدرس‌یاب، رشته‌ی خالی می‌دهد (نه خطا)', mapEngine?.address_empty === '');
+ok('تابع «آزمایش منابع نقشه» برای پنل ادمین وجود دارد', mapEngine?.address_test_fn === true);
+ok('با ثبت کلید، نقشه‌ی «نشان» فعال و آدرسش با کلید ساخته می‌شود',
+  mapEngine?.neshan_after === true && /api\.neshan\.org\/v1\/static\?key=service\.abc123456789/.test(String(mapEngine?.neshan_url))
+  && /center=35\.3242,51\.6455/.test(String(mapEngine?.neshan_url)), String(mapEngine?.neshan_url));
+ok('آدرس دلخواه کاشی بدون https پذیرفته نمی‌شود', mapEngine?.custom_http_rejected === true);
+ok('آدرس دلخواه معتبر ثبت و با z/x/y پر می‌شود',
+  mapEngine?.custom_ok === true && String(mapEngine?.custom_url) === 'https://tiles.example.com/12/5/7.png?key=1',
+  String(mapEngine?.custom_url));
+
+const mapConfig = pickJson(await run(`
+$_GET = ['action' => 'config'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/maptile.php';`));
+ok('کنش config فهرست منابع آماده را به اپ می‌دهد',
+  mapConfig?.success === true && Array.isArray(mapConfig?.sources) && mapConfig.sources.length >= 7,
+  JSON.stringify((mapConfig?.sources || []).map((x) => x.id)));
+ok('منبع پیش‌فرضِ پنل ادمین به اپ داده می‌شود', mapConfig?.default === 'carto', String(mapConfig?.default));
+ok('«نشان» پس از ثبت کلید در فهرست منابع آماده است',
+  (mapConfig?.sources || []).some((x) => x.id === 'neshan' && x.kind === 'static'));
+ok('قالب آدرس کاشی پروکسی به اپ داده می‌شود',
+  String(mapConfig?.tile_url) === 'api/maptile.php?src={src}&z={z}&x={x}&y={y}', String(mapConfig?.tile_url));
+ok('قالب نقشه‌ی استاتیک (نشان) هم داده می‌شود',
+  /action=static&src=\{src\}&lat=\{lat\}&lng=\{lng\}&z=\{z\}&w=\{w\}&h=\{h\}/.test(String(mapConfig?.static_url)),
+  String(mapConfig?.static_url));
+ok('ترتیب منابع «خودکار» فرستاده می‌شود', Array.isArray(mapConfig?.order) && mapConfig.order.length >= 5,
+  JSON.stringify(mapConfig?.order));
+
+const mapBadTile = pickJson(await run(`
+$_GET = ['z' => '99', 'x' => '1', 'y' => '1'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/maptile.php';`));
+ok('کاشی با بزرگ‌نمایی نامعتبر رد می‌شود (نه مصرف بی‌رویه‌ی سرور)',
+  mapBadTile?.success === false && /نامعتبر/.test(String(mapBadTile?.error)), JSON.stringify(mapBadTile));
+
+const mapBadReverse = pickJson(await run(`
+$_GET = ['action' => 'reverse', 'lat' => '0', 'lng' => '0'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/maptile.php';`));
+ok('آدرس‌یاب با مختصات نامعتبر خطای خوانا می‌دهد',
+  mapBadReverse?.success === false && /معتبر نیست/.test(String(mapBadReverse?.error)), JSON.stringify(mapBadReverse));
+
+const mapNoKeyStatic = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+eplakSetAppSetting($pdo, 'map_neshan_key', '');
+$_GET = ['action' => 'static', 'src' => 'neshan', 'lat' => '35.3242', 'lng' => '51.6455', 'z' => '15', 'w' => '640', 'h' => '400'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/maptile.php';`));
+ok('نقشه‌ی استاتیک «نشان» بدون کلید فعال نمی‌شود (پیام خوانا)',
+  mapNoKeyStatic?.success === false && /کلید/.test(String(mapNoKeyStatic?.error)), JSON.stringify(mapNoKeyStatic));
+
 console.log('\n' + '='.repeat(52));
 console.log(`BACKEND: ${pass} passed, ${fail} failed`);
 console.log('='.repeat(52));

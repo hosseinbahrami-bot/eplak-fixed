@@ -275,10 +275,128 @@
   function reportCodeLabel(r) {
     if (r && r.code) return String(r.code);
     if (r && (r.pendingSync || r.uploadState === 'uploading' || r.uploadState === 'creating')) {
+      /* اگر بارگذاری در جریان باشد، درصد آن هم نشان داده می‌شود */
+      const progress = mediaProgressOf(r);
+      if (progress && progress.active) {
+        return 'در حال بارگذاری عکس/فیلم… ' + toPersianDigits(Math.max(1, Math.round(progress.percent || 0))) + '٪';
+      }
       return 'در حال بارگذاری عکس/فیلم…';
     }
     return '—';
   }
+
+  /* وضعیت بارگذاری پیوست‌های یک گزارش (از وضعیت زنده‌ی سراسری) */
+  function mediaProgressOf(r) {
+    const ref = String((r && r.clientRef) || '');
+    if (!ref || typeof window.eplakMediaProgress !== 'function') return null;
+    try { return window.eplakMediaProgress(ref); } catch (e) { return null; }
+  }
+
+  /* ── گام «بارگذاری پیوست‌ها» داخل روند رسیدگی ───────────────────────────
+     تا وقتی عکس/فیلم در حال ارسال است: نوار + درصد + «۲ از ۳ فایل رسید».
+     وقتی بارگذاری تمام شد: نوار و درصد می‌روند و فقط «فایل آپلود شد»
+     می‌ماند. اگر گزارشی پیوستی نداشته باشد، این گام اصلاً نشان داده نمی‌شود. */
+  function mediaFlowStepHtml(r) {
+    const progress = mediaProgressOf(r);
+    const hasMedia = Array.isArray(r && r.media) && r.media.length > 0;
+    const uploading = !!(progress && progress.active);
+    const finished = !!(progress && progress.finished);
+    if (!uploading && !finished && !hasMedia) return '';
+
+    const ICON = (name, size) => (window.EplakIcons ? window.EplakIcons.get(name, { size: size || 16 }) : '');
+
+    if (uploading) {
+      const pct = Math.max(0, Math.min(100, Math.round(Number(progress.percent) || 0)));
+      const total = Number(progress.total) || 0;
+      const done = Math.min(Number(progress.done) || 0, total);
+      return `
+        <div class="flow-step is-current">
+          <div class="flow-marker">
+            <div class="flow-dot">${ICON('upload', 16)}</div>
+            <div class="flow-line"></div>
+          </div>
+          <div class="flow-body">
+            <div class="flow-head">
+              <h5>بارگذاری عکس و فیلم</h5>
+              <span class="flow-badge current">${toPersianDigits(pct)}٪</span>
+            </div>
+            <div class="media-progress"><div class="media-progress-fill" style="width:${pct}%;"></div></div>
+            <p class="flow-note">${total
+              ? (toPersianDigits(done) + ' از ' + toPersianDigits(total) + ' فایل به سرور رسید')
+              : 'در حال ارسال عکس/فیلم به سرور…'}</p>
+          </div>
+        </div>`;
+    }
+
+    if (finished && progress && progress.ok === false) {
+      return `
+        <div class="flow-step is-waiting">
+          <div class="flow-marker">
+            <div class="flow-dot">${ICON('alert', 16)}</div>
+            <div class="flow-line"></div>
+          </div>
+          <div class="flow-body">
+            <div class="flow-head">
+              <h5>بارگذاری عکس و فیلم</h5>
+              <span class="flow-badge waiting">ناتمام</span>
+            </div>
+            <p class="flow-note">همه‌ی فایل‌ها نرسیدند؛ در گوشی نگه داشته شدند و با «تلاش دوباره» ارسال می‌شوند.</p>
+          </div>
+        </div>`;
+    }
+
+    /* بارگذاری تمام شده (یا پیوست‌ها روی سرور هستند) → فقط «فایل آپلود شد» */
+    return `
+      <div class="flow-step is-done">
+        <div class="flow-marker">
+          <div class="flow-dot">${ICON('check', 14)}</div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-head">
+            <h5>پیوست‌ها</h5>
+            <span class="flow-badge done">فایل آپلود شد</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* به‌روزرسانی زنده‌ی همان گام، هنگامی که درصد بارگذاری تغییر می‌کند */
+  let detailMediaStepOff = null;
+  function subscribeDetailMediaStep(r) {
+    if (detailMediaStepOff) {
+      try { detailMediaStepOff(); } catch (e) {}
+      detailMediaStepOff = null;
+    }
+    const ref = String((r && r.clientRef) || '');
+    if (!ref) return;
+    detailMediaStepOff = watchUploadProgress(ref, () => {
+      const host = document.getElementById('detailMediaStep');
+      if (host) {
+        const html = mediaFlowStepHtml(r);
+        host.innerHTML = html || '';
+        host.style.display = html ? '' : 'none';
+      }
+      const codeEl = document.getElementById('detailCode');
+      if (codeEl) codeEl.textContent = reportCodeLabel(r);
+    });
+  }
+
+  /* رکوردهای قدیمی درصد بارگذاری پاک می‌شوند (تا حافظه‌ی اپ سنگین نشود) */
+  function pruneMediaProgress() {
+    try {
+      if (typeof window.eplakMediaProgress !== 'function'
+          || typeof window.eplakClearMediaProgress !== 'function') return;
+      const all = window.eplakMediaProgress();
+      if (!all || typeof all !== 'object') return;
+      const limit = Date.now() - (7 * 24 * 3600 * 1000);
+      Object.keys(all).forEach(key => {
+        const row = all[key];
+        if (row && Number(row.at) && Number(row.at) < limit) window.eplakClearMediaProgress(key);
+      });
+    } catch (e) { /* ignore */ }
+  }
+  pruneMediaProgress();
 
   function getReportBackendId(r) {
     if (!r) return null;
@@ -1464,7 +1582,8 @@
     /* کد پیگیری فقط اینجا — پس از پایان کامل بارگذاری — نشان داده می‌شود */
     const codeEl = document.getElementById('successTrackCode');
     if (codeEl) codeEl.textContent = report.code || '—';
-    setSuccessNote('✅ گزارش با عکس/فیلم‌ها ثبت شد و در پنل شهرداری قرار گرفت.');
+    hideUploadBar();
+    setSuccessNote('فایل آپلود شد ✅ گزارش با عکس/فیلم‌ها ثبت شد و در پنل شهرداری قرار گرفت.');
     clearMediaRetry();
     if (typeof loadReportsFromBackend === 'function') {
       loadReportsFromBackend(phone, { silent: true });
@@ -1506,6 +1625,53 @@
     el.textContent = text || '';
   }
 
+  /* ── نوار «چند درصد از عکس و فیلم آپلود شد» ────────────────────────────
+     تا وقتی بارگذاری ادامه دارد، درصد با نوار دیده می‌شود؛ به‌محض تمام شدن،
+     نوار و درصد برداشته می‌شوند و فقط «فایل آپلود شد» می‌ماند. */
+  function setUploadBar(percent, done, total) {
+    const box = document.getElementById('reportUploadBar');
+    if (!box) return;
+    const fill = document.getElementById('reportUploadBarFill');
+    const label = document.getElementById('reportUploadBarLabel');
+    const pct = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    box.style.display = 'block';
+    box.classList.remove('is-done');
+    if (fill) fill.style.width = pct + '%';
+    if (label) {
+      const files = (Number(total) || 0) > 0
+        ? ' — ' + toPersianDigits(Math.min(Number(done) || 0, Number(total))) + ' از ' + toPersianDigits(Number(total)) + ' فایل'
+        : '';
+      label.textContent = 'بارگذاری عکس و فیلم: ' + toPersianDigits(pct) + '٪' + files;
+    }
+  }
+
+  function hideUploadBar() {
+    const box = document.getElementById('reportUploadBar');
+    if (!box) return;
+    box.classList.add('is-done');
+    box.style.display = 'none';
+    const fill = document.getElementById('reportUploadBarFill');
+    if (fill) fill.style.width = '0%';
+  }
+
+  /* پایان بارگذاری: درصد می‌رود و فقط «فایل آپلود شد» می‌ماند */
+  function showUploadDoneNote(extra) {
+    hideUploadBar();
+    setSuccessNote('فایل آپلود شد' + (extra ? (' — ' + extra) : ''));
+  }
+
+  /* اشتراک در وضعیت زنده‌ی بارگذاری (برای به‌روزرسانی نوار درصد) */
+  function watchUploadProgress(ref, onRow) {
+    if (typeof window.eplakOnMediaProgress !== 'function' || !ref) return function () {};
+    try {
+      return window.eplakOnMediaProgress(function (row) {
+        if (!row) return;
+        if (String(row.ref || '') !== String(ref)) return;
+        onRow(row);
+      }) || function () {};
+    } catch (e) { return function () {}; }
+  }
+
   /* ── ارسال عکس/فیلم پیش از ساخته شدن گزارش («در انتظار اتصال») ───────
      هر فایل با شناسه‌ی یکتای درخواست ذخیره می‌شود و هنگام ساخت گزارش،
      خودکار به آن متصل می‌گردد؛ پس گزارش همیشه «با» پیوست‌هایش ساخته
@@ -1518,13 +1684,21 @@
       return { ok: false, media: [], errors: ['ارسال پیوست‌ها روی این نسخه ممکن نیست'], note: 'ارسال پیوست‌ها ممکن نشد' };
     }
     let res = null;
+    /* نوار درصد: از وضعیت زنده‌ی بارگذاری می‌خواند (پیشرفت تکه‌های هر فایل) */
+    const stopWatch = watchUploadProgress(report.clientRef, row => {
+      setUploadBar(row.percent, row.done, row.total);
+    });
+    setUploadBar(0, 0, total);
     try {
       res = await window.uploadReportMediaChunked(0, phone, files, pct => {
         setSuccessCodeState(pct);
-        setSuccessNote('در حال بارگذاری ' + toPersianDigits(total) + ' عکس/فیلم… ' + toPersianDigits(Math.max(1, pct)) + '٪');
+        /* شمارنده‌ی فایل‌ها از وضعیت زنده می‌آید (تا «۰ از ۲» چشمک نزند) */
+        setUploadBar(pct);
       }, { clientRef: report.clientRef });
     } catch (e) {
       res = { ok: false, media: [], failed: files.map(f => f.name || ''), error: (e && e.message) || 'خطای شبکه', status: 0 };
+    } finally {
+      try { stopWatch(); } catch (e) {}
     }
     const saved = (res && Array.isArray(res.media)) ? res.media : [];
     const failed = (res && Array.isArray(res.failed)) ? res.failed : [];
@@ -1647,7 +1821,8 @@
           showReportUploadFailed(newReport, filesToUpload, currentPhone, mediaRes.note || (mediaRes.errors[0] || ''));
           return;
         }
-        setSuccessNote('✅ عکس/فیلم‌ها بارگذاری شد؛ در حال ثبت نهایی گزارش…');
+        /* درصد می‌رود؛ فقط «فایل آپلود شد» می‌ماند */
+        showUploadDoneNote('در حال ثبت نهایی گزارش…');
       }
 
       /* ══ مرحله ۲: ساخت گزارش و گرفتن «یک» کد پیگیری ═════════════════ */
@@ -2124,7 +2299,11 @@
 
     const timelineEl = document.getElementById('detailTimeline');
     if (timelineEl) {
-      timelineEl.innerHTML = flowHtml;
+      /* گام «بارگذاری پیوست‌ها» اول از همه می‌آید: هنگام ارسال، درصد را نشان
+         می‌دهد و پس از پایان، فقط «فایل آپلود شد» می‌ماند. */
+      const mediaStep = mediaFlowStepHtml(r);
+      timelineEl.innerHTML = (mediaStep ? `<div id="detailMediaStep">${mediaStep}</div>` : '') + flowHtml;
+      subscribeDetailMediaStep(r);
     }
 
     /* ── کارت وضعیت: همان چیزی که در ستون وضعیت پنل ادمین است ─────────── */

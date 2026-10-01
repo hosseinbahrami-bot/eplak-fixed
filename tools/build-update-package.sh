@@ -37,6 +37,7 @@ for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared
          shared/webpush.php shared/media.php shared/notification_reads.php shared/fcm.php \
          shared/notify_events.php shared/fa_datetime.php \
          api/ping.php api/push.php api/media.php api/reports.php api/notifications.php \
+         api/maptile.php shared/maptiles.php \
          admin/settings.php admin/login.php admin/report_detail.php admin/notification_view.php \
          admin/version.php \
          assets/js/ep-map.js assets/js/ep-camera.js assets/js/icons.js \

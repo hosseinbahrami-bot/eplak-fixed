@@ -99,6 +99,12 @@ function makeMapSandbox() {
     window: null,
     addEventListener() {}, removeEventListener() {},
     fetch: async () => ({ ok: false, json: async () => null }),
+    localStorage: {
+      _d: {},
+      getItem(k) { return (k in this._d) ? this._d[k] : null; },
+      setItem(k, v) { this._d[k] = String(v); },
+      removeItem(k) { delete this._d[k]; },
+    },
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
@@ -145,8 +151,8 @@ const expectKeys = (() => {
 ok('کاشی‌های درست برای مختصات ورودی درخواست شدند',
   tileKeys.length === expectKeys.length && tileKeys.join('|') === expectKeys.join('|'),
   `دریافتی=${tileKeys.join(',')} انتظار=${expectKeys.join(',')}`);
-ok('آدرس کاشی با z/x/y ساخته می‌شود',
-  box.querySelectorAll('[data-tile]').every((n) => /^https:\/\/tile\.openstreetmap\.org\/15\/\d+\/\d+\.png$/.test(n.src || '')),
+ok('آدرس کاشی با z/x/y از پروکسی سرور خودمان ساخته می‌شود (رفع ۴۰۳ در اپ)',
+  box.querySelectorAll('[data-tile]').every((n) => /^api\/maptile\.php\?src=auto&z=15&x=\d+&y=\d+$/.test(n.src || '')),
   String(box.querySelectorAll('[data-tile]')[0]?.src));
 ok('وقتی موقعیت داده شده، نشانگر دیده می‌شود', box.querySelector('.ep-map-pin').style.display === '');
 ok('موقعیت داده‌شده «انتخاب‌شده» اعلام می‌شود', map.getPosition().hasFix === true);
@@ -392,10 +398,10 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=20/.test(indexHtml) && /modules\/reports\.js\?v=26/.test(indexHtml)
+  /core\/storage\.js\?v=21/.test(indexHtml) && /modules\/reports\.js\?v=27/.test(indexHtml)
   && /assets\/js\/ep-camera\.js\?v=1/.test(indexHtml)
-  && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
-  && /assets\/css\/style\.css\?v=89/.test(indexHtml)
+  && /ep-map\.js\?v=3/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
+  && /assets\/css\/style\.css\?v=90/.test(indexHtml)
   && /assets\/js\/icons\.js\?v=13/.test(indexHtml)
   && /core\/state\.js\?v=11/.test(indexHtml) && /core\/i18n\.js\?v=14/.test(indexHtml)
   && /modules\/profile\.js\?v=12/.test(indexHtml) && /modules\/services\.js\?v=13/.test(indexHtml)
@@ -410,6 +416,170 @@ ok('پایش زنده، سقف حجم بدنه‌ی هاست را اندازه �
   /BODY_OK_MAX/.test(liveCheck) && /probe-\$KB\.json/.test(liveCheck));
 ok('آزمون زنده هم مثل اپ با نوع محتوای ساده می‌فرستد (بدون پیش‌پرواز)',
   /Content-Type: text\/plain;charset=UTF-8/.test(liveCheck) && !/Content-Type: application\/json/.test(liveCheck));
+
+/* ══════════ ۹) نقشه‌ی چندمنبعی: پروکسی سرور + بازگشت خودکار (دور ۲۷) ══════════ */
+console.log('\n=== نقشه‌ی موقعیت: پروکسی سرور، منابع چندگانه و بازگشت خودکار ===');
+
+const epMapSrc = read('assets/js/ep-map.js');
+const mapTileApi = read('api/maptile.php');
+const mapShared = read('shared/maptiles.php');
+const adminSettings = read('admin/settings.php');
+const htaccess = read('.htaccess');
+
+/* --- اجرای واقعی: فهرست تلاش‌ها اول پروکسی سرور خودمان است --- */
+const sbAttempts = makeMapSandbox();
+const attempts = sbAttempts.EplakMap.attemptList();
+ok('اولین تلاش، پروکسی سرور خودمان با منبع «خودکار» است',
+  attempts[0] && attempts[0].proxy === true && attempts[0].src === 'auto', JSON.stringify(attempts[0]));
+ok('اگر پروکسی جواب نداد، گرفتن مستقیم از منابع آزاد امتحان می‌شود',
+  attempts.some((a) => a.proxy === false), JSON.stringify(attempts.slice(-3)));
+ok('آدرس مستقیم OpenStreetMap/Esri/کارتو به‌عنوان بازگشت وجود دارد',
+  /tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png/.test(epMapSrc)
+  && /server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Street_Map/.test(epMapSrc)
+  && /basemaps\.cartocdn\.com\/rastertiles\/voyager/.test(epMapSrc));
+ok('آدرس مستقیم کاشی با z/x/y پر می‌شود',
+  /^https:\/\/tile\.openstreetmap\.org\/15\/21084\/12942\.png$/.test(
+    sbAttempts.EplakMap.tileUrlFor({ proxy: false, src: 'osm' }, 15, 21084, 12942)),
+  sbAttempts.EplakMap.tileUrlFor({ proxy: false, src: 'osm' }, 15, 21084, 12942));
+
+/* --- اجرای واقعی: با خطای کاشی، نقشه خودکار به منبع بعدی می‌رود --- */
+const sbFallback = makeMapSandbox();
+const boxF = new FakeNode('div');
+boxF._rectW = 256; boxF._rectH = 256;
+const mapF = sbFallback.EplakMap.create(boxF, { lat: 35.3242, lng: 51.6455, zoom: 15, hasFix: false });
+const firstSrcs = boxF.querySelectorAll('[data-tile]').map((n) => n.src);
+/* سه خطای پشت‌سرهم روی یک کاشی = رفتن به تلاش بعدی (MAX_TILE_ERRORS) */
+const failOnce = () => {
+  const tile = boxF.querySelectorAll('[data-tile]')[0];
+  if (!tile) return;
+  tile.dispatch('error', {}); tile.dispatch('error', {}); tile.dispatch('error', {});
+};
+const srcsNow = () => boxF.querySelectorAll('[data-tile]').map((n) => n.src);
+failOnce();
+const secondSrcs = srcsNow();
+ok('با خطای کاشی‌ها، نقشه به منبع بعدی می‌رود (خاموش نمی‌ماند)',
+  secondSrcs.length > 0 && secondSrcs.join('|') !== firstSrcs.join('|'),
+  JSON.stringify(secondSrcs.slice(0, 2)));
+ok('منبع دوم هم از پروکسی سرور خودمان است (Esri)',
+  secondSrcs.every((u) => /maptile\.php\?src=esri&z=15/.test(u)), JSON.stringify(secondSrcs.slice(0, 1)));
+failOnce(); failOnce();
+const thirdSrcs = srcsNow();
+ok('اگر همه‌ی منابع پروکسی بسته بودند، کاشی مستقیم گرفته می‌شود',
+  thirdSrcs.some((u) => /^https:\/\//.test(u)), JSON.stringify(thirdSrcs.slice(0, 1)));
+for (let i = 0; i < 30; i++) failOnce();
+ok('اگر هیچ منبعی باز نشد، پیام «نقشه باز نشد» + مختصات دیده می‌شود (ثبت درخواست نمی‌خوابد)',
+  boxF.querySelector('.ep-map-fallback').classList.contains('show')
+  && /35\.324200, 51\.645500/.test(boxF.querySelector('.ep-map-coords').textContent),
+  boxF.querySelector('.ep-map-coords').textContent);
+ok('دکمه‌ی «تلاش دوباره برای نقشه» هست', !!boxF.querySelector('.ep-map-fallback').querySelector('button'));
+
+/* --- اجرای واقعی: موفقیت یک منبع، پیام خطا را برمی‌دارد و به خاطر سپرده می‌شود --- */
+const sbWin = makeMapSandbox();
+const boxW = new FakeNode('div');
+const mapW = sbWin.EplakMap.create(boxW, { lat: 35.3242, lng: 51.6455, zoom: 15 });
+const failOnceW = () => {
+  const tile = boxW.querySelectorAll('[data-tile]')[0];
+  if (!tile) return;
+  tile.dispatch('error', {}); tile.dispatch('error', {}); tile.dispatch('error', {});
+};
+failOnceW(); failOnceW(); failOnceW();      /* رسیدن به مسیر «مستقیم» */
+boxW.querySelectorAll('[data-tile]').forEach((n) => n.dispatch('load', {}));
+ok('با موفقیت یک کاشی، پیام خطا و «در حال بارگذاری» می‌روند',
+  !boxW.querySelector('.ep-map-fallback').classList.contains('show')
+  && boxW.querySelector('.ep-map-loading').style.display === 'none');
+ok('ترکیب برنده در گوشی به خاطر سپرده می‌شود (نقشه‌ی بعدی فوراً باز شود)',
+  /"proxy":false/.test(String(sbWin.localStorage.getItem('eplakMapPrefs'))),
+  String(sbWin.localStorage.getItem('eplakMapPrefs')));
+ok('پس از موفقیت، منبع عوض نمی‌شود (نقشه ثابت می‌ماند)', (() => {
+  const before = boxW.querySelectorAll('[data-tile]').map((n) => n.src).join('|');
+  failOnceW();
+  return boxW.querySelectorAll('[data-tile]').map((n) => n.src).join('|') === before;
+})());
+
+/* --- اجرای واقعی: نمای ماهواره و منبع «نشان» --- */
+const sbSat = makeMapSandbox();
+const boxS = new FakeNode('div');
+const mapS = sbSat.EplakMap.create(boxS, { lat: 35.3242, lng: 51.6455, zoom: 14 });
+mapS.toggleSatellite();
+ok('دکمه‌ی «ماهواره» کاشی‌ها را به نمای ماهواره‌ای می‌برد',
+  boxS.querySelectorAll('[data-tile]').every((n) => /maptile\.php\?src=esri_sat&z=14/.test(n.src)),
+  String(boxS.querySelectorAll('[data-tile]')[0]?.src));
+const sbNeshan = makeMapSandbox();
+sbNeshan.EplakMap.setPreference({ src: 'neshan', proxy: true, sat: false });
+const boxN = new FakeNode('div');
+sbNeshan.EplakMap.create(boxN, { lat: 35.3242, lng: 51.6455, zoom: 15 });
+const staticImg = boxN.querySelector('.ep-map-static');
+ok('منبع «نشان» (کلید رایگان) با نقشه‌ی استاتیک فارسی از سرور خودمان گرفته می‌شود',
+  !!staticImg && /maptile\.php\?action=static&src=neshan&lat=35\.32420&lng=51\.64550&z=15&w=256&h=256/.test(staticImg.src),
+  String(staticImg && staticImg.src));
+const sbCycle = makeMapSandbox();
+const boxC = new FakeNode('div');
+const mapC = sbCycle.EplakMap.create(boxC, { lat: 35.3242, lng: 51.6455, zoom: 13 });
+mapC.nextSource();
+ok('دکمه‌ی «منبع نقشه» منبع را عوض می‌کند',
+  boxC.querySelectorAll('[data-tile]').every((n) => /maptile\.php\?src=esri&z=13/.test(n.src)),
+  String(boxC.querySelectorAll('[data-tile]')[0]?.src));
+ok('نام منبع روی نقشه به کاربر نشان داده می‌شود', mapC.getSource().label !== '' && mapC.getSource().proxy === true,
+  JSON.stringify(mapC.getSource()));
+
+/* --- آدرس‌یابی معکوس: اول از سرور خودمان (در اپ هم کار می‌کند) --- */
+ok('آدرس‌یابی معکوس اول از راه سرور خودمان می‌رود و بعد Nominatim',
+  epMapSrc.indexOf('maptile.php?action=reverse') < epMapSrc.indexOf('nominatim.openstreetmap.org/reverse')
+  && epMapSrc.indexOf('maptile.php?action=reverse') > -1);
+
+/* --- سمت سرور: پروکسی کاشی --- */
+ok('اندپوینت کاشی نقشه روی سرور هست (api/maptile.php)',
+  /action=config/.test(mapTileApi) && /action=reverse/.test(mapTileApi) && /action=static/.test(mapTileApi)
+  && /action=test/.test(mapTileApi));
+ok('بزرگ‌نمایی و شماره‌ی کاشی اعتبارسنجی می‌شوند (جلوگیری از سوءاستفاده)',
+  /\$z < 0 \|\| \$z > 19/.test(mapTileApi) && /\(1 << \$z\) - 1/.test(mapTileApi));
+ok('منطق نقشه در shared/maptiles.php است تا پنل ادمین هم همان را مصرف کند',
+  /require_once __DIR__ \. '\/\.\.\/shared\/maptiles\.php';/.test(mapTileApi)
+  && /require_once __DIR__ \. '\/\.\.\/shared\/maptiles\.php';/.test(adminSettings));
+ok('فهرست منابع سرور: Esri، کارتو، OSM فرانسه/جهانی، ویکی‌مدیا و نشان',
+  ['esri', 'esri_sat', 'esri_topo', 'carto', 'osmfr', 'osm', 'wikimedia', 'neshan']
+    .every((id) => mapShared.includes(`'${id}' => [`)));
+ok('کلید «نشان» فقط از تنظیمات پنل خوانده می‌شود (در کد سخت نیست)',
+  /map_neshan_key/.test(mapShared) && !/key=[A-Za-z0-9]{16,}/.test(mapShared));
+ok('آدرس دلخواه کاشی فقط با https و قالب {z}/{x}/{y} پذیرفته می‌شود',
+  /strpos\(\$customTpl, 'https:\/\/'\) !== 0/.test(mapShared) && /\{z\}/.test(mapShared));
+ok('کاشی‌ها روی دیسک کش می‌شوند (پهنای باند و سرعت)',
+  /uploads\/map-cache/.test(mapShared) && /function eplakMapCachePath/.test(mapShared)
+  && /max-age=604800/.test(mapTileApi));
+ok('نام منبع/فایل کش پاک‌سازی می‌شود (فرار از پوشه ممکن نیست)',
+  mapShared.includes("preg_replace('/[^a-z0-9_]/', '', strtolower($src))")
+  && mapShared.includes("str_replace(['..'")
+  && mapShared.includes(", '', strtolower($name))")
+  && mapShared.includes("substr($name, -4) !== '.img'"));
+ok('پاسخ غیرتصویری (صفحه‌ی خطا/فایروال) به‌جای کاشی پذیرفته نمی‌شود',
+  /function eplakMapLooksLikeImage/.test(mapShared) && /image\//.test(mapShared));
+ok('ترتیب «خودکار» بر پایه‌ی سلامت اخیر منابع است (منبع بسته تکرار نمی‌شود)',
+  /function eplakMapAutoOrder/.test(mapShared) && /map_src_health/.test(mapShared)
+  && /function eplakMapNoteHealth/.test(mapShared));
+ok('در نبود منبع، خطای خوانا برمی‌گردد (نه صفحه‌ی سفید)',
+  /هیچ منبع نقشه‌ای پاسخ نداد/.test(mapShared));
+ok('آدرس‌یاب: اول نشان (فارسی) و بعد Nominatim',
+  /api\.neshan\.org\/v5\/reverse/.test(mapShared) && /nominatim\.openstreetmap\.org\/reverse/.test(mapShared));
+
+/* --- پنل ادمین: تنظیمات و پیش‌نمایش نقشه --- */
+ok('کارت «نقشه‌ی موقعیت» در تنظیمات پنل ادمین هست',
+  /action" value="save_map"/.test(adminSettings) && /action" value="test_map"/.test(adminSettings)
+  && /name="map_default_source"/.test(adminSettings) && /name="map_neshan_key"/.test(adminSettings)
+  && /name="map_custom_tiles"/.test(adminSettings));
+ok('دکمه‌ی «آزمایش منابع نقشه از سرور» نتیجه‌ی واقعی هر منبع را نشان می‌دهد',
+  /eplakMapTestSources\(\$pdo\)/.test(adminSettings) && /\$mapTestResult\['sources'\]/.test(adminSettings));
+ok('راهنمای گام‌به‌گام گرفتن کلید رایگان «نشان» در پنل هست',
+  /platform\.neshan\.org/.test(adminSettings) && /دامنه\/IPهای مجاز/.test(adminSettings));
+ok('پیش‌نمایش زنده‌ی نقشه در پنل ادمین هست (همان موتور اپ)',
+  /id="adminMapPreview"/.test(adminSettings) && /EplakMap\.create\(box/.test(adminSettings)
+  && /ep-map\.js\?v=3/.test(adminSettings));
+ok('صفحه‌های پنل، آدرس API را برای نقشه درست می‌کنند (پوشه‌ی admin)',
+  /window\.EPLAK_API_BASE_URL = '\.\.\/api';/.test(adminSettings)
+  && /window\.EPLAK_API_BASE_URL = '\.\.\/api';/.test(detail));
+ok('کاشی‌های نقشه در .htaccess کش بلندمدت دارند (صفحه‌ها نه)',
+  /<Files "maptile\.php">/.test(htaccess) && /max-age=604800/.test(htaccess));
+ok('پنل ادمین هم «فایل آپلود شد» را در روند رسیدگی نشان می‌دهد',
+  /فایل آپلود شد/.test(detail) && /eplakMediaStagedCount\(\$pdo, \$reportClientRef\)/.test(detail));
 
 console.log('\n' + '='.repeat(52));
 console.log(`GEO/MEDIA: ${pass} passed, ${fail} failed`);

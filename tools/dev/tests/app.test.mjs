@@ -243,8 +243,9 @@ ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) ا
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
 const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=26/.test(indexHtml)
-  && /core\/storage\.js\?v=20/.test(indexHtml)
+  /modules\/reports\.js\?v=27/.test(indexHtml)
+  && /core\/storage\.js\?v=21/.test(indexHtml)
+  && /assets\/js\/ep-map\.js\?v=3/.test(indexHtml)
   && /assets\/js\/ep-camera\.js\?v=1/.test(indexHtml));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
@@ -419,7 +420,9 @@ ok('عکس و فیلم پیش از ساخته شدن گزارش بارگذاری
   && /uploadReportMediaChunked\(0, phone, files/.test(reportsJs)
   && /\{ clientRef: report\.clientRef \}/.test(reportsJs));
 ok('درصد پیشرفت با شمارنده‌ی دقیق محاسبه می‌شود (نه تخمینی)',
-  /progressDone/.test(storageSrc) && /markProgressDone/.test(storageSrc));
+  /completedCount/.test(storageSrc) && /markFileProgress/.test(storageSrc)
+  && /markStageDone/.test(storageSrc) && /setMediaProgress\(progressRef/.test(storageSrc)
+  && !/markProgressDone/.test(storageSrc));
 ok('ارسال دیرهنگام گزارش‌های آفلاین هم شناسه‌ی یکتا و مختصات را با خود می‌برد',
   /client_ref: report\.clientRef/.test(reportsJs)
   && /typeof report\.lat === 'number' && typeof report\.lng === 'number'/.test(reportsJs));
@@ -840,6 +843,94 @@ const flushed4 = await withTimeout(st4.eplakFlushPendingMediaRef(REF4, PHONE26, 
 ok('اگر هیچ مسیری کار نکند، فایل در گوشی می‌ماند و اپ «نرسید» می‌گوید (کد پیگیری صادر نمی‌شود)',
   flushed4 === false && (await st4.eplakCountPendingMedia()) === 1,
   `flushed=${flushed4} left=${await st4.eplakCountPendingMedia()}`);
+
+/* ---------- ۱۶) «چند درصد عکس و فیلم آپلود شد» — اجرای واقعی (دور ۲۷) ---------- */
+console.log('\n=== درصد بارگذاری عکس/فیلم (نوار پیشرفت و روند رسیدگی) ===');
+
+const st27 = buildStorageSandbox({});
+ok('تابع‌های وضعیت زنده‌ی بارگذاری در دسترس اپ هستند',
+  typeof st27.eplakMediaProgress === 'function' && typeof st27.eplakSetMediaProgress === 'function'
+  && typeof st27.eplakOnMediaProgress === 'function' && typeof st27.eplakClearMediaProgress === 'function');
+
+const REF27 = 'EPL-PCT' + Date.now().toString(36).toUpperCase();
+const seen27 = [];
+const pcts27 = [];
+const off27 = st27.eplakOnMediaProgress((row) => seen27.push(row));
+const files27 = [fakeFile('a.png', 900, 'image/png'), fakeFile('b.mp4', 1500, 'video/mp4')];
+const res27 = await withTimeout(
+  st27.uploadReportMediaChunked(0, PHONE26, files27, (p) => pcts27.push(p), { clientRef: REF27 }), 8000, null);
+ok('بارگذاری عکس و فیلم با هم موفق است', !!res27 && res27.ok === true && res27.media.length === 2,
+  JSON.stringify(res27 || {}).slice(0, 140));
+ok('درصد بارگذاری به لایه‌ی اپ گزارش می‌شود و به ۱۰۰ می‌رسد',
+  pcts27.length > 1 && pcts27.every((p) => typeof p === 'number' && p >= 0 && p <= 100)
+  && Math.max(...pcts27) === 100, JSON.stringify(pcts27));
+ok('درصد میانی کمتر از ۱۰۰ است (کاربر پیشرفت را می‌بیند، نه پرش یک‌باره)',
+  pcts27.slice(0, -1).some((p) => p > 0 && p < 100), JSON.stringify(pcts27));
+ok('وضعیت زنده برای همان «شناسه‌ی یکتای درخواست» ذخیره می‌شود', (() => {
+  const row = st27.eplakMediaProgress(REF27);
+  return !!row && row.finished === true && row.ok === true && row.percent === 100 && row.total === 2 && row.done === 2;
+})(), JSON.stringify(st27.eplakMediaProgress(REF27)));
+ok('مشترک‌ها رویداد «در حال بارگذاری» و «پایان» را گرفتند',
+  seen27.some((r) => r && r.active === true) && seen27.some((r) => r && r.finished === true),
+  JSON.stringify(seen27.slice(-2)));
+off27();
+st27.eplakClearMediaProgress(REF27);
+ok('پاک‌سازی وضعیت بارگذاری کار می‌کند', st27.eplakMediaProgress(REF27) === null);
+st27.localStorage.setItem('eplakMediaProgressMap', JSON.stringify({
+  OLDEPLAK: { ref: 'OLDEPLAK', active: true, finished: false, ok: false, percent: 40, done: 1, total: 2, at: Date.now() - 11 * 60 * 1000 },
+}));
+ok('رکورد کهنه‌ی بارگذاری، «در جریان» شمرده نمی‌شود (درصد گیر نمی‌کند)', (() => {
+  const row = st27.eplakMediaProgress('OLDEPLAK');
+  return !!row && row.active === false && row.stale === true;
+})(), JSON.stringify(st27.eplakMediaProgress('OLDEPLAK')));
+
+/* --- اجرای واقعی گام «بارگذاری پیوست‌ها» در روند رسیدگی --- */
+const flowStart = reportsJs.indexOf('function mediaFlowStepHtml(r)');
+const flowEnd = reportsJs.indexOf('/* به‌روزرسانی زنده‌ی همان گام');
+ok('تابع گام «بارگذاری پیوست‌ها» در ماژول گزارش‌ها هست', flowStart > -1 && flowEnd > flowStart);
+const mediaFlowStepHtml = vm.runInNewContext('(' + reportsJs.slice(flowStart, flowEnd).trim() + ')', {
+  window: { EplakIcons: { get: (name) => `<svg data-icon="${name}"></svg>` } },
+  toPersianDigits: (v) => String(v),
+  mediaProgressOf: (r) => (r && r.__progress) || null,
+  Array, Math, Number, String, Object,
+});
+const rowUploading = mediaFlowStepHtml({ clientRef: 'R1', media: [], __progress: { active: true, finished: false, percent: 45, done: 1, total: 2 } });
+ok('هنگام بارگذاری، درصد + نوار پیشرفت در روند رسیدگی دیده می‌شود',
+  /45٪/.test(rowUploading) && /media-progress-fill/.test(rowUploading) && /style="width:45%;"/.test(rowUploading),
+  rowUploading.slice(0, 160));
+ok('تعداد فایل‌های رسیده هم نوشته می‌شود (۱ از ۲ فایل)', /1 از 2 فایل به سرور رسید/.test(rowUploading));
+ok('گام بارگذاری، بخشی از همان تایم‌لاین چهارمرحله‌ای است (flow-step)',
+  /class="flow-step is-current"/.test(rowUploading) && /flow-badge current/.test(rowUploading));
+const rowDone = mediaFlowStepHtml({ clientRef: 'R1', media: [], __progress: { active: false, finished: true, ok: true, percent: 100, done: 2, total: 2 } });
+ok('پس از پایان بارگذاری، درصد و نوار می‌روند و فقط «فایل آپلود شد» می‌ماند',
+  /فایل آپلود شد/.test(rowDone) && !/٪/.test(rowDone) && !/media-progress/.test(rowDone), rowDone);
+const rowFailed = mediaFlowStepHtml({ clientRef: 'R1', media: [], __progress: { active: false, finished: true, ok: false, percent: 40, done: 1, total: 2 } });
+ok('بارگذاری ناتمام با پیام روشن و راهنمای «تلاش دوباره» دیده می‌شود',
+  /ناتمام/.test(rowFailed) && /تلاش دوباره/.test(rowFailed));
+ok('گزارش بدون پیوست، گام اضافه نمی‌کند (صفحه شلوغ نمی‌شود)',
+  mediaFlowStepHtml({ clientRef: 'R9', media: [] }) === '');
+ok('گزارشی که پیوست‌هایش روی سرور است هم «فایل آپلود شد» می‌گیرد',
+  /فایل آپلود شد/.test(mediaFlowStepHtml({ clientRef: '', media: [{ kind: 'image' }] })));
+
+/* --- نوار درصد در صفحه‌ی ثبت و سیم‌کشی آن --- */
+const indexHtml27 = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+ok('نوار درصد بارگذاری در صفحه‌ی ثبت گزارش هست',
+  /id="reportUploadBar"/.test(indexHtml27) && /id="reportUploadBarFill"/.test(indexHtml27)
+  && /id="reportUploadBarLabel"/.test(indexHtml27));
+ok('استایل نوار درصد (اپ و روند رسیدگی) در CSS هست',
+  /\.media-progress-fill/.test(appCss) && /\.upload-bar-fill/.test(appCss) && /\.upload-bar\.is-done/.test(appCss));
+ok('ماژول گزارش‌ها نوار درصد را از وضعیت زنده پر می‌کند',
+  /watchUploadProgress\(report\.clientRef/.test(reportsJs) && /setUploadBar\(row\.percent, row\.done, row\.total\)/.test(reportsJs));
+ok('پس از پایان بارگذاری، نوار پنهان و «فایل آپلود شد» نشان داده می‌شود',
+  /function hideUploadBar\(\)/.test(reportsJs) && /showUploadDoneNote\('در حال ثبت نهایی گزارش…'\)/.test(reportsJs)
+  && /فایل آپلود شد/.test(reportsJs));
+ok('گام بارگذاری داخل تایم‌لاین جزئیات گزارش جاگذاری می‌شود و زنده به‌روز می‌شود',
+  /id="detailMediaStep"/.test(reportsJs) && /subscribeDetailMediaStep\(r\)/.test(reportsJs)
+  && /window\.eplakOnMediaProgress/.test(reportsJs));
+ok('درصد بارگذاری در برچسب کد پیگیری (فهرست و جزئیات) هم دیده می‌شود',
+  /در حال بارگذاری عکس\/فیلم… ' \+ toPersianDigits/.test(reportsJs) && /function mediaProgressOf/.test(reportsJs));
+ok('رکوردهای قدیمی درصد بارگذاری پاک می‌شوند',
+  /function pruneMediaProgress/.test(reportsJs) && /7 \* 24 \* 3600 \* 1000/.test(reportsJs));
 
 console.log('\n' + '='.repeat(52));
 console.log(`APP: ${pass} passed, ${fail} failed`);

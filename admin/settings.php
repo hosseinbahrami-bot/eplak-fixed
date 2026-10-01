@@ -7,12 +7,14 @@
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/../shared/fcm.php';
+require_once __DIR__ . '/../shared/maptiles.php';
 
 $adminId  = (int) ($_SESSION['admin_id'] ?? 0);
 $admin    = getAdminById($pdo, $adminId);
 $message  = '';
 $messageType = 'danger';
 $pushTestResult = null;
+$mapTestResult  = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     eplakRequireCsrf();
@@ -138,6 +140,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = $result['sent'] > 0 ? 'success' : 'danger';
             }
         }
+    } elseif ($action === 'save_map') {
+        /* ── تنظیمات نقشه‌ی موقعیت ────────────────────────────────────────
+           «خودکار» یعنی سرور خودش منابع را به ترتیب سلامت امتحان می‌کند و
+           اپ هم از راه api/maptile.php کاشی می‌گیرد (در اپ اندروید مطمئن‌ترین
+           مسیر، چون درخواست مستقیم به سرور کاشی خارجی اغلب بسته است). */
+        $allowed = ['auto', 'neshan', 'esri', 'esri_sat', 'esri_topo', 'carto', 'osmfr', 'osm', 'wikimedia', 'custom'];
+        $default = trim((string) ($_POST['map_default_source'] ?? 'auto'));
+        if (!in_array($default, $allowed, true)) {
+            $default = 'auto';
+        }
+
+        $neshanKey = preg_replace('/[^A-Za-z0-9\-]/', '', trim((string) ($_POST['map_neshan_key'] ?? '')));
+        if ($neshanKey !== '' && strlen((string) $neshanKey) < 8) {
+            $message = '⚠️ کلید «نشان» معتبر نیست. کلید را کامل از پنل platform.neshan.org کپی کنید (یا کادر را خالی بگذارید).';
+            $messageType = 'danger';
+        } else {
+            $customTpl = trim((string) ($_POST['map_custom_tiles'] ?? ''));
+            $customOk = true;
+            if ($customTpl !== ''
+                && (strpos($customTpl, 'https://') !== 0
+                    || strpos($customTpl, '{z}') === false
+                    || strpos($customTpl, '{x}') === false
+                    || strpos($customTpl, '{y}') === false)) {
+                $customOk = false;
+                $message = '⚠️ آدرس دلخواه کاشی باید با https:// شروع شود و {z} و {x} و {y} را داشته باشد. نمونه: https://example.com/tiles/{z}/{x}/{y}.png';
+                $messageType = 'danger';
+            }
+            if ($customOk) {
+                if (strlen($customTpl) > 300) {
+                    $customTpl = substr($customTpl, 0, 300);
+                }
+                eplakSetAppSetting($pdo, 'map_default_source', $default);
+                eplakSetAppSetting($pdo, 'map_neshan_key', (string) $neshanKey);
+                eplakSetAppSetting($pdo, 'map_custom_tiles', $customTpl);
+                /* سلامت منابع از نو سنجیده شود تا ترتیب «خودکار» تازه باشد */
+                eplakSetAppSetting($pdo, 'map_src_health', '{}');
+                $sources = eplakMapSourceRegistry($pdo);
+                $label = isset($sources[$default]) ? $sources[$default]['label'] : 'خودکار';
+                $message = '✅ تنظیمات نقشه ذخیره شد (منبع پیش‌فرض: ' . htmlspecialchars($default === 'auto' ? 'خودکار' : $label) . ')'
+                    . ($neshanKey !== '' ? ' — کلید «نشان» ثبت شد؛ نقشه‌ی فارسی نشان فعال است.' : '')
+                    . ($customTpl !== '' ? ' — آدرس دلخواه کاشی ثبت شد.' : '');
+                $messageType = 'success';
+            }
+        }
+    } elseif ($action === 'test_map') {
+        /* هر منبع نقشه یک‌بار «واقعاً» از روی سرور شما امتحان می‌شود تا معلوم
+           شود کدام‌یک از هاست شما باز است (بدون حدس زدن). */
+        @set_time_limit(150);
+        $mapTestResult = eplakMapTestSources($pdo);
+        $registry = eplakMapSourceRegistry($pdo);
+        $names = [];
+        foreach ((array) ($mapTestResult['working'] ?? []) as $id) {
+            $names[] = isset($registry[$id]) ? $registry[$id]['label'] : $id;
+        }
+        if ($names) {
+            $message = '✅ این منابع نقشه از سرور شما باز هستند: ' . implode('، ', $names)
+                . '. بهترین حالت: منبع پیش‌فرض روی «خودکار» بماند تا اپ خودش همان را انتخاب کند.';
+            $messageType = 'success';
+        } else {
+            $message = '⚠️ هیچ منبع نقشه‌ای از سرور شما پاسخ نداد. اپ در این حالت کاشی را «مستقیم» از منابع آزاد می‌گیرد؛'
+                . ' اگر نقشه باز هم دیده نشد، دسترسی خروجی هاست به اینترنت (فایروال هاست) را بررسی کنید.';
+            $messageType = 'danger';
+        }
     } elseif ($action === 'repair_schema') {
         $report = eplakRunSchemaSync($pdo, true);
         if ($report['failed']) {
@@ -177,6 +242,14 @@ $vapidSubject = (string) eplakAppSetting($pdo, 'vapid_subject', '');
 $fcmConfig  = eplakFcmConfig($pdo);
 $fcmDevices = eplakFcmCount($pdo);
 $fcmTokensTotal = eplakFcmCount($pdo, false);
+
+/* وضعیت نقشه‌ی موقعیت */
+$mapRegistry   = eplakMapSourceRegistry($pdo);
+$mapDefault    = (string) eplakAppSetting($pdo, 'map_default_source', 'auto');
+$mapNeshanKey  = (string) eplakAppSetting($pdo, 'map_neshan_key', '');
+$mapCustom     = (string) eplakAppSetting($pdo, 'map_custom_tiles', '');
+$mapCacheDir   = eplakMapCacheDir();
+$mapCacheReady = is_dir($mapCacheDir) ? is_writable($mapCacheDir) : is_writable(EPLAK_ROOT . '/uploads');
 
 /* وضعیت فنی سرور */
 $uploadRoot = EPLAK_ROOT . '/uploads';
@@ -513,6 +586,169 @@ $httpsOn = eplakIsHttpsRequest();
       </section>
 
       <section class="panel">
+        <h2><i class="fas fa-map-location-dot"></i> نقشه‌ی موقعیت (کاشی نقشه از سرور خودمان)</h2>
+        <p class="field-hint" style="margin-top:0;">
+          اپ و پنل، موقعیت شهروند را روی نقشه نشان می‌دهند. پیش‌تر کاشی‌ها <strong>مستقیم</strong> از
+          <span dir="ltr">tile.openstreetmap.org</span> گرفته می‌شد؛ آن سرور به درخواست بدون
+          <em>Referer</em> (مثل WebView اپ اندروید) کد <strong>۴۰۳</strong> می‌دهد و از ایران هم کند/بسته است
+          — برای همین نقشه خالی می‌ماند. حالا کاشی‌ها از <strong>سرور خود شما</strong>
+          (<span dir="ltr">api/maptile.php</span>) سرو می‌شوند و سرور آن‌ها را از چند منبع می‌گیرد و روی دیسک
+          کش می‌کند. اسنپ و نشان هم از <strong>داده‌ی OpenStreetMap</strong> استفاده می‌کنند و کاشی را از
+          سرور داخل کشور می‌دهند؛ اگر کلید رایگان «نشان» را وارد کنید، نقشه‌ی خودِ نشان با
+          <strong>برچسب فارسی</strong> فعال می‌شود.
+        </p>
+
+        <div class="kv-list" style="margin-bottom:16px;">
+          <div class="kv-row">
+            <span class="kv-key">منبع پیش‌فرض نقشه</span>
+            <span class="kv-val">
+              <?php
+                $mapDefaultLabel = $mapDefault === 'auto'
+                    ? 'خودکار (سرور منابع را امتحان می‌کند)'
+                    : (isset($mapRegistry[$mapDefault]) ? $mapRegistry[$mapDefault]['label'] : $mapDefault);
+              ?>
+              <span class="pill pill-ok"><?= htmlspecialchars($mapDefaultLabel) ?></span>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">کلید «نشان» (نقشه‌ی فارسی)</span>
+            <span class="kv-val">
+              <?php if ($mapNeshanKey !== ''): ?>
+                <span class="pill pill-ok">ثبت شده</span>
+                <span style="font-size:12px; color:var(--dark-500);" dir="ltr"><?= htmlspecialchars(substr($mapNeshanKey, 0, 6) . '…') ?></span>
+              <?php else: ?>
+                <span class="pill pill-bad">تنظیم نشده</span>
+                <span style="font-size:12px; color:var(--dark-500);">منابع آزاد بدون کلید فعال‌اند</span>
+              <?php endif; ?>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">آدرس دلخواه کاشی</span>
+            <span class="kv-val">
+              <?php if ($mapCustom !== ''): ?>
+                <span class="pill pill-ok">ثبت شده</span>
+                <span style="font-size:12px; color:var(--dark-500);" dir="ltr"><?= htmlspecialchars($mapCustom) ?></span>
+              <?php else: ?>
+                <span class="pill pill-bad">خالی</span>
+              <?php endif; ?>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">پوشه‌ی کش کاشی‌ها</span>
+            <span class="kv-val">
+              <?= $mapCacheReady ? '<span class="pill pill-ok">قابل نوشتن</span>' : '<span class="pill pill-bad">قابل نوشتن نیست</span>' ?>
+              <span style="font-size:12px; color:var(--dark-500);" dir="ltr">uploads/map-cache</span>
+            </span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">منابع فعال</span>
+            <span class="kv-val" style="font-size:12px;">
+              <?php foreach ($mapRegistry as $mapId => $mapSrc): ?>
+                <?php if (!empty($mapSrc['ready'])): ?>
+                  <span class="pill pill-ok" style="margin:2px;"><?= htmlspecialchars($mapSrc['label']) ?></span>
+                <?php else: ?>
+                  <span class="pill pill-bad" style="margin:2px;"><?= htmlspecialchars($mapSrc['label']) ?></span>
+                <?php endif; ?>
+              <?php endforeach; ?>
+            </span>
+          </div>
+        </div>
+
+        <form method="post" class="settings-grid" style="margin-bottom:18px;">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="save_map">
+          <div class="form-group">
+            <label for="map_default_source"><i class="fas fa-layer-group" style="color: var(--primary-500); margin-left: 6px;"></i> منبع پیش‌فرض نقشه</label>
+            <select class="form-control" id="map_default_source" name="map_default_source">
+              <option value="auto" <?= $mapDefault === 'auto' ? 'selected' : '' ?>>خودکار (پیشنهاد می‌شود — سرور منابع سالم را امتحان می‌کند)</option>
+              <?php foreach ($mapRegistry as $mapId => $mapSrc): ?>
+                <?php if (empty($mapSrc['ready'])) continue; ?>
+                <option value="<?= htmlspecialchars($mapId) ?>" <?= $mapDefault === $mapId ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($mapSrc['label']) ?><?= $mapSrc['kind'] === 'static' ? ' — یک تصویر برای کل کادر' : '' ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <p class="field-hint">«خودکار» بهترین حالت است: اگر یک منبع بسته باشد، منبع بعدی امتحان می‌شود و نقشه خالی نمی‌ماند.</p>
+          </div>
+          <div class="form-group">
+            <label for="map_neshan_key"><i class="fas fa-key" style="color: var(--primary-500); margin-left: 6px;"></i> کلید نقشه‌ی «نشان» (اختیاری — برچسب فارسی)</label>
+            <input class="form-control" type="text" id="map_neshan_key" name="map_neshan_key" dir="ltr"
+                   style="text-align:left; font-family:monospace;" placeholder="service.XXXXXXXXXXXXXXXX"
+                   value="<?= htmlspecialchars($mapNeshanKey) ?>">
+            <p class="field-hint">
+              دریافت رایگان و فقط از مرورگر:
+              <span dir="ltr">platform.neshan.org</span> → <strong>ثبت‌نام</strong> →
+              <strong>پنل توسعه‌دهندگان</strong> → <strong>ایجاد کلید دسترسی (API Key)</strong> →
+              نوع سرویس را <strong>«نقشه وب / Static Map»</strong> انتخاب کنید → در فیلد
+              «دامنه/IPهای مجاز» <strong>IP یا دامنه‌ی همین سایت</strong> را بنویسید → کلید ساخته‌شده را
+              اینجا کپی و ذخیره کنید.
+            </p>
+          </div>
+          <div class="form-group">
+            <label for="map_custom_tiles"><i class="fas fa-link" style="color: var(--primary-500); margin-left: 6px;"></i> آدرس دلخواه کاشی (اختیاری)</label>
+            <input class="form-control" type="text" id="map_custom_tiles" name="map_custom_tiles" dir="ltr"
+                   style="text-align:left; font-family:monospace; font-size:12px;"
+                   placeholder="https://example.com/tiles/{z}/{x}/{y}.png"
+                   value="<?= htmlspecialchars($mapCustom) ?>">
+            <p class="field-hint">اگر از سرویس نقشه‌ی دیگری (مثل مپیر) کلید و آدرس کاشی دارید، قالب آن را اینجا بگذارید؛
+              <span dir="ltr">{z}</span> و <span dir="ltr">{x}</span> و <span dir="ltr">{y}</span> خودکار جای‌گذاری می‌شوند.</p>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> ذخیره‌ی تنظیمات نقشه</button>
+          </div>
+        </form>
+
+        <form method="post">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="test_map">
+          <button type="submit" class="btn btn-success"><i class="fas fa-vial"></i> آزمایش منابع نقشه از سرور</button>
+          <span class="field-hint" style="margin-right:10px;">هر منبع یک کاشی نمونه‌ی تهران را واقعاً از سرور شما می‌گیرد و نتیجه را نشان می‌دهد (چند ثانیه طول می‌کشد).</span>
+        </form>
+
+        <?php if (is_array($mapTestResult)): ?>
+          <div class="kv-list" style="margin-top:16px;">
+            <?php foreach ((array) ($mapTestResult['sources'] ?? []) as $mapRow): ?>
+              <div class="kv-row">
+                <span class="kv-key"><?= htmlspecialchars((string) ($mapRow['label'] ?? $mapRow['id'])) ?></span>
+                <span class="kv-val">
+                  <?php if (!empty($mapRow['ok'])): ?>
+                    <span class="pill pill-ok">کار می‌کند</span>
+                    <span style="font-size:12px; color:var(--dark-500);" dir="ltr">
+                      HTTP <?= (int) ($mapRow['status'] ?? 0) ?> • <?= (int) ($mapRow['ms'] ?? 0) ?> ms •
+                      <?= number_format((int) ($mapRow['bytes'] ?? 0)) ?> bytes
+                    </span>
+                  <?php else: ?>
+                    <span class="pill pill-bad">باز نشد</span>
+                    <span style="font-size:12px; color:var(--dark-500);"><?= htmlspecialchars((string) ($mapRow['note'] ?? '')) ?><?= !empty($mapRow['status']) ? ' (HTTP ' . (int) $mapRow['status'] . ')' : '' ?></span>
+                  <?php endif; ?>
+                </span>
+              </div>
+            <?php endforeach; ?>
+            <div class="kv-row">
+              <span class="kv-key">آدرس‌یاب (مختصات → آدرس فارسی)</span>
+              <span class="kv-val">
+                <?php if (!empty($mapTestResult['reverse']['ok'])): ?>
+                  <span class="pill pill-ok"><?= htmlspecialchars((string) ($mapTestResult['reverse']['provider'] ?? '')) ?></span>
+                  <span style="font-size:12px; color:var(--dark-500);"><?= htmlspecialchars((string) ($mapTestResult['reverse']['address'] ?? '')) ?></span>
+                <?php else: ?>
+                  <span class="pill pill-bad">پاسخ نگرفت</span>
+                  <span style="font-size:12px; color:var(--dark-500);">ثبت موقعیت با مختصات ادامه پیدا می‌کند (مشکلی برای گزارش ایجاد نمی‌کند)</span>
+                <?php endif; ?>
+              </span>
+            </div>
+          </div>
+        <?php endif; ?>
+
+        <div class="form-group" style="margin-top:18px;">
+          <label><i class="fas fa-map" style="color: var(--primary-500); margin-left: 6px;"></i> پیش‌نمایش زنده‌ی نقشه (همان چیزی که شهروند در اپ می‌بیند)</label>
+          <div id="adminMapPreview" style="height:260px; border-radius:14px; overflow:hidden; border:1px solid var(--dark-200);"></div>
+          <p class="field-hint">اگر این کادر نقشه را نشان داد، نقشه‌ی اپ هم کار می‌کند. با دکمه‌های روی نقشه می‌توانید
+            «ماهواره» و «منبع» را عوض کنید. اگر نقشه باز نشد، دکمه‌ی <strong>«آزمایش منابع نقشه از سرور»</strong> را بزنید
+            تا معلوم شود کدام منبع از هاست شما باز است.</p>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2><i class="fas fa-circle-info"></i> وضعیت فنی سرور</h2>
         <div class="kv-list">
           <div class="kv-row"><span class="kv-key">درایور دیتابیس</span><span class="kv-val"><?= htmlspecialchars($driver) ?></span></div>
@@ -580,5 +816,20 @@ $httpsOn = eplakIsHttpsRequest();
       </section>
     </main>
   </div>
+
+  <!-- پیش‌نمایش زنده‌ی نقشه: همان موتوری که شهروند در اپ و گزارش‌ها می‌بیند -->
+  <script>window.EPLAK_API_BASE_URL = '../api';</script>
+  <script src="../assets/js/ep-map.js?v=3"></script>
+  <script>
+    (function () {
+      var box = document.getElementById('adminMapPreview');
+      if (!box || !window.EplakMap) return;
+      /* مرکز: ورامین — همان پیش‌فرض اپ. نقطه‌ای انتخاب نشده (hasFix=false)
+         تا مدیر بتواند نقشه را بکشد و منابع مختلف را امتحان کند. */
+      window.adminMapPreview = window.EplakMap.create(box, {
+        lat: 35.3242, lng: 51.6455, zoom: 14, draggable: true, hasFix: false
+      });
+    })();
+  </script>
 </body>
 </html>
