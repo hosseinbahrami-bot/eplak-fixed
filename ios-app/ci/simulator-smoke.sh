@@ -46,6 +46,7 @@ for rt, ds in json.load(sys.stdin)["devices"].items():
 ' "$UDID")"
 echo "شبیه‌ساز: $NAME ($UDID)"
 
+echo "$UDID" > "$OUT/udid.txt"
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl install "$UDID" "$APP"
@@ -139,7 +140,7 @@ if neshan:
     if m:
         o = (float(m.group(1)), float(m.group(2))); d = (float(m.group(3)), float(m.group(4)))
         need(abs(o[0] - SIM[0]) < 0.02 and abs(o[1] - SIM[1]) < 0.02, "مبدأ لینک نشان موقعیت کاربر نیست: %s" % (o,))
-        need(abs(d[0] - 35.3221) < 0.01 and abs(d[1] - 51.6416) < 0.01, "مقصد لینک نشان بیمارستان مفتح نیست: %s" % (d,))
+        need(abs(d[0] - 35.32837) < 0.002 and abs(d[1] - 51.66248) < 0.002, "مقصد لینک نشان بیمارستان مفتح (core/places-data.js) نیست: %s" % (d,))
 web = [u for u in opens if u.startswith("https://nshn.ir")]
 notes.append("بازگشتِ نسخه‌ی وب نشان: " + (web[0] if web else "—"))
 notes.append("وضعیت مسیریابی: %r" % s3.get("routeStatus"))

@@ -361,7 +361,7 @@ if (!havePy) {
          placesCount: 134, screen: 'screen-login', offlineGate: false, online: true, geoShim: true, geoPermission: 'granted', ping: { status: 200, body: '{}' }, localStorage: true, externalOpens: [] },
     2: { stage: 2, screen: 'screen-map', chips: 10, rows: 40, tiles: 12, tilesLoaded: 9, markers: 60, externalOpens: [] },
     3: { stage: 3, env: 'ios', loc: { lat: 35.3335, lng: 51.6402, acc: 5 }, routeStatus: 'ios',
-         externalOpens: ['neshan://?origin=35.333500,51.640200&destination=35.322128,51.641637&vehicle=d', 'https://nshn.ir/?origin=35.333500,51.640200&destination=35.322128,51.641637&vehicle=d'] },
+         externalOpens: ['neshan://?origin=35.333500,51.640200&destination=35.328370,51.662480&vehicle=d', 'https://nshn.ir/?origin=35.333500,51.640200&destination=35.328370,51.662480&vehicle=d'] },
   };
   const evalCase = (mut) => {
     const d = fs.mkdtempSync(path.join(TMP, 'smoke-'));
@@ -378,9 +378,19 @@ if (!havePy) {
   ok('لینک neshan:// به پوسته‌ی نیتیو نرسد ← رد می‌شود', evalCase((d) => { d[3].externalOpens = []; }).code === 1);
   ok('لینک نشان بدون origin ← رد می‌شود', evalCase((d) => { d[3].externalOpens = ['neshan://?ll=35.3,51.6']; }).code === 1);
   ok('مبدأ و مقصد جابه‌جا شده باشند ← رد می‌شود (مبدأ باید موقعیت کاربر باشد)',
-    evalCase((d) => { d[3].externalOpens = ['neshan://?origin=35.322128,51.641637&destination=35.333500,51.640200&vehicle=d']; }).code === 1);
+    evalCase((d) => { d[3].externalOpens = ['neshan://?origin=35.328370,51.662480&destination=35.333500,51.640200&vehicle=d']; }).code === 1);
   ok('GPS شبیه‌ساز از پل نیتیو نرسد (loc خالی) ← رد می‌شود', evalCase((d) => { d[3].loc = null; }).code === 1);
   ok('پل موقعیت (GeoBridge) نصب نباشد ← رد می‌شود', evalCase((d) => { d[1].geoShim = false; }).code === 1);
+}
+
+{
+  /* مقصدِ مورد انتظارِ آزمون دودی همان مختصات بیمارستان مفتح در فایل داده است (یک بار اشتباهاً مختصات مسجد جامع
+     را از یک مثال برداشته بودم؛ این سنجش جلوی چنین اختلافی را می‌گیرد) */
+  const line = (read('core/places-data.js').split('\n').find((l) => l.includes('"id": "mofatteh-hospital"')) || '');
+  const lat = Number((line.match(/"lat": ([\d.]+)/) || [])[1]), lng = Number((line.match(/"lng": ([\d.]+)/) || [])[1]);
+  const expLat = Number((smoke.match(/abs\(d\[0\] - ([\d.]+)\)/) || [])[1]), expLng = Number((smoke.match(/abs\(d\[1\] - ([\d.]+)\)/) || [])[1]);
+  ok('مقصدِ مورد انتظارِ آزمون دودی با مختصات بیمارستان مفتح در core/places-data.js یکی است',
+    lat > 35 && lng > 51 && Math.abs(lat - expLat) < 0.001 && Math.abs(lng - expLng) < 0.001, `data=${lat},${lng} expected=${expLat},${expLng}`);
 }
 
 /* ── ۷) ورک‌فلوها ────────────────────────────────────────────────────────── */

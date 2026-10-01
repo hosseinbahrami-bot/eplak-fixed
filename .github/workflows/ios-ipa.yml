@@ -95,6 +95,20 @@ jobs:
           mkdir -p evidence
           bash ios-app/ci/simulator-smoke.sh "$SIM_APP" "$GITHUB_WORKSPACE/evidence" 2>&1 | tee evidence/smoke.log
 
+      - name: PWA در Safari شبیه‌ساز iPhone (عکس از صفحه؛ فقط گزارشی)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # همان بسته‌ی ایستای PWA مستقل، روی یک سرور محلی، داخل Safari واقعیِ iOS (WebKit) و با سرور واقعی ای‌پلاک
+          bash tools/build-pwa.sh pwa-dist eplak-pwa.zip > /dev/null
+          python3 -m http.server 8099 --bind 127.0.0.1 --directory pwa-dist > /dev/null 2>&1 &
+          sleep 2
+          UDID="$(cat evidence/udid.txt)"
+          xcrun simctl openurl "$UDID" "http://127.0.0.1:8099/index.html"
+          sleep 35
+          xcrun simctl io "$UDID" screenshot evidence/4-pwa-in-safari.png
+          ls -l evidence/4-pwa-in-safari.png
+
       - name: بارگذاری عکس‌ها و گزارش آزمون دودی
         if: always()
         uses: actions/upload-artifact@v4

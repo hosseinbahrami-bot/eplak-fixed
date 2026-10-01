@@ -331,13 +331,58 @@ else
   say "| فایل‌های CI گیت‌هاب روی هاست | ✅ نیست (درست است) |"
 fi
 
+# ── ۵-۳) PWA روی خودِ سایت: فایل‌های لازم برای «نصب روی گوشی» ──────────────
+#  PWA همان سایت است؛ اگر manifest، سرویس‌ورکر یا آیکون‌ها از هاست جواب ندهند (مثلاً فایروال)، نصب نمی‌شود.
+hdr "۵-۳) PWA روی سایت (نصب روی آیفون و اندروید)"
+PWA_OK="yes"
+MF_OUT="$TMP/manifest.json"
+CODE_MF=$(grab "$BASE/manifest.json" "$MF_OUT")
+CODE_SWJS=$(grab "$BASE/sw.js" "$TMP/sw.js")
+CODE_I192=$(grab "$BASE/assets/img/pwa-icon-192.png" "$TMP/i192.png")
+CODE_I512=$(grab "$BASE/assets/img/pwa-icon-512.png" "$TMP/i512.png")
+CODE_IAPL=$(grab "$BASE/assets/img/apple-touch-icon.png" "$TMP/iapl.png")
+say "| مورد | کد پاسخ | وضعیت |"
+say "|---|---|---|"
+MF_STATE=$(python3 - "$MF_OUT" <<'PYEOF' 2>/dev/null || echo "bad"
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+ok = d.get("display") == "standalone" and len(d.get("icons", [])) >= 2 and bool(d.get("start_url"))
+print("ok" if ok else "bad")
+PYEOF
+)
+if [ "$CODE_MF" = "200" ] && [ "$MF_STATE" = "ok" ]; then
+  say "| manifest.json | $CODE_MF | ✅ سالم (حالت تمام‌صفحه + آیکون‌ها) |"
+else
+  say "| manifest.json | $CODE_MF | ❌ نیست یا خراب است |"; PWA_OK="no"
+  ISSUES+=("manifest.json روی سایت درست جواب نمی‌دهد؛ PWA نصب نمی‌شود")
+fi
+if [ "$CODE_SWJS" = "200" ] && grep -q "addEventListener('push'" "$TMP/sw.js" 2>/dev/null; then
+  say "| sw.js (سرویس‌ورکر و اعلان) | $CODE_SWJS | ✅ هست |"
+else
+  say "| sw.js (سرویس‌ورکر و اعلان) | $CODE_SWJS | ❌ نیست یا قدیمی است |"; PWA_OK="no"
+  ISSUES+=("sw.js روی سایت درست جواب نمی‌دهد؛ PWA نصب نمی‌شود و اعلان وب کار نمی‌کند")
+fi
+for pair in "آیکون ۱۹۲|$CODE_I192" "آیکون ۵۱۲|$CODE_I512" "آیکون آیفون (apple-touch-icon)|$CODE_IAPL"; do
+  label="${pair%%|*}"; c="${pair#*|}"
+  if [ "$c" = "200" ]; then
+    say "| $label | $c | ✅ هست |"
+  else
+    say "| $label | $c | ❌ نیست |"; PWA_OK="no"; ISSUES+=("$label روی سایت نیست؛ PWA نصب نمی‌شود")
+  fi
+done
+say ""
+
 # ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
 hdr "۶) لینک‌های دانلود (گیت‌هاب)"
 ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip"
-APK_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk"
+REL_BASE="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update"
+APK_URL="$REL_BASE/eplak-app.apk"
+IPA_URL="$REL_BASE/eplak-app-unsigned.ipa"
+XPROJ_URL="$REL_BASE/eplak-ios-project.zip"
+PWA_URL="$REL_BASE/eplak-pwa.zip"
 say "| فایل | کد پاسخ | حجم | وضعیت |"
 say "|---|---|---|---|"
-for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$APK_URL"; do
+for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$APK_URL" "اپ iOS (IPA بدون امضا)|$IPA_URL" "پروژه‌ی Xcode (zip)|$XPROJ_URL" "PWA مستقل (zip)|$PWA_URL"; do
   label="${pair%%|*}"; url="${pair#*|}"
   # فقط هدرها را می‌خوانیم (سرور گیت‌هاب ۳۰۲ می‌دهد و برای بررسی همین کافی است)
   headers=$(curl -sIL --max-time 40 "$url" 2>/dev/null || echo '')
@@ -354,7 +399,7 @@ for pair in "بسته‌ی سایت (zip)|$ZIP_URL" "اپ اندروید (APK)|$
   say "| $label | $code | $size بایت | $note |"
 done
 say ""
-say "> لینک‌ها: بسته‌ی سایت ← \`$ZIP_URL\` • اپ اندروید ← \`$APK_URL\`"
+say "> لینک‌ها: بسته‌ی سایت ← \`$ZIP_URL\` • اپ اندروید ← \`$APK_URL\` • اپ iOS ← \`$IPA_URL\` • پروژه‌ی Xcode ← \`$XPROJ_URL\` • PWA مستقل ← \`$PWA_URL\`"
 
 # ── ۷) وضعیت فایل APK منتشرشده (از روی صفحه‌ی Releases) ───────────────────
 hdr "۷) اپ اندروید منتشرشده"
@@ -1105,6 +1150,11 @@ else
   say "- ⏳ پرده‌ی «بدون اینترنت» هنوز روی سایت نصب نشده — بسته‌ی تازه را Extract کنید"
 fi
 say "- 📱 برای دیدن تعداد گوشی‌های ثبت‌شده: پنل ادمین → «بررسی نسخه» (باید بزرگ‌تر از صفر باشد)"
+if [ "$PWA_OK" = "yes" ]; then
+  say "- ✅ PWA روی سایت قابل نصب است (manifest، سرویس‌ورکر و آیکون‌ها در دسترس‌اند)؛ نصب روی آیفون: Safari ← «افزودن به صفحه اصلی»"
+else
+  say "- ⏳ فایل‌های PWA (manifest/سرویس‌ورکر/آیکون) روی سایت کامل نیست — بسته‌ی تازه را Extract کنید"
+fi
 if [ "$RESCUE_PRESENT" = "yes" ]; then
   say "- 🔴 ابزار قدیمیِ \`rescue-db.php\` (بدون رمز) هنوز روی سایت باز است — از cPanel → File Manager پاکش کنید"
 fi
