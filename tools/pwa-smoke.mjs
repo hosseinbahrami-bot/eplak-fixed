@@ -16,6 +16,8 @@
    استفاده:  node tools/pwa-smoke.mjs [پوشه‌ی pwa-dist] [پوشه‌ی خروجی]
    اگر PWA_URL داده شود (مثلاً https://hosseinbahrami-bot.github.io/eplak-fixed/) به‌جای سرور محلی،
    همان آدرسِ واقعیِ منتشرشده سنجیده می‌شود (ورک‌فلو پس از انتشار روی GitHub Pages این کار را می‌کند).
+   اگر همراهش PWA_KIND=host باشد، آدرس خودِ سایت روی هاست است (https://eplak.ir/eplak-fixed/): همان
+   دامنه‌ی سرور، پس API نسبی است و پیکربندیِ «نسخه‌ی ایستا» (EPLAK_STATIC_PWA، آدرس پیوست‌ها) لازم نیست.
    نیاز: puppeteer-core (npm) و Chrome (CHROME_PATH؛ پیش‌فرض /usr/bin/google-chrome) */
 import http from 'http'; import fs from 'fs'; import path from 'path';
 import puppeteer from 'puppeteer-core';
@@ -24,7 +26,8 @@ const DIST = path.resolve(process.argv[2] || 'pwa-dist');
 const OUT = path.resolve(process.argv[3] || 'pwa-evidence');
 const CHROME = process.env.CHROME_PATH || '/usr/bin/google-chrome';
 const API = process.env.EPLAK_PWA_API_BASE || 'https://eplak.ir/eplak-fixed/api';
-const SITE = API.replace(/\/api$/, '');
+const HOST_MODE = process.env.PWA_KIND === 'host';
+let SITE = API.replace(/\/api$/, '');
 fs.mkdirSync(OUT, { recursive: true });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -45,7 +48,8 @@ if (!REMOTE) {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   BASE = `http://127.0.0.1:${server.address().port}/`;
 }
-console.log('PWA روی', BASE, REMOTE ? '(آدرس واقعیِ منتشرشده)' : '(سرور محلی)', 'و API روی', API);
+if (HOST_MODE) SITE = BASE.replace(/\/$/, '');
+console.log('PWA روی', BASE, REMOTE ? '(آدرس واقعیِ منتشرشده)' : '(سرور محلی)', HOST_MODE ? '(خودِ سایت روی هاست؛ API نسبی)' : 'و API روی ' + API);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const errors = [], notes = [];
@@ -90,9 +94,13 @@ try {
     return out;
   });
   await page.screenshot({ path: path.join(OUT, '1-home.png') });
-  need(s1.apiBase === API, 'آدرس API ' + API + ' نیست: ' + s1.apiBase);
-  need(s1.staticFlag === true, 'پرچم EPLAK_STATIC_PWA نیامده');
-  need(typeof s1.media === 'string' && s1.media === SITE + '/uploads/reports/x.jpg', 'آدرس پیوست به سرور اصلی نمی‌رود: ' + s1.media);
+  if (HOST_MODE) {
+    need(typeof s1.apiBase === 'string' && s1.apiBase.length > 0 && !s1.staticFlag, 'روی هاست آدرس API باید نسبی و بدون پرچم نسخه‌ی ایستا باشد: ' + s1.apiBase);
+  } else {
+    need(s1.apiBase === API, 'آدرس API ' + API + ' نیست: ' + s1.apiBase);
+    need(s1.staticFlag === true, 'پرچم EPLAK_STATIC_PWA نیامده');
+    need(typeof s1.media === 'string' && s1.media === SITE + '/uploads/reports/x.jpg', 'آدرس پیوست به سرور اصلی نمی‌رود: ' + s1.media);
+  }
   need(s1.ping && s1.ping.status === 200, 'api/ping.php از origin دیگر جواب نداد (CORS؟): ' + JSON.stringify(s1.ping));
   need(s1.offlineGate === false, 'پرده‌ی «بدون اینترنت» آمده است');
   need(s1.manifestLink && s1.appleIcon && s1.appleCapable, 'تگ‌های manifest / apple-touch-icon / apple-mobile-web-app-capable نیست');
@@ -132,7 +140,7 @@ try {
   const cors = problems.filter((x) => /CORS|Access-Control|blocked by/i.test(x));
   need(cors.length === 0, 'خطای CORS: ' + cors.slice(0, 3).join(' | '));
 
-  notes.push('آدرس PWA: ' + BASE + ' — API: ' + API);
+  notes.push('آدرس PWA: ' + BASE + ' — API: ' + (HOST_MODE ? s1.apiBase + ' (نسبی؛ هم‌دامنه با سرور)' : API));
   notes.push('صفحه‌ی اول: ' + s1.screen + '؛ پینگ: ' + JSON.stringify(s1.ping));
   notes.push('سرویس‌ورکر: ' + JSON.stringify(s1.sw) + '؛ نام manifest: ' + manifest.name);
   notes.push('خطاهای قابلیت نصب: ' + JSON.stringify(inst.installabilityErrors || []));
@@ -146,7 +154,7 @@ try {
   if (server) server.close();
 }
 
-const lines = [REMOTE ? '## آزمون دودی PWA روی آدرس واقعیِ منتشرشده (Chrome)' : '## آزمون دودی PWA (Chrome، origin جدا از سرور اصلی)', ''];
+const lines = [HOST_MODE ? '## آزمون دودی PWA روی خودِ سایت (هاست) در Chrome' : (REMOTE ? '## آزمون دودی PWA روی آدرس واقعیِ منتشرشده (Chrome)' : '## آزمون دودی PWA (Chrome، origin جدا از سرور اصلی)'), ''];
 lines.push(...notes.map((n) => '- ' + n));
 if (problems.length) { lines.push('', '### خطاهای کنسول/شبکه‌ی دیده‌شده (گزارشی)'); lines.push(...problems.slice(0, 15).map((x) => '- ' + x)); }
 lines.push('');

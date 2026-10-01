@@ -97,6 +97,61 @@ jobs:
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/pwa-evidence-${GITHUB_RUN_NUMBER}"
           exit 0
 
+  host:
+    # خودِ سایت روی هاست هم یک PWA است؛ همین‌جا در Chrome واقعی و روی همان آدرسی که کاربر باز می‌کند
+    # سنجیده می‌شود (قابلیت نصب، سرویس‌ورکر، پینگ، نقشه). گزارشی است: اگر هاست آن لحظه خاموش بود، اجرای
+    # ورک‌فلو قرمز نمی‌شود (ولی نتیجه‌ی همین job در بخش Jobs دیده می‌شود).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: write   # فقط برای برچسبِ اختیاریِ عکس‌ها
+    env:
+      HOST_PWA_URL: https://eplak.ir/eplak-fixed/
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v5
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: نصب puppeteer-core
+        run: npm install --no-save --no-audit --no-fund --prefix tools puppeteer-core@23
+
+      - name: آزمون دودی PWA روی خودِ سایت (هاست) در Chrome واقعی
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          PWA_URL: ${{ env.HOST_PWA_URL }}
+          PWA_KIND: host
+        run: node tools/pwa-smoke.mjs pwa-dist host-evidence
+
+      - name: بارگذاری عکس‌ها و گزارش آزمونِ هاست
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-evidence
+          path: host-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: ارسال عکس‌ها و گزارش آزمونِ هاست به یک برچسب گیت (فقط وقتی پیام کامیت «[evidence]» دارد)
+        if: ${{ always() && contains(github.event.head_commit.message, '[evidence]') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          [ -d host-evidence ] || exit 0
+          D="$RUNNER_TEMP/evidence-repo"; rm -rf "$D"; mkdir -p "$D"; cp -R host-evidence/. "$D"/
+          cd "$D" || exit 0
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "host pwa smoke evidence (run ${GITHUB_RUN_NUMBER})"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/host-evidence-${GITHUB_RUN_NUMBER}"
+          exit 0
+
   pages:
     needs: pwa
     runs-on: ubuntu-latest

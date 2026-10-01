@@ -9,8 +9,9 @@
      ۳) tools/build-pwa.sh (واقعاً اجرا می‌شود): نسخه‌ی ایستا با آدرس API روی سرور اصلی؛ index.html
         مخزن دست‌نخورده می‌ماند؛ همان کدِ core/storage.js روی یک origin دیگر آدرس API را از پیکربندی
         می‌خواند و آدرس پیوست‌ها (uploads/…) به سرور اصلی می‌رود (jsdom)؛ بدون آرگومان دوم zip نمی‌سازد
-     ۴) آزمون دودیِ Chrome (tools/pwa-smoke.mjs، هم روی سرور محلی هم روی آدرس منتشرشده) و ورک‌فلوی pwa.yml
-        (دو job: آزمون، و انتشار روی Pages فقط وقتی Pages روشن است؛ بدون zip و بدون پیوست به Releases)
+     ۴) آزمون دودیِ Chrome (tools/pwa-smoke.mjs، روی سرور محلی، آدرس منتشرشده، و خودِ سایت روی هاست) و
+        ورک‌فلوی pwa.yml (سه job: آزمون، سنجش خودِ سایت روی هاست، و انتشار روی Pages فقط وقتی Pages روشن است؛
+        بدون zip و بدون پیوست به Releases)، و ورک‌فلوی pwa-safari.yml (PWA داخل Safari شبیه‌ساز iPhone)
      ۵) راهنمای نصب (FA/EN) و README: لینک مستقیم Pages و آدرس هاست، مراحل روشن کردن Pages، و هیچ zipی
 */
 import fs from 'fs'; import path from 'path'; import os from 'os';
@@ -163,8 +164,8 @@ ok('آزمون دودی می‌تواند به‌جای سرور محلی، آد
 
 let wf = null, wfErr = '';
 try { wf = YAML.parse(read('.github/workflows/pwa.yml')); } catch (e) { wfErr = String(e.message || e); }
-ok('pwa.yml YAML سالم است و دو job دارد (pwa و pages) روی Ubuntu', !!wf && wf.jobs && wf.jobs.pwa && wf.jobs.pages
-  && /^ubuntu-/.test(wf.jobs.pwa['runs-on']) && /^ubuntu-/.test(wf.jobs.pages['runs-on']), wfErr);
+ok('pwa.yml YAML سالم است و سه job دارد (pwa، host و pages) روی Ubuntu', !!wf && wf.jobs && wf.jobs.pwa && wf.jobs.host && wf.jobs.pages
+  && ['pwa', 'host', 'pages'].every((j) => /^ubuntu-/.test(wf.jobs[j]['runs-on'])), wfErr);
 const apkWf = YAML.parse(read('.github/workflows/android-apk.yml'));
 const pwaPaths = new Set((wf && wf.on.push.paths) || []);
 const apkWeb = apkWf.on.push.paths.filter((x) => !['android-app/**', '.github/workflows/android-apk.yml'].includes(x));
@@ -190,7 +191,28 @@ ok('پس از انتشار، همان آزمون دودی روی آدرس واق
 ok('آدرس نهایی PWA در ورک‌فلو https://hosseinbahrami-bot.github.io/eplak-fixed/ است', wf.env.PAGES_URL === 'https://hosseinbahrami-bot.github.io/eplak-fixed/');
 ok('هیچ zip و هیچ پیوست به Releases در ورک‌فلوی PWA نیست؛ و secretی لازم نیست', !/eplak-pwa/.test(wfText) && !/gh release upload/.test(wfText) && !/secrets\./.test(wfText));
 ok('عکس‌ها فقط وقتی پیام کامیت «[evidence]» دارد به برچسب گیت می‌روند (برچسب‌های آزمایشی روی هر اجرا جمع نمی‌شوند)',
-  (wfText.match(/contains\(github\.event\.head_commit\.message, '\[evidence\]'\)/g) || []).length === 2);
+  (wfText.match(/contains\(github\.event\.head_commit\.message, '\[evidence\]'\)/g) || []).length === 3);
+const host = (wf && wf.jobs.host) || { steps: [], env: {} };
+const hostSmoke = (host.steps.find((st) => /pwa-smoke\.mjs/.test(String(st.run || ''))) || { env: {} });
+ok('job «host»: خودِ سایت روی هاست (https://eplak.ir/eplak-fixed/) در Chrome سنجیده می‌شود؛ گزارشی است (هاست خاموش ← اجرا قرمز نمی‌شود)',
+  host['continue-on-error'] === true && host.env.HOST_PWA_URL === 'https://eplak.ir/eplak-fixed/'
+  && hostSmoke.env && hostSmoke.env.PWA_KIND === 'host' && /HOST_PWA_URL/.test(String(hostSmoke.env.PWA_URL || '')));
+ok('آزمون دودی «حالت هاست» دارد: API نسبی و بدون پرچم نسخه‌ی ایستا (PWA_KIND=host)',
+  /PWA_KIND === 'host'/.test(smokeSrc) && /if \(HOST_MODE\)/.test(smokeSrc));
+
+/* PWA داخل Safari واقعیِ iPhone (شبیه‌ساز) */
+let sfWf = null, sfErr = '';
+try { sfWf = YAML.parse(read('.github/workflows/pwa-safari.yml')); } catch (e) { sfErr = String(e.message || e); }
+const sfText = read('.github/workflows/pwa-safari.yml');
+ok('pwa-safari.yml YAML سالم است، روی macOS اجرا می‌شود و فقط با تغییر فایل‌های خودش راه می‌افتد (روی ساخت IPA/APK اثری ندارد)',
+  !!sfWf && /^macos-/.test(sfWf.jobs.safari['runs-on'])
+  && JSON.stringify((sfWf.on.push.paths || []).slice().sort()) === JSON.stringify(['.github/workflows/pwa-safari.yml', 'tools/safari-pwa.sh']), sfErr);
+const sfBash = spawnSync('bash', ['-n', p('tools/safari-pwa.sh')], { encoding: 'utf8' });
+const sfSh = read('tools/safari-pwa.sh');
+ok('tools/safari-pwa.sh سینتکس درست دارد و آدرس را داخل Safari شبیه‌ساز باز می‌کند و عکس می‌گیرد',
+  sfBash.status === 0 && /simctl openurl "\$UDID" "\$URL"/.test(sfSh) && /simctl io "\$UDID" screenshot/.test(sfSh) && sfWf.env.PWA_LIVE_URL === 'https://eplak.ir/eplak-fixed/', sfBash.stderr);
+ok('ورک‌فلوی Safari: عکس‌ها آپلود می‌شوند و فقط با «[evidence]» به برچسب می‌روند؛ بدون secret',
+  /upload-artifact/.test(sfText) && (sfText.match(/contains\(github\.event\.head_commit\.message, '\[evidence\]'\)/g) || []).length === 1 && !/secrets\./.test(sfText));
 
 /* ── ۶) راهنما ───────────────────────────────────────────────────────────── */
 console.log('— ۵) راهنما و README');
