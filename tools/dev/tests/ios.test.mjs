@@ -434,6 +434,10 @@ if (!haveZip) {
   ok('بسته‌ی هاست ساخته می‌شود و هیچ فایلی از ios-app/ داخلش نیست', b.status === 0 && list.length > 100 && !list.some((n) => n.startsWith('ios-app')), (b.stdout + b.stderr).slice(-200));
   ok('فایل‌های سایت (index.html و پوشه‌ی core) هنوز داخل بسته‌ی هاست‌اند', list.includes('index.html') && list.includes('core/storage.js'));
 }
+const deployText = exists('.github/workflows/deploy.yml') ? read('.github/workflows/deploy.yml') : '';
+const rmLines = deployText.split('\n').filter((l) => /^\s*rm -rf /.test(l)).join(' ');
+ok('آپلود خودکار FTP (deploy.yml، فقط با ادغام در main و فقط وقتی secret ها هست) هم ios-app، pwa-dist و tools را به هاست نمی‌برد — مثل بسته‌ی zip',
+  ['ios-app', 'pwa-dist', 'tools', 'android-app', '.github'].every((d) => new RegExp('(^|\\s)' + d.replace('.', '\\.') + '(\\s|$)').test(rmLines)), rmLines);
 fs.rmSync(TMP, { recursive: true, force: true });
 
 /* ── ۹) راهنما ───────────────────────────────────────────────────────────── */

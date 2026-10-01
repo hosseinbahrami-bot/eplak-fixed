@@ -49,7 +49,7 @@ jobs:
       - name: Prepare files (بدون داده‌های کاربران)
         if: steps.check.outputs.configured == 'true'
         run: |
-          rm -rf .git .github android-app backend docs views node_modules
+          rm -rf .git .github android-app ios-app pwa-dist pwa-evidence test-fixtures .vscode backend docs views node_modules
           rm -f .gitignore .gitattributes
           rm -rf data uploads shared/config.php tools
           rm -f *.zip          # بسته‌ی آپلود دستی لازم نیست روی هاست برود
