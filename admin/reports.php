@@ -9,12 +9,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['quick_status_id'])) {
     $quickId = (int) $_POST['quick_status_id'];
     $quickStatus = (string) ($_POST['status'] ?? 'pending');
     $quickReply = trim((string) ($_POST['reply'] ?? ''));
-    if ($quickId > 0 && getReportById($pdo, $quickId)) {
-        saveReportReply($pdo, $quickId, $quickReply, $quickStatus);
+    $quickNotify = [];
+    $quickFound = $quickId > 0 && getReportById($pdo, $quickId);
+    if ($quickFound) {
+        $quickNotify = saveReportReply($pdo, $quickId, $quickReply, $quickStatus);
     }
-    header('Location: reports.php?status_saved=1');
-    exit;
+    /* نتیجه‌ی اعلان (رسید؟ گوشی ثبت نیست؟ خطای گوگل؟) را تا بعد از ریدایرکت
+       نگه می‌داریم تا مدیر دقیقاً ببیند اعلان به کاربر رسیده یا نه. */
+    require_once __DIR__ . '/../shared/notify_events.php';
+    $_SESSION['eplak_flash'] = [
+        'kind'   => 'quick_status',
+        'found'  => $quickFound,
+        'code'   => $quickFound ? reportCodeFor($quickId) : '',
+        'notify' => $quickNotify,
+        'text'   => $quickNotify ? eplakNotifyDescribe($quickNotify) : null,
+    ];
+    eplakRedirect('reports.php?status_saved=1');
 }
+
+$flash = null;
+if (isset($_GET['status_saved']) && isset($_SESSION['eplak_flash']) && is_array($_SESSION['eplak_flash'])) {
+    $flash = $_SESSION['eplak_flash'];
+}
+unset($_SESSION['eplak_flash']);
 
 $reports = getAllReports($pdo);
 
@@ -67,8 +84,26 @@ $mediaCounts = getReportMediaCounts($pdo, $reportIds);
       </header>
 
       <?php if (isset($_GET['status_saved'])): ?>
-        <div class="alert alert-success" style="margin:0 20px 14px; padding:12px 16px; border-radius:12px; background:var(--success-bg); color:var(--success); font-weight:600;">
-          <i class="fas fa-check-circle"></i> وضعیت گزارش با موفقیت تغییر کرد و همین حالا در اپ کاربر دیده می‌شود.
+        <?php
+          /* پیام بر پایه‌ی نتیجه‌ی واقعی اعلان؛ نه یک «موفق» ثابت */
+          $flashText = is_array($flash) ? ($flash['text'] ?? null) : null;
+          if ($flashText) {
+              $flashType = $flashText['type'];
+              $flashMsg  = 'وضعیت گزارش ' . ($flash['code'] ?? '') . ' تغییر کرد. ' . $flashText['text'];
+          } elseif (is_array($flash) && empty($flash['found'])) {
+              $flashType = 'danger';
+              $flashMsg  = 'گزارش پیدا نشد.';
+          } else {
+              $flashType = 'info';
+              $flashMsg  = 'تغییری در وضعیت ثبت نشد؛ پس اعلان تازه‌ای هم برای کاربر ساخته نشد.';
+          }
+          $flashIcon = ['success' => 'fa-check-circle', 'warning' => 'fa-exclamation-triangle', 'danger' => 'fa-times-circle', 'info' => 'fa-info-circle'][$flashType] ?? 'fa-info-circle';
+        ?>
+        <div class="alert alert-<?= htmlspecialchars($flashType) ?>" style="margin:0 20px 14px;" data-testid="status-flash" data-notify-type="<?= htmlspecialchars($flashType) ?>">
+          <i class="fas <?= $flashIcon ?>"></i> <?= htmlspecialchars($flashMsg) ?>
+          <?php if ($flashType === 'warning' || $flashType === 'danger'): ?>
+            <a href="settings.php#fcm-section" style="margin-inline-start:auto; font-size:12px; white-space:nowrap;">بررسی وضعیت اعلان گوشی ←</a>
+          <?php endif; ?>
         </div>
       <?php endif; ?>
 

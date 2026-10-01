@@ -23,6 +23,8 @@ $fileChecks = [
     'admin/notification_view.php'     => 'صفحه‌ی گیرندگان و وضعیت خواندن',
     'admin/version.php'               => 'همین صفحه‌ی بررسی نسخه',
     'modules/live.js'                 => 'کد اعلان‌های خود اپ',
+    'core/upload-progress.js'         => 'نوار پیشرفت آپلود عکس و فیلم',
+    'api/tiles.php'                   => 'پراکسی نقشه‌ی گزارش',
 ];
 $files = [];
 foreach ($fileChecks as $rel => $label) {
@@ -42,6 +44,17 @@ foreach ($markers as $needle => $label) {
     $codeMarkers[] = ['label' => $label, 'ok' => is_string($liveJs) && strpos($liveJs, $needle) !== false];
 }
 
+/* نشانه‌های سمت سرور: بدون این‌ها گوشی‌ها ثبت نمی‌شوند و اعلان‌ها به گوشی نمی‌رسد */
+$pushApi    = @file_get_contents(__DIR__ . '/../api/push.php');
+$commonApi  = @file_get_contents(__DIR__ . '/../api/_common.php');
+$serverMarkers = [
+    ['label' => 'ثبت گوشی از اپ اندروید (پذیرش فرم ساده در api/push.php)',
+     'ok'    => is_string($pushApi) && strpos($pushApi, 'eplakRequestInput') !== false
+                && is_string($commonApi) && strpos($commonApi, 'function eplakRequestInput') !== false],
+    ['label' => 'دفتر ارسال اعلان گوشی (push_log)',
+     'ok'    => (function () use ($pdo): bool { try { $pdo->query('SELECT 1 FROM push_log LIMIT 1'); return true; } catch (Throwable $e) { return false; } })()],
+];
+
 /* وضعیت اعلان‌ها */
 require_once __DIR__ . '/../shared/fcm.php';
 require_once __DIR__ . '/../shared/webpush.php';
@@ -51,6 +64,17 @@ $vapid  = eplakVapidKeys($pdo, false);
 $counts = ['tokens' => 0, 'push' => 0];
 try { $counts['tokens'] = eplakFcmCount($pdo); } catch (Throwable $e) {}
 try { $counts['push'] = (int) $pdo->query('SELECT COUNT(*) FROM push_subscriptions')->fetchColumn(); } catch (Throwable $e) {}
+
+$recentDevices = [];
+try {
+    $recentDevices = $pdo->query('SELECT user_phone, platform, is_active, last_error, last_seen_at FROM device_tokens ORDER BY id DESC LIMIT 5')->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {}
+$pushLogRows = eplakPushLogRecent($pdo, [], 6);
+$pushOutcomeLabels = [
+    'sent' => ['ارسال شد', 'ok'], 'partial' => ['بخشی رسید', 'warn'], 'failed' => ['گوگل نپذیرفت', 'bad'],
+    'no_device' => ['گوشی ثبت نیست', 'warn'], 'fcm_off' => ['کلید فایربیس نیست', 'warn'],
+    'google_error' => ['عدم دسترسی به گوگل', 'bad'], 'sent_web' => ['ارسال شد (مرورگر)', 'ok'],
+];
 
 $lastSends = [];
 try {
@@ -163,7 +187,7 @@ function vBadge(bool $ok, string $good = 'درست', string $bad = 'ناقص'): 
 
         <div class="v-card">
           <h3><i class="fas fa-code"></i> نشانه‌های نسخه‌ی جدید در کد سایت</h3>
-          <?php foreach ($codeMarkers as $m): ?>
+          <?php foreach (array_merge($codeMarkers, $serverMarkers) as $m): ?>
           <div class="v-row">
             <span class="v-key"><?= htmlspecialchars($m['label']) ?></span>
             <span class="v-val"><?= vBadge($m['ok'], 'موجود', 'موجود نیست') ?></span>
@@ -202,6 +226,50 @@ function vBadge(bool $ok, string $good = 'درست', string $bad = 'ناقص'): 
             <span class="v-key">اعلان مرورگر (Web Push)</span>
             <span class="v-val"><?= vBadge((bool) $vapid['ready'], 'آماده', 'تنظیم نشده') ?></span>
           </div>
+          <?php if ($counts['tokens'] === 0): ?>
+          <div class="v-note" data-testid="no-devices">
+            ⚠️ هیچ گوشی‌ای ثبت نشده است؛ تا وقتی صفر است، اعلان تغییر وضعیت فقط داخل اپ دیده می‌شود و روی گوشی
+            نمی‌نشیند. کاربر باید اپ (آخرین نسخه) را باز کند و با شماره‌اش وارد شود تا گوشی‌اش ثبت شود.
+          </div>
+          <?php endif; ?>
+          <div style="margin-top: 10px;">
+            <a href="settings.php#fcm-section" class="btn btn-outline"><i class="fas fa-stethoscope"></i> بررسی اتصال سرور به گوگل و ارسال آزمایشی</a>
+          </div>
+          <?php if (!empty($recentDevices)): ?>
+          <div style="margin-top: 14px;">
+            <div class="v-key" style="margin-bottom: 8px;">آخرین گوشی‌های ثبت‌شده</div>
+            <table style="width:100%; font-size:13px; border-collapse: collapse;">
+              <thead><tr style="text-align:right; color: var(--dark-500);"><th style="padding:6px 4px;">کاربر</th><th>وضعیت</th><th>آخرین ثبت</th></tr></thead>
+              <tbody>
+                <?php foreach ($recentDevices as $d): ?>
+                <tr style="border-top: 1px dashed var(--dark-200);">
+                  <td style="padding:6px 4px;" class="mono"><?= htmlspecialchars((string) $d['user_phone'] !== '' ? (string) $d['user_phone'] : 'مهمان') ?></td>
+                  <td><?= (int) $d['is_active'] === 1 ? vBadge(true, 'فعال') : vBadge(false, '', 'غیرفعال') ?></td>
+                  <td class="mono"><?= htmlspecialchars((string) ($d['last_seen_at'] ?? '')) ?></td>
+                </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+          <?php endif; ?>
+          <?php if (!empty($pushLogRows)): ?>
+          <div style="margin-top: 14px;">
+            <div class="v-key" style="margin-bottom: 8px;">آخرین ارسال‌ها به گوشی کاربران</div>
+            <table style="width:100%; font-size:13px; border-collapse: collapse;">
+              <thead><tr style="text-align:right; color: var(--dark-500);"><th style="padding:6px 4px;">کاربر</th><th>گزارش</th><th>نتیجه</th></tr></thead>
+              <tbody>
+                <?php foreach ($pushLogRows as $r): ?>
+                <?php $lab = $pushOutcomeLabels[(string) $r['outcome']] ?? [(string) $r['outcome'], 'warn']; ?>
+                <tr style="border-top: 1px dashed var(--dark-200);">
+                  <td style="padding:6px 4px;" class="mono"><?= htmlspecialchars((string) $r['user_phone']) ?></td>
+                  <td class="mono"><?= htmlspecialchars((string) ($r['code'] ?? '') !== '' ? (string) $r['code'] : (string) $r['kind']) ?></td>
+                  <td><span class="pill pill-<?= htmlspecialchars($lab[1]) ?>"><?= htmlspecialchars($lab[0]) ?></span></td>
+                </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+          <?php endif; ?>
           <?php if (!empty($lastSends)): ?>
           <div style="margin-top: 14px;">
             <div class="v-key" style="margin-bottom: 8px;">آخرین اعلان‌های ارسالی</div>

@@ -546,6 +546,27 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
+    /* دفتر ارسال اعلان گوشی: برای هر اعلانِ شخصی (مثل «در حال رسیدگی»)
+       نتیجه‌ی ارسال ثبت می‌شود تا مدیر بدون دسترسی به هاست ببیند اعلان چرا
+       رسید یا نرسید (گوشی ثبت نیست؟ گوگل خطا داد؟ سرور به گوگل نمی‌رسد؟). */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS push_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notification_id INT NOT NULL DEFAULT 0,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        kind VARCHAR(30) NOT NULL DEFAULT '',
+        code VARCHAR(40) NOT NULL DEFAULT '',
+        title VARCHAR(250) NOT NULL DEFAULT '',
+        channel VARCHAR(20) NOT NULL DEFAULT 'fcm',
+        devices INT NOT NULL DEFAULT 0,
+        sent INT NOT NULL DEFAULT 0,
+        failed INT NOT NULL DEFAULT 0,
+        outcome VARCHAR(30) NOT NULL DEFAULT '',
+        error VARCHAR(400) NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_log_phone ON push_log(user_phone)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_push_log_code ON push_log(code)');
+
     /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */
     eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS report_media (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1099,6 +1120,25 @@ function eplakGetPdo(): PDO {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_device_token (token),
         KEY idx_device_tokens_phone (user_phone)
+    )");
+
+    /* دفتر ارسال اعلان گوشی (نتیجه‌ی هر ارسال؛ برای عیب‌یابی در پنل ادمین) */
+    eplakCreateTable($pdo, "CREATE TABLE IF NOT EXISTS push_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        notification_id INT NOT NULL DEFAULT 0,
+        user_phone VARCHAR(20) NOT NULL DEFAULT '',
+        kind VARCHAR(30) NOT NULL DEFAULT '',
+        code VARCHAR(40) NOT NULL DEFAULT '',
+        title VARCHAR(250) NOT NULL DEFAULT '',
+        channel VARCHAR(20) NOT NULL DEFAULT 'fcm',
+        devices INT NOT NULL DEFAULT 0,
+        sent INT NOT NULL DEFAULT 0,
+        failed INT NOT NULL DEFAULT 0,
+        outcome VARCHAR(30) NOT NULL DEFAULT '',
+        error VARCHAR(400) NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_push_log_phone (user_phone),
+        KEY idx_push_log_code (code)
     )");
 
     /* فایل‌های پیوست گزارش‌ها (عکس و فیلم ارسالی شهروند) */

@@ -39,6 +39,23 @@ class MainActivity : AppCompatActivity() {
            تایید بگیرد. */
         const val SESSION_PREFS = "eplak_session"
         const val KEY_REQUIRE_LOGIN = "require_login"
+
+        /* آخرین WebView زنده. وقتی فایربیس توکن تازه‌ای می‌دهد (توکن غیرهمگام
+           می‌رسد؛ در اولین اجرا لایه‌ی وب آن را هنوز ندارد)، به لایه‌ی وب خبر
+           می‌دهیم تا همان لحظه گوشی را در سرور ثبت کند. بدون این هم‌خوانی، ثبت
+           گوشی تا «بار بعدی باز شدن اپ» عقب می‌افتاد. */
+        @Volatile
+        private var liveWebView: java.lang.ref.WeakReference<WebView>? = null
+
+        fun notifyFcmTokenReady() {
+            val view = liveWebView?.get() ?: return
+            view.post {
+                view.evaluateJavascript(
+                    "window.eplakOnFcmToken && window.eplakOnFcmToken();",
+                    null
+                )
+            }
+        }
     }
 
     private lateinit var webView: WebView
@@ -482,6 +499,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView = findViewById<WebView>(R.id.myWebView)
+        liveWebView = java.lang.ref.WeakReference(webView)
         val webSettings = webView.settings
 
         // فعال‌سازی جاوااسکریپت و ذخیره‌سازی
@@ -834,6 +852,7 @@ class MainActivity : AppCompatActivity() {
                 com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                     .addOnSuccessListener { fresh ->
                         prefs.edit().putString(EplakMessagingService.KEY_TOKEN, fresh).apply()
+                        notifyFcmTokenReady()
                     }
                 ""
             } catch (e: Throwable) {
@@ -862,9 +881,54 @@ class MainActivity : AppCompatActivity() {
                     .addOnSuccessListener { fresh ->
                         activity.getSharedPreferences(EplakMessagingService.PREFS, Context.MODE_PRIVATE)
                             .edit().putString(EplakMessagingService.KEY_TOKEN, fresh).apply()
+                        notifyFcmTokenReady()
                     }
             } catch (e: Throwable) {
                 /* فایربیس فعال نیست */
+            }
+        }
+
+        /* ── عیب‌یابی اعلان (برای پیام وضعیت و دکمه‌ی «تست اعلان» در اپ) ───── */
+
+        /** وضعیت اعلان روی همین گوشی، به‌صورت JSON: مجوز؟ توکن؟ فایربیس؟ نسخه‌ی اندروید */
+        @JavascriptInterface
+        fun getPushDiagnostics(): String {
+            val prefs = activity.getSharedPreferences(EplakMessagingService.PREFS, Context.MODE_PRIVATE)
+            val info = JSONObject()
+            info.put("enabled", NotificationBridge.isEnabled(activity))
+            info.put("token", !(prefs.getString(EplakMessagingService.KEY_TOKEN, "") ?: "").isEmpty())
+            info.put("sdk", Build.VERSION.SDK_INT)
+            info.put(
+                "firebase",
+                try {
+                    com.google.firebase.FirebaseApp.getInstance()
+                    true
+                } catch (e: Throwable) {
+                    false
+                }
+            )
+            return info.toString()
+        }
+
+        /** باز کردن «تنظیمات اعلان» همین برنامه (وقتی اندروید دیگر پنجره‌ی اجازه را نشان نمی‌دهد) */
+        @JavascriptInterface
+        fun openNotificationSettings() {
+            activity.runOnUiThread {
+                try {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    intent.putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+                    activity.startActivity(intent)
+                } catch (e: Throwable) {
+                    try {
+                        val fallback = Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + activity.packageName)
+                        )
+                        activity.startActivity(fallback)
+                    } catch (ignored: Throwable) {
+                        /* گوشی صفحه‌ی تنظیمات را ندارد */
+                    }
+                }
             }
         }
     }

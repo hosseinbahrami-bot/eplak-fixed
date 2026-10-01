@@ -7,13 +7,55 @@ $report = getReportById($pdo, $id);
 $message = '';
 $messageType = '';
 
+require_once __DIR__ . '/../shared/notify_events.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $report) {
     eplakRequireCsrf();
-    $status = $_POST['status'] ?? 'pending';
-    $reply = trim($_POST['reply'] ?? '');
-    saveReportReply($pdo, $id, $reply, $status);
-    $message = '✅ پاسخ گزارش با موفقیت ثبت شد.';
-    $messageType = 'success';
+    $formAction = (string) ($_POST['form_action'] ?? 'reply');
+    $reportCode = reportCodeFor((int) $report['id']);
+    $reportPhone = eplakNotifyNormalizePhone((string) ($report['user_phone'] ?? ''));
+
+    if ($formAction === 'push_resend') {
+        /* ارسال دوباره‌ی آخرین اعلان این گزارش به گوشی‌های کاربر */
+        $res = eplakNotifyResendLast($pdo, $reportPhone, $reportCode);
+        if (($res['error'] ?? '') === 'no_notification') {
+            /* هنوز اعلانی برای این گزارش ساخته نشده؛ با وضعیت فعلی یکی می‌سازیم */
+            $res = eplakNotifyReply($pdo, $reportPhone, 'گزارش', $reportCode, normalizeStatusValue((string) ($report['status'] ?? 'pending')), '', null);
+        }
+        $d = eplakNotifyDescribe($res);
+        $message = ($d['type'] === 'success' ? '✅ ' : '⚠️ ') . 'ارسال دوباره: ' . $d['text'];
+        $messageType = $d['type'];
+    } elseif ($formAction === 'push_test') {
+        /* اعلان آزمایشی بی‌ربط به وضعیت گزارش، فقط برای سنجش مسیر گوشی این کاربر */
+        $tokens = $reportPhone !== '' ? eplakFcmTokens($pdo, [$reportPhone]) : [];
+        $title = 'اعلان آزمایشی — ای‌پلاک';
+        $sendRes = eplakFcmSend($pdo, $tokens, $title, 'این پیام از پنل مدیریت برای بررسی رسیدن اعلان به گوشی شما ارسال شده است.', ['url' => 'index.html', 'tag' => 'eplak-admin-test-' . time()], 12);
+        $sum = eplakFcmSummarize($sendRes, count($tokens));
+        eplakPushLogAdd($pdo, [
+            'user_phone' => $reportPhone, 'kind' => 'admin_test', 'code' => $reportCode, 'title' => $title,
+            'channel' => 'fcm', 'devices' => $sum['devices'], 'sent' => $sum['sent'], 'failed' => $sum['failed'],
+            'outcome' => $sum['outcome'], 'error' => $sum['error'],
+        ]);
+        if ($sum['outcome'] === 'sent') {
+            $message = '✅ اعلان آزمایشی به ' . (int) $sum['sent'] . ' گوشی این کاربر ارسال شد.';
+            $messageType = 'success';
+        } else {
+            $message = '⚠️ اعلان آزمایشی ارسال نشد. ' . ($sum['hint'] !== '' ? $sum['hint'] : $sum['error']);
+            $messageType = 'warning';
+        }
+    } else {
+        $status = (string) ($_POST['status'] ?? 'pending');
+        $reply = trim((string) ($_POST['reply'] ?? ''));
+        $notify = saveReportReply($pdo, $id, $reply, $status);
+        if ($notify) {
+            $d = eplakNotifyDescribe($notify);
+            $message = ($d['type'] === 'success' ? '✅ ' : '⚠️ ') . 'تغییر ثبت شد. ' . $d['text'];
+            $messageType = $d['type'];
+        } else {
+            $message = 'ℹ️ وضعیت و پاسخ همان قبلی است؛ تغییری ثبت نشد و اعلان تازه‌ای هم ساخته نشد.';
+            $messageType = 'info';
+        }
+    }
     $report = getReportById($pdo, $id);
 }
 
@@ -36,6 +78,28 @@ $reportEvents = $report ? eplakReportEvents($pdo, (int) $report['id']) : [];
 $reportMedia  = $report ? getReportMedia($pdo, (int) $report['id']) : [];
 $mediaImages  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') !== 'video'));
 $mediaVideos  = array_values(array_filter($reportMedia, static fn($m) => ($m['kind'] ?? 'image') === 'video'));
+
+/* وضعیت اعلان گوشی این کاربر: گوشی‌های ثبت‌شده + نتیجه‌ی ارسال‌های اخیر */
+$pushPhone   = $report ? eplakNotifyNormalizePhone((string) ($report['user_phone'] ?? '')) : '';
+$pushDevices = $pushPhone !== '' ? eplakFcmDevicesOf($pdo, $pushPhone, 6) : [];
+$pushActive  = 0;
+foreach ($pushDevices as $dev) {
+    if ((int) ($dev['is_active'] ?? 0) === 1) {
+        $pushActive++;
+    }
+}
+$pushLogRows = [];
+if ($report) {
+    $pushLogRows = eplakPushLogRecent($pdo, ['code' => reportCodeFor((int) $report['id'])], 6);
+    if (!$pushLogRows && $pushPhone !== '') {
+        $pushLogRows = eplakPushLogRecent($pdo, ['phone' => $pushPhone], 4);
+    }
+}
+$pushOutcomeLabels = [
+    'sent' => ['ارسال شد', 'ok'], 'partial' => ['بخشی رسید', 'warn'], 'failed' => ['گوگل نپذیرفت', 'bad'],
+    'no_device' => ['گوشی ثبت نیست', 'warn'], 'fcm_off' => ['کلید فایربیس نیست', 'warn'],
+    'google_error' => ['عدم دسترسی به گوگل', 'bad'], 'sent_web' => ['ارسال شد (مرورگر)', 'ok'],
+];
 
 // دریافت اطلاعات کاربر
 $userInfo = null;
@@ -97,9 +161,12 @@ if ($report && !empty($report['user_phone'])) {
       </header>
 
       <?php if ($message): ?>
-        <div class="alert alert-<?= $messageType === 'success' ? 'success' : 'danger' ?>">
+        <?php $alertType = in_array($messageType, ['success', 'warning', 'info'], true) ? $messageType : 'danger'; ?>
+        <div class="alert alert-<?= $alertType ?>" data-testid="reply-flash" data-notify-type="<?= htmlspecialchars((string) $messageType) ?>">
           <?php if ($messageType === 'success'): ?>
             <i class="fas fa-check-circle"></i>
+          <?php elseif ($messageType === 'info'): ?>
+            <i class="fas fa-info-circle"></i>
           <?php else: ?>
             <i class="fas fa-exclamation-circle"></i>
           <?php endif; ?>
@@ -448,6 +515,73 @@ if ($report && !empty($report['user_phone'])) {
       </section>
       <?php endif; ?>
 
+      <!-- ===== وضعیت اعلان گوشی کاربر ===== -->
+      <?php if ($report): ?>
+      <section class="panel" id="push-panel" data-testid="push-panel">
+        <h2>
+          <i class="fas fa-bell" style="color: var(--primary-500); margin-left: 10px;"></i>
+          اعلان گوشی این کاربر
+        </h2>
+        <?php if ($pushPhone === ''): ?>
+          <p class="help-text">این گزارش شماره‌ی موبایلی ندارد؛ اعلان شخصی ساخته نمی‌شود.</p>
+        <?php else: ?>
+          <p style="margin:0 0 10px; line-height:2;" data-testid="push-devices">
+            <?php if ($pushActive > 0): ?>
+              <span style="background:var(--success-bg); color:var(--success); padding:3px 10px; border-radius:999px; font-weight:600; font-size:12px;">✔ <?= (int) $pushActive ?> گوشی فعال</span>
+              اعلان تغییر وضعیت/پاسخ به <?= (int) $pushActive ?> گوشی این کاربر ارسال می‌شود.
+            <?php else: ?>
+              <span style="background:var(--warning-bg); color:var(--warning); padding:3px 10px; border-radius:999px; font-weight:600; font-size:12px;">⚠ گوشی ثبت نیست</span>
+              تا وقتی کاربر اپ (آخرین نسخه) را باز نکند و با این شماره وارد نشود، فقط «اعلان داخل اپ» ثبت می‌شود و اعلان سیستمی به گوشی نمی‌رسد.
+            <?php endif; ?>
+          </p>
+          <?php if ($pushDevices): ?>
+            <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:12px;">
+              <thead><tr style="color:var(--dark-500); text-align:right;"><th style="padding:5px 4px;">دستگاه</th><th>وضعیت</th><th>آخرین ثبت</th><th>آخرین خطا</th></tr></thead>
+              <tbody>
+                <?php foreach ($pushDevices as $dev): ?>
+                  <tr style="border-top:1px dashed var(--dark-200);">
+                    <td style="padding:5px 4px;"><?= htmlspecialchars((string) ($dev['platform'] ?? 'android')) ?></td>
+                    <td><?= (int) $dev['is_active'] === 1 ? 'فعال' : 'غیرفعال' ?></td>
+                    <td dir="ltr" style="text-align:right;"><?= htmlspecialchars((string) ($dev['last_seen_at'] ?? '')) ?></td>
+                    <td style="color:var(--dark-500); word-break:break-word;"><?= htmlspecialchars((string) ($dev['last_error'] ?? '')) ?: '—' ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+          <?php if ($pushLogRows): ?>
+            <table style="width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:12px;" data-testid="push-log">
+              <thead><tr style="color:var(--dark-500); text-align:right;"><th style="padding:5px 4px;">زمان</th><th>نوع</th><th>نتیجه</th><th>توضیح</th></tr></thead>
+              <tbody>
+                <?php foreach ($pushLogRows as $r): ?>
+                  <?php $lab = $pushOutcomeLabels[(string) $r['outcome']] ?? [(string) $r['outcome'], 'warn']; ?>
+                  <tr style="border-top:1px dashed var(--dark-200);">
+                    <td dir="ltr" style="text-align:right; padding:5px 4px;"><?= htmlspecialchars((string) ($r['created_at'] ?? '')) ?></td>
+                    <td><?= htmlspecialchars(['reply' => 'پاسخ/وضعیت', 'resend' => 'ارسال دوباره', 'admin_test' => 'آزمایشی', 'test' => 'آزمایشی'][(string) $r['kind']] ?? (string) $r['kind']) ?></td>
+                    <td><?= htmlspecialchars($lab[0]) ?><?php if ((int) $r['devices'] > 0): ?> (<?= (int) $r['sent'] ?>/<?= (int) $r['devices'] ?>)<?php endif; ?></td>
+                    <td style="color:var(--dark-500); word-break:break-word;"><?= htmlspecialchars(mb_substr((string) ($r['error'] ?? ''), 0, 140, 'UTF-8')) ?: '—' ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+          <div style="display:flex; flex-wrap:wrap; gap:10px;">
+            <form method="post" style="margin:0;">
+              <?= eplakCsrfField() ?>
+              <input type="hidden" name="form_action" value="push_resend">
+              <button type="submit" class="btn btn-outline"><i class="fas fa-rotate-right"></i> ارسال دوباره‌ی آخرین اعلان</button>
+            </form>
+            <form method="post" style="margin:0;">
+              <?= eplakCsrfField() ?>
+              <input type="hidden" name="form_action" value="push_test">
+              <button type="submit" class="btn btn-outline"><i class="fas fa-vial"></i> اعلان آزمایشی به گوشی این کاربر</button>
+            </form>
+            <a href="settings.php#fcm-section" class="btn btn-outline"><i class="fas fa-stethoscope"></i> بررسی اتصال به گوگل</a>
+          </div>
+        <?php endif; ?>
+      </section>
+      <?php endif; ?>
+
       <!-- ===== فرم ثبت پاسخ ===== -->
       <section class="panel reply-form-panel">
         <h2>
@@ -456,6 +590,7 @@ if ($report && !empty($report['user_phone'])) {
         </h2>
         <form method="post" class="reply-form">
 <?= eplakCsrfField() ?>
+          <input type="hidden" name="form_action" value="reply">
           <div class="form-group">
             <label for="status">
               <i class="fas fa-tag" style="color: var(--primary-500); margin-left: 6px;"></i>

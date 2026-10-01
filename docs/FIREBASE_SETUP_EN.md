@@ -191,6 +191,34 @@ The panel now shows Google’s real error text (e.g. `UNREGISTERED`, `SERVICE_DI
 
 ---
 
+## 🔔 “I set a report to *in progress / done* but the citizen got no notification”
+
+A status change or reply is created from **three places** and **all three** now notify the citizen:
+the *reply* form on the report detail page, the *quick status* select on the reports list, and the *edit* page.
+(Only when the status or the reply text **actually changed** — re-saving the same status with the same reply does not create a duplicate.)
+
+After every change the panel shows a coloured message with the **real outcome**:
+
+| Panel message | Meaning | What to do |
+|---|---|---|
+| ✅ “… phone notification sent to N devices” | Google accepted the message | nothing; if the phone shows nothing, check notification permission and battery saver |
+| ⚠️ “no phone registered” | the in-app notification was stored but this user's phone is not registered on the server | the user must install the **latest APK**, open it and sign in with their number (registration is automatic); then press *resend last notification* on the report page |
+| ⚠️ “Firebase key not configured” | no service key in the panel | Parts 4–5 of this guide |
+| ❌ “server cannot reach Google” | the host firewall/DNS blocks outbound HTTPS to `googleapis.com` | ask the host to allow `oauth2.googleapis.com` and `fcm.googleapis.com` on port 443 |
+| ❌ “Google rejected the send …” | a Google error (text + fix shown in the message) | the table above |
+
+**Diagnostics inside the panel (no host access needed):**
+- **Settings → section «بررسی زنجیره‌ی اعلان» (Check the notification chain) → button «بررسی اتصال به گوگل و فایربیس»** — tests key → Google OAuth → FCM API → registered phones, with a plain-language fix for each broken step. Sends nothing to anyone.
+- **Settings → “Registered phones” / “Latest sends”**.
+- **Report detail → “Phone notification for this user”** — the user's devices, per-report send results, *resend* and *test* buttons.
+- **Version check** — the *registered phones* number, and the marker “phone registration from the Android app” must read *present*; if it does not, `api/_common.php` / `api/push.php` from the latest update package are not on the host.
+
+**Inside the app (citizen):** the notifications screen shows a status line (✅ registered / ⏳ fetching id / ⚠️ not registered) and a **“Test notification”** button that sends a test to *this* phone and explains any failure. If the permission was denied, **“Phone notification settings”** opens the app's system notification settings.
+
+> **Previous root cause:** the app registered its phone as a plain form post, but `api/push.php` only read JSON, so every registration was rejected with HTTP 400 and `device_tokens` stayed empty (no panel notification ever left the server). The server now accepts both formats, and the app retries with 2/4/8/16/30 s back-off until registration succeeds and refreshes it every 6 hours.
+
+---
+
 # ❓ FAQ
 
 **Is it free?** Yes — FCM is free at this volume.

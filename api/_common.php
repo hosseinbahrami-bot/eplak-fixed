@@ -62,6 +62,52 @@ function eplakReadJsonBody(): array {
     return is_array($decoded) ? $decoded : [];
 }
 
+/* ورودی درخواست، از هر قالبی که کلاینت فرستاده باشد:
+     ۱) بدنه‌ی JSON  ({"action":"register_fcm","token":"…"})
+     ۲) فرم ساده (application/x-www-form-urlencoded یا multipart) ← $_POST
+     ۳) فرم خام که PHP پارسش نکرده (مثلاً Content-Type: text/plain)
+     ۴) پارامترهای نشانی (?action=…&phone=…) برای کلیدهایی که در بدنه نیامده‌اند
+
+   چرا لازم شد؟ اپ اندروید توکن فایربیس را با «فرم ساده» می‌فرستد (چون فرم ساده
+   درخواست پیش‌پرواز CORS ندارد و روی همه‌ی هاست‌ها کار می‌کند) ولی api/push.php
+   فقط JSON می‌خواند؛ در نتیجه سرور همیشه «توکن دستگاه الزامی است» می‌گفت، هیچ
+   گوشی‌ای ثبت نمی‌شد و هیچ اعلانی (حتی «در حال رسیدگی/انجام شد») به گوشی نمی‌رفت.
+   همه‌ی اندپوینت‌هایی که ورودی کلاینت را می‌خوانند باید از همین تابع استفاده کنند. */
+function eplakRequestInput(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+
+    $input = [];
+    $raw   = (string) file_get_contents('php://input');
+    $trim  = ltrim($raw);
+
+    if ($trim !== '' && ($trim[0] === '{' || $trim[0] === '[')) {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $input = $decoded;
+        }
+    }
+    if (!$input && !empty($_POST) && is_array($_POST)) {
+        $input = $_POST;
+    }
+    if (!$input && $trim !== '' && strpos($trim, '=') !== false && ($trim[0] ?? '') !== '<') {
+        $parsed = [];
+        parse_str($raw, $parsed);
+        if (is_array($parsed) && $parsed) {
+            $input = $parsed;
+        }
+    }
+    foreach ($_GET as $key => $value) {
+        if (!array_key_exists($key, $input)) {
+            $input[$key] = $value;
+        }
+    }
+
+    return $cache = $input;
+}
+
 function eplakStr($value, int $maxLen): string {
     $value = trim((string) ($value ?? ''));
     if ($value === '') {

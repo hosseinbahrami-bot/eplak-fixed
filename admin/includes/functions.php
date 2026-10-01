@@ -383,8 +383,25 @@ function createReport(PDO $pdo, array $data): int {
     return (int)$pdo->lastInsertId();
 }
 
-function updateReport(PDO $pdo, int $id, array $data): void {
+/** کد پیگیری نمایشی گزارش (همان که شهروند در اپ می‌بیند) */
+function reportCodeFor(int $id): string {
+    return 'EP-1403-' . str_pad((string) ($id + 1000), 4, '0', STR_PAD_LEFT);
+}
+
+/**
+ * ویرایش کامل گزارش (صفحه‌ی «ویرایش»).
+ *
+ * اگر در این ویرایش «وضعیت» عوض شده باشد، دقیقاً مثل ثبت پاسخ:
+ *   ۱) یک گام «تغییر وضعیت» در روند رسیدگی ثبت می‌شود،
+ *   ۲) اعلان شخصی برای شهروند ساخته می‌شود (فهرست اعلان‌های اپ)،
+ *   ۳) اعلان سیستمی به گوشی‌های ثبت‌شده‌ی او فرستاده می‌شود.
+ * (پیش از این، تغییر وضعیت از صفحه‌ی ویرایش کاملاً بی‌صدا بود.)
+ *
+ * خروجی: نتیجه‌ی اعلان (eplakNotifyUser)؛ آرایه‌ی خالی یعنی اعلانی لازم نبود.
+ */
+function updateReport(PDO $pdo, int $id, array $data): array {
     $before = getReportById($pdo, $id);
+    $newStatus = normalizeStatusValue((string)($data['status'] ?? 'pending'));
     $stmt = $pdo->prepare('UPDATE reports SET user_phone = :user_phone, title = :title, description = :description, category = :category, department = :department, sub_department = :sub_department, location = :location, status = :status WHERE id = :id');
     $stmt->execute([
         ':user_phone' => trim((string)($data['user_phone'] ?? '')),
@@ -394,9 +411,12 @@ function updateReport(PDO $pdo, int $id, array $data): void {
         ':department' => trim((string)($data['department'] ?? '')),
         ':sub_department' => trim((string)($data['sub_department'] ?? '')),
         ':location' => trim((string)($data['location'] ?? '')),
-        ':status' => normalizeStatusValue((string)($data['status'] ?? 'pending')),
+        ':status' => $newStatus,
         ':id' => $id,
     ]);
+
+    $previousStatus = is_array($before) ? normalizeStatusValue((string) ($before['status'] ?? '')) : '';
+    $statusChanged  = is_array($before) && $previousStatus !== $newStatus;
 
     /* روند رسیدگی: تغییرات مهم ویرایش، به زبان شهروند ثبت می‌شود */
     try {
@@ -405,9 +425,28 @@ function updateReport(PDO $pdo, int $id, array $data): void {
         if (is_array($before)) {
             eplakReportEventEdit($pdo, $id, $before, $data);
         }
+        if ($statusChanged) {
+            eplakReportEventStatus($pdo, $id, $newStatus, '');
+        }
     } catch (Throwable $e) {
         /* بی‌اهمیت */
     }
+
+    /* اعلان به شهروند: فقط وقتی وضعیت واقعاً عوض شده باشد */
+    $notify = [];
+    if ($statusChanged) {
+        try {
+            $rep   = getReportById($pdo, $id);
+            $phone = trim((string) ($rep['user_phone'] ?? ''));
+            if ($phone !== '') {
+                require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+                $notify = eplakNotifyReply($pdo, $phone, 'گزارش', reportCodeFor($id), $newStatus, '', true);
+            }
+        } catch (Throwable $e) {
+            error_log('[eplak-admin:report.edit-notify] ' . $e->getMessage());
+        }
+    }
+    return $notify;
 }
 
 function getReportById(PDO $pdo, int $id): ?array {
@@ -418,12 +457,31 @@ function getReportById(PDO $pdo, int $id): ?array {
     return $report ?: null;
 }
 
-function saveReportReply(PDO $pdo, int $id, string $reply, string $status): void {
+/**
+ * ثبت پاسخ/وضعیت گزارش و خبر دادن به شهروند.
+ *
+ * «تغییر» یعنی یکی از این دو:
+ *   • وضعیت با وضعیت ذخیره‌شده فرق دارد،
+ *   • متن پاسخ، غیرخالی و با پاسخ ذخیره‌شده فرق دارد.
+ * (فهرست گزارش‌ها هنگام تغییر سریع وضعیت، «پاسخ ذخیره‌شده» را بدون تغییر می‌فرستد؛
+ *  آن را پاسخ تازه حساب نمی‌کنیم تا در اعلان و روند رسیدگی تکرار نشود.)
+ *
+ * خروجی: نتیجه‌ی اعلان (eplakNotifyUser: ok/id/pushed/push[...]) برای نمایش به
+ * مدیر؛ آرایه‌ی خالی یعنی تغییری نبود و اعلانی ساخته نشد.
+ */
+function saveReportReply(PDO $pdo, int $id, string $reply, string $status): array {
     $normStatus = normalizeStatusValue($status);
 
-    /* وضعیت پیشین برای ثبت گام «تغییر وضعیت» در روند رسیدگی */
+    /* وضعیت و پاسخ پیشین برای تشخیص «تغییر واقعی» */
     $previous = getReportById($pdo, $id);
     $previousStatus = $previous ? normalizeStatusValue((string) ($previous['status'] ?? '')) : '';
+    /* مقایسه‌ی پاسخ بدون حساسیت به نوع خط جدید (مرورگر CRLF می‌فرستد، ذخیره‌شده‌ی قدیمی
+       ممکن است LF باشد؛ نباید این تفاوت، پاسخ قدیمی را «تازه» نشان دهد) */
+    $normText = static fn($t): string => trim(str_replace(["\r\n", "\r"], "\n", (string) $t));
+    $previousReply = $previous ? $normText($previous['reply'] ?? '') : '';
+
+    $statusChanged = $previousStatus !== $normStatus;
+    $replyIsNew    = $normText($reply) !== '' && $normText($reply) !== $previousReply;
 
     $stmt = $pdo->prepare('UPDATE reports SET reply = :reply, status = :status WHERE id = :id');
     $stmt->bindValue(':reply', $reply);
@@ -438,8 +496,8 @@ function saveReportReply(PDO $pdo, int $id, string $reply, string $status): void
     try {
         require_once dirname(__DIR__, 2) . '/shared/media.php';
         eplakReportTimelineBootstrap($pdo, $id, is_array($previous) ? $previous : []);
-        if ($previousStatus !== $normStatus || trim($reply) !== '') {
-            eplakReportEventStatus($pdo, $id, $normStatus, $reply);
+        if ($statusChanged || $replyIsNew) {
+            eplakReportEventStatus($pdo, $id, $normStatus, $replyIsNew ? $reply : '');
         }
     } catch (Throwable $e) {
         /* روند رسیدگی هرگز نباید ذخیره‌ی وضعیت را متوقف کند */
@@ -449,17 +507,23 @@ function saveReportReply(PDO $pdo, int $id, string $reply, string $status): void
        از همان تابع مشترک تیکت‌ها استفاده می‌کنیم تا اعلان گزارش و تیکت یک
        شکل باشند و هم در فهرست اعلان‌های اپ ثبت شوند و هم (اگر اپ بسته باشد)
        از مسیر فایربیس به گوشی برسند. */
+    $notify = [];
     try {
         $rep = getReportById($pdo, $id);
-        $phone = (string) ($rep['user_phone'] ?? '');
-        if ($phone !== '' && ($previousStatus !== $normStatus || trim($reply) !== '')) {
+        $phone = trim((string) ($rep['user_phone'] ?? ''));
+        if ($phone !== '' && ($statusChanged || $replyIsNew)) {
             require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
-            $code = 'EP-1403-' . str_pad((string) ((int) $id + 1000), 4, '0', STR_PAD_LEFT);
-            eplakNotifyReply($pdo, $phone, 'گزارش', $code, $normStatus, $reply);
+            $notify = eplakNotifyReply(
+                $pdo, $phone, 'گزارش', reportCodeFor($id), $normStatus,
+                $replyIsNew ? $reply : '',
+                $statusChanged
+            );
         }
     } catch (Throwable $e) {
-        // بدون توقف عملیات اصلی
+        /* بدون توقف عملیات اصلی؛ ولی علت در لاگ هاست می‌ماند */
+        error_log('[eplak-admin:report.notify] ' . $e->getMessage());
     }
+    return $notify;
 }
 
 function deleteReportReply(PDO $pdo, int $id): void {

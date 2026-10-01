@@ -141,8 +141,8 @@ ok('تابع eplakNotifyRequestCreated متن «کد پیگیری … در تا�
   events.includes('function eplakNotifyRequestCreated') && events.includes('کد پیگیری') && events.includes('ثبت شد'));
 ok('ثبت گزارش، اعلان فوری می‌سازد', read('api/reports.php').includes('eplakNotifyRequestCreated'));
 ok('ثبت تیکت/پیام هم اعلان فوری می‌سازد', read('api/tickets.php').includes('eplakNotifyRequestCreated'));
-ok('اعلان رویدادی هم در فهرست ذخیره و هم با فایربیس فرستاده می‌شود',
-  events.includes('INSERT INTO notifications') && events.includes('eplakFcmNotifyPhone'));
+ok('اعلان رویدادی هم در فهرست ذخیره و هم با فایربیس فرستاده می‌شود (و نتیجه‌ی ارسال در push_log ثبت می‌شود)',
+  events.includes('INSERT INTO notifications') && events.includes('eplakFcmSend(') && events.includes('eplakPushLogAdd('));
 ok('تاریخ و ساعت شمسی برای متن اعلان محاسبه می‌شود',
   exists('shared/fa_datetime.php') && read('shared/fa_datetime.php').includes('eplakGregorianToJalali'));
 ok('اپ بعد از ثبت درخواست، فهرست اعلان‌ها را بلافاصله تازه می‌کند',

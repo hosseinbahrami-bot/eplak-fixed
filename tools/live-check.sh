@@ -110,6 +110,7 @@ check_marker() { # label marker
 }
 check_marker "ثبت دستگاه اپ (فایربیس)" "registerAppDevice"
 check_marker "کنش \`register_fcm\`" "register_fcm"
+check_marker "تلاش مجدد و «تست اعلان» در ثبت گوشی (اپ تازه)" "eplakOnFcmToken"
 check_marker "تشخیص آماده بودن فایربیس" "isFcmReady"
 check_marker "اعلان‌های داخل برنامه" "اعلان‌های داخل برنامه فعال است"
 check_marker "کنش حذف اعلان" "deleteNotifications"
@@ -164,6 +165,52 @@ else
   NEW_NOTIF="no"
   STATUS="fail"
   ISSUES+=("سرویس api/notifications.php پاسخ درست نداد")
+fi
+
+# ── ۳-۳) ثبت گوشی با «فرم ساده» — همان قالبی که اپ اندروید می‌فرستد ──────────
+hdr "۳-۳) ثبت گوشی از اپ — \`register_fcm\` با فرم ساده"
+say "> یک توکن آزمایشی ثبت می‌کند و بلافاصله پاکش می‌کند؛ به هیچ گوشی/کاربری اعلان نمی‌رود."
+say "> اگر این گام ❌ باشد، هیچ گوشی‌ای ثبت نمی‌شود و **هیچ اعلان پنلی (در حال رسیدگی / انجام شد) به گوشی نمی‌رسد**."
+say ""
+PROBE_TOKEN="eplak-livecheck-$(date -u +%s)-$$"
+REG="$TMP/reg.json"; REGST="$TMP/regst.json"; REGDEL="$TMP/regdel.json"
+CODE_REG=$(curl -sS --max-time 30 -A "$UA" -o "$REG" -w '%{http_code}' -X POST \
+  --data-urlencode "action=register_fcm" --data-urlencode "phone=09000000000" \
+  --data-urlencode "token=$PROBE_TOKEN" --data-urlencode "platform=android" \
+  "$BASE/api/push.php" 2>/dev/null) || CODE_REG="000"
+say "| مورد | نتیجه |"
+say "|---|---|"
+say "| ثبت با فرم ساده — کد پاسخ | \`$CODE_REG\` |"
+say "| پاسخ | \`$(head -c 220 "$REG" 2>/dev/null | tr '\n' ' ')\` |"
+FORM_REG="no"
+if has "$REG" '"success":true'; then
+  FORM_REG="yes"
+  say "| ثبت از فرم ساده | ✅ سرور می‌پذیرد (اپ اندروید می‌تواند گوشی را ثبت کند) |"
+  # همان گوشی در سرور دیده می‌شود؟
+  CODE_REGST=$(grab "$BASE/api/push.php?action=status&phone=09000000000&token=$PROBE_TOKEN" "$REGST")
+  if has "$REGST" '"registered":true'; then
+    say "| دیده شدن گوشی در سرور | ✅ \`registered: true\` |"
+  else
+    say "| دیده شدن گوشی در سرور | ⚠️ پاسخ \`status\` قدیمی است یا گوشی ذخیره نشد (کد $CODE_REGST) |"
+    ISSUES+=("پس از ثبت، وضعیت گوشی در سرور تأیید نشد (api/push.php?action=status)")
+  fi
+  # پاک‌سازی: توکن آزمایشی نباید در جدول بماند
+  curl -sS --max-time 20 -A "$UA" -o "$REGDEL" -X POST \
+    --data-urlencode "action=unregister_fcm" --data-urlencode "token=$PROBE_TOKEN" \
+    "$BASE/api/push.php" >/dev/null 2>&1 || true
+  grab "$BASE/api/push.php?action=status&phone=09000000000&token=$PROBE_TOKEN" "$REGST" >/dev/null
+  if has "$REGST" '"registered":false'; then
+    say "| پاک‌سازی توکن آزمایشی | ✅ انجام شد |"
+  else
+    say "| پاک‌سازی توکن آزمایشی | ⚠️ تأیید نشد (توکن \`$PROBE_TOKEN\` را می‌توان از «تنظیمات ← گوشی‌های ثبت‌شده» دید؛ اثری بر کاربران ندارد) |"
+  fi
+else
+  say "| ثبت از فرم ساده | ❌ سرور نپذیرفت |"
+  say ""
+  say "**علت محتمل:** \`api/push.php\` و \`api/_common.php\` از آخرین بسته‌ی به‌روزرسانی روی هاست نیامده‌اند"
+  say "(نسخه‌ی قدیمی فقط JSON می‌خواند، ولی اپ فرم ساده می‌فرستد ← خطای ۴۰۰ «توکن دستگاه الزامی است»)."
+  STATUS="fail"
+  ISSUES+=("ثبت گوشی از اپ (فرم ساده) روی سرور پذیرفته نمی‌شود؛ فایل‌های api/push.php و api/_common.php بسته‌ی تازه را آپلود کنید")
 fi
 
 # ── ۴) نسخه‌ی فایل‌های اصلی سایت (کش‌باستر) ────────────────────────────────

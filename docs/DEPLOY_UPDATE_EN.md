@@ -236,6 +236,10 @@ asks for the phone number and the verification code again. (Browser sessions are
 - [ ] **News & tips**: add/edit one and see it on the site
 - [ ] **Reports**: submit a report with a photo, open it in the panel and see the photo
 - [ ] **Test notification**: send one from the panel to your own phone
+- [ ] **Panel → «بررسی نسخه» (Version check)**: the marker “phone registration from the Android app” must read *present* (it means the new `api/_common.php` and `api/push.php` are on the host)
+- [ ] **Phone registration**: open the app online and sign in → «بررسی نسخه» → *registered phones* must be greater than 0
+- [ ] **Status-change notification**: change a report's status in the panel → the top of the page states the real outcome (“sent to 1 device”, or the reason it did not arrive, in plain language)
+- [ ] If it did not arrive: **Settings → “Check the notification chain”** (step-by-step cause) and the section “I set a report to in progress / done but the citizen got no notification” in `docs/FIREBASE_SETUP_EN.md`
 - [ ] **Read status:** open a notification in the app → panel → Notifications → eye icon
       (view recipients) → it should show “خوانده شده / Read”
 - [ ] If anything errors: `admin → تنظیمات → Server technical status` and the

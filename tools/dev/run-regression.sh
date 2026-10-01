@@ -22,6 +22,10 @@
 #                 تکه‌ی تکراری، سقف تعداد تکه)، و ساخته نشدن زودهنگام گزارش
 #    tiles      → کاشی‌های نقشه از سرور خودِ ای‌پلاک (پروکسی + کش) و جابه‌جایی
 #                 خودکار منبع‌های نقشه در اپ
+#    push       → «تغییر وضعیت/پاسخ در پنل ← اعلان روی گوشی کاربر»: ثبت گوشی با
+#                 فرم ساده و JSON، سه مسیر پنل (جزئیات/تغییر سریع/ویرایش)، گوگلِ
+#                 ساختگی، push_log، شکست‌ها (گوشی ثبت‌نشده، قطع بودن گوگل، توکن
+#                 باطل، ۴۰۱) و تلاش مجدد/تست اعلان در لایه‌ی وب اپ
 # ============================================================================
 set -uo pipefail
 
@@ -67,7 +71,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue online geo upload tiles; do
+for t in notify app pushcrypto fcm backend rescue online geo upload tiles push; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

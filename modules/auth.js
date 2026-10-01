@@ -284,6 +284,15 @@
     const phoneInput = document.getElementById('loginPhoneInput');
     if (phoneInput) phoneInput.value = '';
 
+    /* خروج صریح از حساب: گوشی از شماره‌ی این کاربر جدا می‌شود تا اعلان‌های
+       شخصی او به کاربر بعدیِ همین گوشی نرسد (خروج از خود اپ، گوشی را جدا
+       نمی‌کند؛ وگرنه اعلان در حالت بسته بودن اپ هرگز نمی‌رسید). */
+    try {
+      if (typeof window.eplakDetachDevice === 'function') {
+        window.eplakDetachDevice();
+      }
+    } catch (e) {}
+
     if (typeof logoutCurrentUser === 'function') {
       logoutCurrentUser();
     } else {

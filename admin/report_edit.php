@@ -26,10 +26,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ];
 
     if ($payload['user_phone'] !== '' && $payload['title'] !== '' && $payload['description'] !== '') {
-        updateReport($pdo, $id, $payload);
+        $notify = updateReport($pdo, $id, $payload);
         $report = getReportById($pdo, $id);
         $message = '✅ گزارش با موفقیت بروزرسانی شد.';
         $messageType = 'success';
+        /* اگر وضعیت عوض شده باشد، کاربر اعلان می‌گیرد؛ نتیجه‌ی ارسال را همین‌جا نشان بده */
+        if ($notify) {
+            require_once __DIR__ . '/../shared/notify_events.php';
+            $d = eplakNotifyDescribe($notify);
+            $message .= ' ' . $d['text'];
+            $messageType = $d['type'];
+        }
     } else {
         $message = '⚠️ لطفاً موبایل، عنوان و توضیحات را وارد کنید.';
         $messageType = 'danger';

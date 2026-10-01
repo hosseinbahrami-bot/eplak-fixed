@@ -7,6 +7,7 @@
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/../shared/fcm.php';
+require_once __DIR__ . '/../shared/notify_events.php';
 
 $adminId  = (int) ($_SESSION['admin_id'] ?? 0);
 $admin    = getAdminById($pdo, $adminId);
@@ -109,33 +110,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+    } elseif ($action === 'diagnose_fcm') {
+        /* عیب‌یابی زنجیره‌ی اعلان (کلید ← گوگل ← سرویس ارسال ← گوشی‌ها) */
+        $fcmDiag = eplakFcmDiagnose($pdo);
+        $allOk = true;
+        foreach ($fcmDiag as $step) {
+            $allOk = $allOk && $step['ok'];
+        }
+        $message = $allOk
+            ? '✅ همه‌ی گام‌های زنجیره‌ی اعلان سالم است.'
+            : '⚠️ یکی از گام‌های زنجیره‌ی اعلان مشکل دارد؛ جزئیات را در بخش «بررسی زنجیره‌ی اعلان» ببینید.';
+        $messageType = $allOk ? 'success' : 'danger';
     } elseif ($action === 'test_fcm') {
-        $phone = trim((string) ($_POST['fcm_test_phone'] ?? ''));
-        $phone = str_replace(
-            ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹','٠','١','٢','٣','٤','٥','٦','٧','٨','٩',' ','-','(',')'],
-            ['0','1','2','3','4','5','6','7','8','9','0','1','2','3','4','5','6','7','8','9','','','',''],
-            $phone
-        );
+        /* همان قالبی که گوشی با آن ثبت می‌شود: 09xxxxxxxxx (رقم فارسی، فاصله و +98 هم درست می‌شود) */
+        $phone = eplakNotifyNormalizePhone((string) ($_POST['fcm_test_phone'] ?? ''));
         if ($phone === '') {
             $message = '⚠️ شماره موبایل را وارد کنید.';
             $messageType = 'danger';
         } else {
             $tokens = eplakFcmTokens($pdo, [$phone]);
-            if (!$tokens) {
-                $message = '⚠️ برای شماره‌ی ' . htmlspecialchars($phone) . ' هیچ دستگاهی از اپ اندروید ثبت نشده است. اپ باید یک‌بار با این شماره باز شود تا توکن دستگاه ثبت گردد.';
+            $title  = 'اعلان آزمایشی — ای‌پلاک';
+            $result = eplakFcmSend(
+                $pdo,
+                $tokens,
+                $title,
+                'این پیام از پنل مدیریت برای بررسی اعلان اپ اندروید فرستاده شده است.',
+                ['url' => 'index.html', 'tag' => 'eplak-fcm-test-' . time()]
+            );
+            $sum = eplakFcmSummarize($result, count($tokens));
+            eplakPushLogAdd($pdo, [
+                'user_phone' => $phone, 'kind' => 'admin_test', 'title' => $title, 'channel' => 'fcm',
+                'devices' => $sum['devices'], 'sent' => $sum['sent'], 'failed' => $sum['failed'],
+                'outcome' => $sum['outcome'], 'error' => $sum['error'],
+            ]);
+            if ($sum['outcome'] === 'sent') {
+                $message = '✅ اعلان آزمایشی فایربیس برای ' . (int) $sum['sent'] . ' دستگاه از ' . count($tokens) . ' دستگاه ارسال شد. اگر روی گوشی نیامد، اجازه‌ی اعلان و «صرفه‌جویی باتری» گوشی را بررسی کنید.';
+                $messageType = 'success';
+            } elseif ($sum['outcome'] === 'no_device') {
+                $message = '⚠️ برای شماره‌ی ' . $phone . ' هیچ دستگاهی از اپ اندروید ثبت نشده است. اپ (آخرین نسخه) باید یک‌بار با این شماره باز شود و ورود انجام شود تا توکن دستگاه ثبت گردد.';
                 $messageType = 'danger';
             } else {
-                $result = eplakFcmSend(
-                    $pdo,
-                    $tokens,
-                    'اعلان آزمایشی — ای‌پلاک',
-                    'این پیام از پنل مدیریت برای بررسی اعلان اپ اندروید فرستاده شده است.',
-                    ['url' => 'index.html', 'tag' => 'eplak-fcm-test-' . time()]
-                );
-                $message = $result['sent'] > 0
-                    ? '✅ اعلان آزمایشی فایربیس برای ' . (int) $result['sent'] . ' دستگاه از ' . count($tokens) . ' دستگاه ارسال شد.'
-                    : '⚠️ ارسال ناموفق بود: ' . htmlspecialchars(implode(' | ', array_slice($result['errors'], 0, 2)) . ' ' . $result['skipped']);
-                $messageType = $result['sent'] > 0 ? 'success' : 'danger';
+                $message = '⚠️ ارسال ناموفق بود: ' . trim($sum['error']) . ($sum['hint'] !== '' ? ' — ' . $sum['hint'] : '');
+                $messageType = 'danger';
             }
         }
     } elseif ($action === 'repair_schema') {
@@ -177,6 +193,21 @@ $vapidSubject = (string) eplakAppSetting($pdo, 'vapid_subject', '');
 $fcmConfig  = eplakFcmConfig($pdo);
 $fcmDevices = eplakFcmCount($pdo);
 $fcmTokensTotal = eplakFcmCount($pdo, false);
+$fcmDiag    = $fcmDiag ?? null;
+$fcmDeviceRows = [];
+try {
+    $fcmDeviceRows = $pdo->query('SELECT user_phone, platform, is_active, fail_count, last_error, last_seen_at FROM device_tokens ORDER BY id DESC LIMIT 10')->fetchAll() ?: [];
+} catch (Throwable $e) {
+}
+$fcmLogRows = eplakPushLogRecent($pdo, [], 12);
+$pushOutcomeLabels = [
+    'sent' => ['ارسال شد', 'ok'], 'partial' => ['بخشی رسید', 'warn'], 'failed' => ['گوگل نپذیرفت', 'bad'],
+    'no_device' => ['گوشی ثبت نیست', 'warn'], 'fcm_off' => ['کلید فایربیس نیست', 'warn'],
+    'google_error' => ['عدم دسترسی به گوگل', 'bad'], 'sent_web' => ['ارسال شد (مرورگر)', 'ok'],
+];
+$maskPhone = static function (string $p): string {
+    return $p === '' ? 'مهمان (بدون شماره)' : $p;
+};
 
 /* وضعیت فنی سرور */
 $uploadRoot = EPLAK_ROOT . '/uploads';
@@ -211,6 +242,13 @@ $httpsOn = eplakIsHttpsRequest();
     .pill { display:inline-flex; align-items:center; gap:6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
     .pill-ok { background: var(--success-bg, #ecfdf5); color: var(--success, #047857); }
     .pill-bad { background: var(--danger-bg, #fef2f2); color: var(--danger, #b91c1c); }
+    .pill-warn { background: var(--warning-bg, #fffbeb); color: var(--warning, #b45309); }
+    .diag-list { display: grid; gap: 8px; margin-top: 12px; }
+    .diag-row { display: grid; gap: 4px; padding: 10px 14px; border: 1px solid var(--dark-200); border-radius: 12px; background: var(--dark-50); font-size: 13px; }
+    .diag-row .diag-hint { color: var(--dark-600); line-height: 1.9; }
+    .tbl-mini { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+    .tbl-mini th { text-align: right; color: var(--dark-500); padding: 6px 4px; font-weight: 600; }
+    .tbl-mini td { padding: 6px 4px; border-top: 1px dashed var(--dark-200); vertical-align: top; }
     .key-box { direction: ltr; text-align: left; font-family: monospace; font-size: 12px; word-break: break-all;
                background: var(--dark-50); border: 1px dashed var(--dark-300); border-radius: 10px; padding: 10px 12px; }
     .two-col { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
@@ -431,7 +469,7 @@ $httpsOn = eplakIsHttpsRequest();
         </form>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="fcm-section">
         <h2><i class="fas fa-mobile-screen-button"></i> اعلان گوشی برای اپ اندروید (فایربیس)</h2>
         <p class="field-hint" style="line-height:2; margin-bottom:14px;">
           اپ اندروید سایت را داخل WebView نشان می‌دهد و اندروید در WebView اجازه‌ی «اعلان پس‌زمینه‌ی مرورگر»
@@ -510,6 +548,74 @@ $httpsOn = eplakIsHttpsRequest();
             <button type="submit" class="btn btn-success"><i class="fas fa-mobile-screen"></i> ارسال آزمایشی فایربیس</button>
           </div>
         </form>
+
+        <h3 style="margin-top: 26px; font-size: 15px;"><i class="fas fa-stethoscope" style="color: var(--primary-500); margin-left:6px;"></i> بررسی زنجیره‌ی اعلان</h3>
+        <p class="field-hint">
+          اگر اعلانِ «در حال رسیدگی / انجام شد» به گوشی کاربر نمی‌رسد، این دکمه گام‌به‌گام نشان می‌دهد مشکل
+          کجاست: کلید فایربیس، دسترسی سرور سایت به گوگل، یا ثبت نبودن گوشی‌ها. (هیچ پیامی به کاربر ارسال نمی‌شود.)
+        </p>
+        <form method="post" style="margin-top:10px;">
+          <?= eplakCsrfField() ?>
+          <input type="hidden" name="action" value="diagnose_fcm">
+          <button type="submit" class="btn btn-outline"><i class="fas fa-vial"></i> بررسی اتصال به گوگل و فایربیس</button>
+        </form>
+        <?php if (is_array($fcmDiag)): ?>
+          <div class="diag-list" data-testid="fcm-diagnose">
+            <?php foreach ($fcmDiag as $step): ?>
+              <div class="diag-row">
+                <div>
+                  <span class="pill <?= $step['ok'] ? 'pill-ok' : 'pill-bad' ?>"><?= $step['ok'] ? '✔ سالم' : '✖ مشکل' ?></span>
+                  <strong><?= htmlspecialchars($step['name']) ?></strong>
+                </div>
+                <?php if ($step['detail'] !== ''): ?><div dir="auto" style="color:var(--dark-500); word-break:break-word;"><?= htmlspecialchars($step['detail']) ?></div><?php endif; ?>
+                <?php if ($step['hint'] !== ''): ?><div class="diag-hint">💡 <?= htmlspecialchars($step['hint']) ?></div><?php endif; ?>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+
+        <h3 style="margin-top: 26px; font-size: 15px;"><i class="fas fa-mobile-screen" style="color: var(--primary-500); margin-left:6px;"></i> گوشی‌های ثبت‌شده (۱۰ مورد آخر)</h3>
+        <?php if ($fcmDeviceRows): ?>
+          <table class="tbl-mini" data-testid="fcm-devices">
+            <thead><tr><th>کاربر</th><th>وضعیت</th><th>آخرین ثبت</th><th>آخرین خطا</th></tr></thead>
+            <tbody>
+              <?php foreach ($fcmDeviceRows as $d): ?>
+                <tr>
+                  <td dir="ltr" style="text-align:right;"><?= htmlspecialchars($maskPhone((string) $d['user_phone'])) ?></td>
+                  <td><?= (int) $d['is_active'] === 1 ? '<span class="pill pill-ok">فعال</span>' : '<span class="pill pill-bad">غیرفعال</span>' ?></td>
+                  <td dir="ltr" style="text-align:right;"><?= htmlspecialchars((string) ($d['last_seen_at'] ?? '')) ?></td>
+                  <td style="color:var(--dark-500); word-break:break-word;"><?= htmlspecialchars((string) ($d['last_error'] ?? '')) ?: '—' ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <p class="field-hint" data-testid="fcm-devices-empty">
+            ⚠️ هنوز هیچ گوشی‌ای ثبت نشده است. گوشی‌ها وقتی ثبت می‌شوند که کاربر اپ (آخرین نسخه) را باز کند و با شماره‌اش وارد شود.
+          </p>
+        <?php endif; ?>
+
+        <h3 style="margin-top: 26px; font-size: 15px;"><i class="fas fa-clock-rotate-left" style="color: var(--primary-500); margin-left:6px;"></i> آخرین ارسال‌های اعلان به گوشی</h3>
+        <?php if ($fcmLogRows): ?>
+          <table class="tbl-mini" data-testid="fcm-log">
+            <thead><tr><th>زمان</th><th>کاربر</th><th>موضوع</th><th>نتیجه</th><th>توضیح</th></tr></thead>
+            <tbody>
+              <?php foreach ($fcmLogRows as $r): ?>
+                <?php $lab = $pushOutcomeLabels[(string) $r['outcome']] ?? [(string) $r['outcome'], 'warn']; ?>
+                <tr>
+                  <td dir="ltr" style="text-align:right;"><?= htmlspecialchars((string) ($r['created_at'] ?? '')) ?></td>
+                  <td dir="ltr" style="text-align:right;"><?= htmlspecialchars($maskPhone((string) $r['user_phone'])) ?></td>
+                  <td><?= htmlspecialchars(($r['code'] ?? '') !== '' ? (string) $r['code'] : (string) $r['kind']) ?></td>
+                  <td><span class="pill pill-<?= htmlspecialchars($lab[1]) ?>"><?= htmlspecialchars($lab[0]) ?></span>
+                      <?php if ((int) $r['devices'] > 0): ?><span style="color:var(--dark-500);"><?= (int) $r['sent'] ?>/<?= (int) $r['devices'] ?></span><?php endif; ?></td>
+                  <td style="color:var(--dark-500); word-break:break-word;"><?= htmlspecialchars(mb_substr((string) ($r['error'] ?? ''), 0, 140, 'UTF-8')) ?: '—' ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <p class="field-hint">هنوز اعلانی برای هیچ کاربری ارسال نشده است.</p>
+        <?php endif; ?>
       </section>
 
       <section class="panel">

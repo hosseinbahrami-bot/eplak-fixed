@@ -32,6 +32,10 @@ class EplakMessagingService : FirebaseMessagingService() {
             .edit()
             .putString(KEY_TOKEN, token)
             .apply()
+
+        /* اگر اپ باز است، لایه‌ی وب همین الان گوشی را روی سرور ثبت می‌کند
+           (در غیر این صورت، در اولین باز شدن بعدی ثبت می‌شود). */
+        MainActivity.notifyFcmTokenReady()
     }
 
     /** پیام رسید — هم در حالت پس‌زمینه و هم بسته بودن اپ */

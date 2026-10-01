@@ -73,16 +73,33 @@ function eplakFcmConfig(PDO $pdo): array
     return $out;
 }
 
-/** توکن دسترسی گوگل (OAuth2) — یک ساعت معتبر است و در دیتابیس کش می‌شود */
-function eplakFcmAccessToken(PDO $pdo, bool $force = false): array
+/**
+ * توکن دسترسی گوگل (OAuth2) — یک ساعت معتبر است و در دیتابیس کش می‌شود.
+ *
+ * خروجی: ['token'=>string, 'error'=>string, 'network'=>bool]
+ *   network = true یعنی «سرور اصلاً به گوگل نرسید» (فایروال/فیلتر/DNS) — نه اینکه
+ *   گوگل کلید را رد کرده باشد.
+ *
+ * وقتی سرور به گوگل نمی‌رسد، هر بار ارسال اعلان چند ثانیه منتظر می‌ماند و پنل
+ * ادمین (مثلاً زدن «در حال رسیدگی») کند می‌شد. برای همین، یک «کلید قطع‌کن» داریم:
+ * پس از یک شکست شبکه‌ای، تا ۶۰ ثانیه تلاش دوباره نمی‌کنیم. ($force آن را رد می‌کند.)
+ */
+function eplakFcmAccessToken(PDO $pdo, bool $force = false, int $timeout = 15): array
 {
-    $out = ['token' => '', 'error' => ''];
+    $out = ['token' => '', 'error' => '', 'network' => false];
 
     if (!$force) {
         $cached = (string) eplakAppSetting($pdo, 'fcm_access_token', '');
         $expiry = (int) eplakAppSetting($pdo, 'fcm_access_token_exp', '0');
         if ($cached !== '' && $expiry > time() + 60) {
             $out['token'] = $cached;
+            return $out;
+        }
+
+        $failedAt = (int) eplakAppSetting($pdo, 'fcm_net_fail_at', '0');
+        if ($failedAt > 0 && time() - $failedAt >= 0 && time() - $failedAt < 60) {
+            $out['error']   = 'ارتباط سرور با گوگل برقرار نیست (آخرین تلاش ' . (time() - $failedAt) . ' ثانیه پیش شکست خورد).';
+            $out['network'] = true;
             return $out;
         }
     }
@@ -126,8 +143,17 @@ function eplakFcmAccessToken(PDO $pdo, bool $force = false): array
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion'  => $assertion,
         ]),
-        20
+        $timeout
     );
+
+    if ($response['status'] === 0) {
+        /* به گوگل نرسیدیم؛ کلید قطع‌کن را روشن می‌کنیم */
+        $out['network'] = true;
+        try {
+            eplakSetAppSetting($pdo, 'fcm_net_fail_at', (string) time());
+        } catch (\Throwable $e) {
+        }
+    }
 
     if ($response['status'] !== 200) {
         $detail = '';
@@ -152,6 +178,7 @@ function eplakFcmAccessToken(PDO $pdo, bool $force = false): array
     try {
         eplakSetAppSetting($pdo, 'fcm_access_token', $token);
         eplakSetAppSetting($pdo, 'fcm_access_token_exp', (string) ($now + max(60, $expiresIn)));
+        eplakSetAppSetting($pdo, 'fcm_net_fail_at', '0');
     } catch (\Throwable $e) {
         /* کش ناموفق مهم نیست */
     }
@@ -160,8 +187,19 @@ function eplakFcmAccessToken(PDO $pdo, bool $force = false): array
     return $out;
 }
 
-/** ثبت/به‌روزرسانی توکن یک دستگاه اندروید. خروجی: true در صورت موفقیت */
-function eplakFcmSaveToken(PDO $pdo, string $phone, string $token, string $platform = 'android'): bool
+/**
+ * ثبت/به‌روزرسانی توکن یک دستگاه اندروید. خروجی: true در صورت موفقیت.
+ *
+ * قاعده‌ی شماره:
+ *   • شماره‌ی معتبر      → دستگاه به همان شماره وصل می‌شود (اعلان‌های شخصی همان کاربر).
+ *   • شماره‌ی خالی       → «ثبتِ مهمان». اگر این توکن قبلاً به یک شماره وصل بوده، آن
+ *                          اتصال پاک نمی‌شود؛ فقط «زنده بودن دستگاه» تازه می‌شود.
+ *                          (اپ پس از هر بالا آمدنِ تازه، پیش از ورود با کد تایید، یک ثبتِ
+ *                          مهمان می‌فرستد؛ اگر آن ثبت شماره را پاک می‌کرد، کاربری که اپ را
+ *                          بسته و منتظر نتیجه‌ی گزارشش است دیگر اعلانی نمی‌گرفت.)
+ *   • $detach = true     → اتصال شماره عمداً پاک می‌شود (خروج کاربر از حساب).
+ */
+function eplakFcmSaveToken(PDO $pdo, string $phone, string $token, string $platform = 'android', bool $detach = false): bool
 {
     $token = trim($token);
     if ($token === '' || strlen($token) > 400) {
@@ -173,6 +211,9 @@ function eplakFcmSaveToken(PDO $pdo, string $phone, string $token, string $platf
         $phone = substr($phone, 0, 20);
     }
     $platform = mb_substr(preg_replace('/[^a-z]/', '', strtolower($platform)) ?? 'android', 0, 20, 'UTF-8');
+    if ($platform === '') {
+        $platform = 'android';
+    }
 
     try {
         $find = $pdo->prepare('SELECT id FROM device_tokens WHERE token = :token LIMIT 1');
@@ -180,8 +221,13 @@ function eplakFcmSaveToken(PDO $pdo, string $phone, string $token, string $platf
         $id = (int) $find->fetchColumn();
 
         if ($id > 0) {
-            $upd = $pdo->prepare('UPDATE device_tokens SET user_phone = :phone, platform = :platform, is_active = 1, fail_count = 0, last_error = "", last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
-            $upd->execute([':phone' => $phone, ':platform' => $platform, ':id' => $id]);
+            if ($phone === '' && !$detach) {
+                $upd = $pdo->prepare('UPDATE device_tokens SET platform = :platform, is_active = 1, fail_count = 0, last_error = "", last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
+                $upd->execute([':platform' => $platform, ':id' => $id]);
+            } else {
+                $upd = $pdo->prepare('UPDATE device_tokens SET user_phone = :phone, platform = :platform, is_active = 1, fail_count = 0, last_error = "", last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
+                $upd->execute([':phone' => $phone, ':platform' => $platform, ':id' => $id]);
+            }
             return true;
         }
 
@@ -191,6 +237,39 @@ function eplakFcmSaveToken(PDO $pdo, string $phone, string $token, string $platf
     } catch (\Throwable $e) {
         error_log('[eplak-fcm] ذخیره‌ی توکن ناموفق: ' . $e->getMessage());
         return false;
+    }
+}
+
+/** ردیف یک توکن (برای «وضعیت اعلان» داخل اپ) یا null اگر ثبت نشده باشد */
+function eplakFcmTokenInfo(PDO $pdo, string $token): ?array
+{
+    $token = trim($token);
+    if ($token === '') {
+        return null;
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM device_tokens WHERE token = :token LIMIT 1');
+        $stmt->execute([':token' => $token]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/** همه‌ی گوشی‌های یک شماره (فعال و غیرفعال) — برای نمایش وضعیت به مدیر */
+function eplakFcmDevicesOf(PDO $pdo, string $phone, int $limit = 8): array
+{
+    $phone = trim($phone);
+    if ($phone === '') {
+        return [];
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT id, platform, is_active, fail_count, last_error, last_seen_at FROM device_tokens WHERE user_phone = :p ORDER BY id DESC LIMIT ' . max(1, min(50, $limit)));
+        $stmt->execute([':p' => $phone]);
+        return $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        return [];
     }
 }
 
@@ -266,10 +345,16 @@ function eplakFcmErrorIsFatal(string $status, int $httpCode): bool
     return $httpCode === 404;
 }
 
-/** ارسال به یک دستگاه. خروجی: ['ok'=>bool, 'fatal'=>bool, 'error'=>string] */
-function eplakFcmSendOne(PDO $pdo, array $device, string $accessToken, string $projectId, string $title, string $body, array $extra = []): array
+/** نشانی ارسال پیام FCM (HTTP v1) برای یک پروژه */
+function eplakFcmEndpoint(string $projectId): string
 {
-    $out = ['ok' => false, 'fatal' => false, 'error' => ''];
+    return 'https://fcm.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/messages:send';
+}
+
+/** ارسال به یک دستگاه. خروجی: ['ok'=>bool, 'fatal'=>bool, 'error'=>string] */
+function eplakFcmSendOne(PDO $pdo, array $device, string $accessToken, string $projectId, string $title, string $body, array $extra = [], int $timeout = 15): array
+{
+    $out = ['ok' => false, 'fatal' => false, 'error' => '', 'http' => 0];
 
     $token = trim((string) ($device['token'] ?? ''));
     if ($token === '') {
@@ -315,14 +400,15 @@ function eplakFcmSendOne(PDO $pdo, array $device, string $accessToken, string $p
     ];
 
     $response = eplakHttpPost(
-        'https://fcm.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/messages:send',
+        eplakFcmEndpoint($projectId),
         [
             'Authorization: Bearer ' . $accessToken,
             'Content-Type: application/json; charset=utf-8',
         ],
         (string) json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        20
+        $timeout
     );
+    $out['http'] = (int) $response['status'];
 
     if ($response['status'] === 200) {
         $out['ok'] = true;
@@ -348,11 +434,16 @@ function eplakFcmSendOne(PDO $pdo, array $device, string $accessToken, string $p
 
 /**
  * ارسال اعلان به چند دستگاه.
- * خروجی: ['sent'=>int, 'failed'=>int, 'errors'=>array, 'skipped'=>string]
+ * خروجی: ['sent'=>int, 'failed'=>int, 'errors'=>array, 'skipped'=>string,
+ *         'skipped_kind'=>'config'|'network'|'auth'|'', 'devices'=>int]
+ *
+ *  skipped        اگر پر باشد یعنی هیچ پیامی به گوگل داده نشد و دلیلش همین متن است.
+ *  skipped_kind   config = کلید فایربیس تنظیم نشده · network = سرور به گوگل نمی‌رسد ·
+ *                 auth = گوگل کلید را نپذیرفت.
  */
-function eplakFcmSend(PDO $pdo, array $devices, string $title, string $body, array $extra = []): array
+function eplakFcmSend(PDO $pdo, array $devices, string $title, string $body, array $extra = [], int $timeout = 12): array
 {
-    $result = ['sent' => 0, 'failed' => 0, 'errors' => [], 'skipped' => ''];
+    $result = ['sent' => 0, 'failed' => 0, 'errors' => [], 'skipped' => '', 'skipped_kind' => '', 'devices' => count($devices)];
 
     if (!$devices) {
         return $result;
@@ -360,22 +451,41 @@ function eplakFcmSend(PDO $pdo, array $devices, string $title, string $body, arr
 
     $cfg = eplakFcmConfig($pdo);
     if (!$cfg['ready']) {
-        $result['skipped'] = $cfg['error'];
+        $result['skipped']      = $cfg['error'];
+        $result['skipped_kind'] = 'config';
         return $result;
     }
 
-    $auth = eplakFcmAccessToken($pdo);
+    /* توکن کش‌شده یا تازه؛ اگر گوگل بعداً ۴۰۱ داد، همان‌جا یک‌بار تازه می‌شود
+       (دیگر پس از هر شکست، بی‌دلیل دوباره از گوگل توکن نمی‌گیریم). */
+    $auth = eplakFcmAccessToken($pdo, false, $timeout);
     if ($auth['token'] === '') {
-        /* یک‌بار دیگر با نادیده‌گرفتن کش امتحان می‌کنیم */
-        $auth = eplakFcmAccessToken($pdo, true);
-    }
-    if ($auth['token'] === '') {
-        $result['skipped'] = $auth['error'];
+        $result['skipped']      = $auth['error'];
+        $result['skipped_kind'] = !empty($auth['network']) ? 'network' : 'auth';
         return $result;
     }
+    $accessToken = $auth['token'];
+    $refreshed   = false;
+    $netFailure  = '';
 
     foreach ($devices as $device) {
-        $one = eplakFcmSendOne($pdo, $device, $auth['token'], $cfg['project_id'], $title, $body, $extra);
+        if ($netFailure !== '') {
+            /* به گوگل نرسیدیم؛ تلاش برای بقیه‌ی گوشی‌ها فقط وقت را (چند برابرِ مهلت) تلف می‌کند */
+            $result['failed']++;
+            $result['errors'][] = $netFailure;
+            continue;
+        }
+        $one = eplakFcmSendOne($pdo, $device, $accessToken, $cfg['project_id'], $title, $body, $extra, $timeout);
+
+        if (!$one['ok'] && (int) ($one['http'] ?? 0) === 401 && !$refreshed) {
+            /* توکن دسترسی کش‌شده باطل شده است */
+            $refreshed = true;
+            $fresh = eplakFcmAccessToken($pdo, true, $timeout);
+            if ($fresh['token'] !== '') {
+                $accessToken = $fresh['token'];
+                $one = eplakFcmSendOne($pdo, $device, $accessToken, $cfg['project_id'], $title, $body, $extra, $timeout);
+            }
+        }
 
         if ($one['ok']) {
             $result['sent']++;
@@ -388,6 +498,9 @@ function eplakFcmSend(PDO $pdo, array $devices, string $title, string $body, arr
 
         $result['failed']++;
         $result['errors'][] = $one['error'];
+        if ((int) ($one['http'] ?? 0) === 0 && empty($one['fatal'])) {
+            $netFailure = (string) $one['error'];
+        }
 
         try {
             if ($one['fatal']) {
@@ -400,6 +513,266 @@ function eplakFcmSend(PDO $pdo, array $devices, string $title, string $body, arr
     }
 
     return $result;
+}
+
+/**
+ * توضیح فارسیِ قابل‌فهم برای خطای گوگل/شبکه.
+ * مدیر پنل به هاست دسترسی ندارد؛ این جمله به او می‌گوید «مشکل دقیقاً کجاست و چه کنم».
+ */
+function eplakFcmExplainError(string $error): string
+{
+    $e = strtoupper($error);
+
+    if ($e === '') {
+        return '';
+    }
+    if (strpos($e, 'UNREGISTERED') !== false || strpos($e, 'NOT_FOUND') !== false || strpos($e, 'HTTP 404') !== false) {
+        return 'توکن این گوشی دیگر معتبر نیست (برنامه حذف/دوباره نصب شده). کاربر باید یک‌بار اپ را باز کند و وارد شود تا دوباره ثبت شود.';
+    }
+    if (strpos($e, 'SENDER_ID_MISMATCH') !== false) {
+        return 'کلید سرویس فایربیس مربوط به پروژه‌ی دیگری است. باید از همان پروژه‌ای باشد که فایل google-services.json اپ از آن ساخته شده (eplak-63c74).';
+    }
+    if (strpos($e, 'SERVICE_DISABLED') !== false || strpos($e, 'HAS NOT BEEN USED') !== false || strpos($e, 'IS DISABLED') !== false) {
+        return 'سرویس Firebase Cloud Messaging API در پروژه‌ی گوگل فعال نیست. در Google Cloud Console → APIs → «Firebase Cloud Messaging API» را Enable کنید.';
+    }
+    if (strpos($e, 'PERMISSION_DENIED') !== false || strpos($e, 'HTTP 403') !== false) {
+        return 'گوگل اجازه‌ی ارسال نداد. معمولاً یعنی کلید سرویس نقش «Firebase Cloud Messaging Admin» ندارد یا مربوط به پروژه‌ی دیگری است.';
+    }
+    if (strpos($e, 'INVALID_GRANT') !== false || strpos($e, 'INVALID_CLIENT') !== false || strpos($e, 'INVALID_SIGNATURE') !== false || strpos($e, 'JWT') !== false) {
+        return 'گوگل کلید سرویس را نپذیرفت (کلید باطل/حذف‌شده است یا ساعت سرور درست نیست). یک کلید تازه بسازید و در تنظیمات بچسبانید.';
+    }
+    if (strpos($e, 'HTTP 401') !== false || strpos($e, 'UNAUTHENTICATED') !== false) {
+        return 'گوگل هویت درخواست را تأیید نکرد؛ کلید سرویس را دوباره بسازید و در تنظیمات ذخیره کنید.';
+    }
+    if (strpos($e, 'QUOTA') !== false || strpos($e, 'HTTP 429') !== false) {
+        return 'سقف ارسال گوگل پر شده است؛ چند دقیقه بعد دوباره امتحان کنید.';
+    }
+    if (strpos($e, 'INVALID_ARGUMENT') !== false || strpos($e, 'HTTP 400') !== false) {
+        return 'گوگل درخواست یا توکن گوشی را نامعتبر دانست. کاربر باید اپ را دوباره باز کند تا توکن تازه ثبت شود.';
+    }
+    if (strpos($e, 'HTTP 5') !== false || strpos($e, 'UNAVAILABLE') !== false || strpos($e, 'INTERNAL') !== false) {
+        return 'سرویس گوگل موقتاً در دسترس نبود؛ دوباره امتحان کنید.';
+    }
+    if (preg_match('/\(کد 5\d\d\)/u', $error)) {
+        return 'سرویس گوگل موقتاً در دسترس نبود؛ دوباره امتحان کنید.';
+    }
+    if (strpos($e, 'ارتباط سرور با گوگل') !== false
+        || strpos($e, 'TIMED OUT') !== false || strpos($e, 'TIMEOUT') !== false
+        || strpos($e, 'RESOLVE HOST') !== false || strpos($e, 'COULD NOT RESOLVE') !== false
+        || strpos($e, 'CONNECTION') !== false || strpos($e, 'CURL') !== false
+        || strpos($e, 'SSL') !== false || strpos($e, 'گرفتن توکن دسترسی گوگل') !== false) {
+        return 'سرور سایت به گوگل (fcm.googleapis.com / oauth2.googleapis.com) دسترسی ندارد. این یک محدودیت شبکه‌ی هاست است (فایروال/فیلتر/DNS)؛ از پشتیبانی هاست بخواهید خروجی HTTPS به دامنه‌های گوگل را باز کند.';
+    }
+    return '';
+}
+
+/**
+ * نتیجه‌ی ارسال به دستگاه‌های یک شماره را به یک خلاصه‌ی استاندارد تبدیل می‌کند.
+ *
+ * outcome:
+ *   sent         همه‌ی دستگاه‌ها پیام را به گوگل سپردند
+ *   partial      بعضی بله، بعضی نه
+ *   failed       گوگل همه را رد کرد
+ *   no_device    هیچ گوشی‌ای برای این شماره ثبت نیست (اپ هنوز توکن نفرستاده)
+ *   fcm_off      کلید سرویس فایربیس در پنل تنظیم نشده
+ *   google_error سرور به گوگل نرسید یا گوگل کلید را نپذیرفت
+ */
+function eplakFcmSummarize(array $send, int $deviceCount): array
+{
+    $sent   = (int) ($send['sent'] ?? 0);
+    $failed = (int) ($send['failed'] ?? 0);
+    $error  = '';
+
+    if (!empty($send['errors'])) {
+        $error = (string) $send['errors'][0];
+    }
+
+    if ($deviceCount <= 0) {
+        $outcome = 'no_device';
+        $hint    = 'هیچ گوشی‌ای از این کاربر در سرور ثبت نشده است؛ کاربر باید یک‌بار اپ (آخرین نسخه) را باز کند و با شماره‌اش وارد شود.';
+    } elseif (!empty($send['skipped'])) {
+        $kind    = (string) ($send['skipped_kind'] ?? '');
+        $error   = (string) $send['skipped'];
+        $outcome = $kind === 'config' ? 'fcm_off' : 'google_error';
+        $hint    = $kind === 'config'
+            ? 'کلید سرویس فایربیس در پنل (تنظیمات ← اعلان فایربیس) تنظیم نشده است.'
+            : (eplakFcmExplainError($error) ?: 'ارسال به گوگل ممکن نشد.');
+    } elseif ($sent > 0 && $failed === 0) {
+        $outcome = 'sent';
+        $hint    = '';
+    } elseif ($sent > 0) {
+        $outcome = 'partial';
+        $hint    = eplakFcmExplainError($error);
+    } else {
+        $outcome = 'failed';
+        $hint    = eplakFcmExplainError($error) ?: 'گوگل ارسال را نپذیرفت.';
+    }
+
+    return [
+        'outcome' => $outcome,
+        'devices' => $deviceCount,
+        'sent'    => $sent,
+        'failed'  => $failed,
+        'error'   => mb_substr($error, 0, 400, 'UTF-8'),
+        'hint'    => $hint,
+    ];
+}
+
+/**
+ * حذف نویسه‌های «چهاربایتی» یونیکد (ایموجی‌هایی مثل 📣 و 👍).
+ * اگر جدول دیتابیس با utf8 سه‌بایتی ساخته شده باشد (پیش‌فرض بعضی هاست‌ها)،
+ * ذخیره‌ی این نویسه‌ها خطا می‌دهد؛ و چون خطا بی‌صدا گرفته می‌شد، اعلانِ پاسخ
+ * مدیر (که با 📣 شروع می‌شود) اصلاً ساخته نمی‌شد. این تابع برای «تلاش دوباره‌ی
+ * امن» است.
+ */
+if (!function_exists('eplakStripAstralChars')) {
+    function eplakStripAstralChars(string $text): string
+    {
+        $clean = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $text);
+        return $clean === null ? $text : trim((string) preg_replace('/\s{2,}/u', ' ', $clean));
+    }
+}
+
+/**
+ * ثبت نتیجه‌ی هر ارسال در «push_log».
+ * ادمین از روی همین ردیف‌ها می‌بیند چرا اعلانِ «در حال رسیدگی/انجام شد» به گوشی
+ * رسیده یا نرسیده است، بدون اینکه به لاگ هاست دسترسی داشته باشد.
+ * هرگز استثنا پرتاب نمی‌کند (ثبت لاگ نباید ارسال اعلان را خراب کند).
+ */
+function eplakPushLogAdd(PDO $pdo, array $row): int
+{
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO push_log (notification_id, user_phone, kind, code, title, channel, devices, sent, failed, outcome, error)
+             VALUES (:nid, :phone, :kind, :code, :title, :channel, :devices, :sent, :failed, :outcome, :error)'
+        );
+        $params = [
+            ':nid'     => (int) ($row['notification_id'] ?? 0),
+            ':phone'   => mb_substr((string) ($row['user_phone'] ?? ''), 0, 20, 'UTF-8'),
+            ':kind'    => mb_substr((string) ($row['kind'] ?? ''), 0, 30, 'UTF-8'),
+            ':code'    => mb_substr((string) ($row['code'] ?? ''), 0, 40, 'UTF-8'),
+            ':title'   => mb_substr((string) ($row['title'] ?? ''), 0, 250, 'UTF-8'),
+            ':channel' => mb_substr((string) ($row['channel'] ?? 'fcm'), 0, 20, 'UTF-8'),
+            ':devices' => (int) ($row['devices'] ?? 0),
+            ':sent'    => (int) ($row['sent'] ?? 0),
+            ':failed'  => (int) ($row['failed'] ?? 0),
+            ':outcome' => mb_substr((string) ($row['outcome'] ?? ''), 0, 30, 'UTF-8'),
+            ':error'   => mb_substr((string) ($row['error'] ?? ''), 0, 400, 'UTF-8'),
+        ];
+        try {
+            $stmt->execute($params);
+        } catch (\Throwable $e) {
+            /* جدول utf8 سه‌بایتی + ایموجی چهاربایتی در عنوان ← بدون ایموجی دوباره */
+            $params[':title'] = eplakStripAstralChars($params[':title']);
+            $params[':error'] = eplakStripAstralChars($params[':error']);
+            $stmt = $pdo->prepare(
+                'INSERT INTO push_log (notification_id, user_phone, kind, code, title, channel, devices, sent, failed, outcome, error)
+                 VALUES (:nid, :phone, :kind, :code, :title, :channel, :devices, :sent, :failed, :outcome, :error)'
+            );
+            $stmt->execute($params);
+        }
+        /* فقط ۴۰۰ ردیف آخر نگه داشته می‌شود تا جدول بی‌پایان بزرگ نشود */
+        $id = (int) $pdo->lastInsertId();
+        if ($id > 400 && $id % 50 === 0) {
+            $pdo->exec('DELETE FROM push_log WHERE id < ' . ($id - 400));
+        }
+        return $id;
+    } catch (\Throwable $e) {
+        error_log('[eplak-push-log] ' . $e->getMessage());
+        return 0;
+    }
+}
+
+/** آخرین ردیف‌های push_log؛ فیلتر اختیاری: phone و/یا code */
+function eplakPushLogRecent(PDO $pdo, array $filter = [], int $limit = 8): array
+{
+    try {
+        $where  = [];
+        $params = [];
+        if (!empty($filter['phone'])) {
+            $where[]           = 'user_phone = :phone';
+            $params[':phone']  = (string) $filter['phone'];
+        }
+        if (!empty($filter['code'])) {
+            $where[]          = 'code = :code';
+            $params[':code']  = (string) $filter['code'];
+        }
+        $sql = 'SELECT * FROM push_log' . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
+             . ' ORDER BY id DESC LIMIT ' . max(1, min(100, $limit));
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * عیب‌یابی زنجیره‌ی اعلان، گام‌به‌گام و بدون نیاز به هیچ گوشی:
+ *   ۱) کلید سرویس فایربیس   ۲) اتصال به گوگل و گرفتن مجوز   ۳) اتصال به سرویس
+ *   ارسال فایربیس (درخواست «آزمایشی» validate_only؛ هیچ پیامی ارسال نمی‌شود)
+ *   ۴) گوشی‌های ثبت‌شده.
+ * هر گام: ['name'=>…, 'ok'=>bool, 'detail'=>…, 'hint'=>…]
+ */
+function eplakFcmDiagnose(PDO $pdo): array
+{
+    $steps = [];
+    $add = static function (string $name, bool $ok, string $detail = '', string $hint = '') use (&$steps): void {
+        $steps[] = ['name' => $name, 'ok' => $ok, 'detail' => $detail, 'hint' => $hint];
+    };
+
+    $cfg = eplakFcmConfig($pdo);
+    $add('کلید سرویس فایربیس در پنل', $cfg['ready'], $cfg['ready'] ? 'پروژه: ' . $cfg['project_id'] : $cfg['error'],
+        $cfg['ready'] ? '' : 'کلید JSON را در همین صفحه (بخش «کلید سرویس فایربیس») بچسبانید و ذخیره کنید.');
+    if (!$cfg['ready']) {
+        return $steps;
+    }
+
+    $auth = eplakFcmAccessToken($pdo, true, 12);
+    $authOk = $auth['token'] !== '';
+    $add('اتصال به گوگل و گرفتن مجوز (oauth2.googleapis.com)', $authOk,
+        $authOk ? 'برقرار است' : $auth['error'],
+        $authOk ? '' : eplakFcmExplainError($auth['error']));
+    if (!$authOk) {
+        return $steps;
+    }
+
+    /* درخواست «خشک» (validate_only) با توکنی که عمداً ساختگی است: گوگل مجوز، فعال‌بودن
+       API و پروژه را می‌سنجد ولی هیچ پیامی نمی‌فرستد. پاسخ‌های ۴۰۰/۴۰۴ «توکن ساختگی
+       است» یعنی همه‌چیز تا اینجا سالم است. */
+    $body = (string) json_encode([
+        'validate_only' => true,
+        'message'       => [
+            'token'        => 'eplak-diagnose-' . str_repeat('x', 140),
+            'notification' => ['title' => 'diagnose', 'body' => 'diagnose'],
+        ],
+    ], JSON_UNESCAPED_SLASHES);
+    $resp = eplakHttpPost(
+        eplakFcmEndpoint($cfg['project_id']),
+        ['Authorization: Bearer ' . $auth['token'], 'Content-Type: application/json; charset=utf-8'],
+        $body,
+        12
+    );
+    $http = (int) $resp['status'];
+    $raw  = '';
+    $parsed = json_decode((string) $resp['body'], true);
+    if (is_array($parsed) && isset($parsed['error']) && is_array($parsed['error'])) {
+        $raw = trim((string) ($parsed['error']['status'] ?? '') . ' ' . (string) ($parsed['error']['message'] ?? ''));
+    }
+    if ($http === 200 || $http === 400 || $http === 404) {
+        $add('اتصال به سرویس ارسال فایربیس (fcm.googleapis.com)', true,
+            'برقرار است (HTTP ' . $http . ($raw !== '' ? ' — ' . mb_substr($raw, 0, 120, 'UTF-8') : '') . ')');
+    } else {
+        $err = $http > 0 ? ('HTTP ' . $http . ' ' . $raw) : (string) $resp['error'];
+        $add('اتصال به سرویس ارسال فایربیس (fcm.googleapis.com)', false, mb_substr(trim($err), 0, 250, 'UTF-8'),
+            eplakFcmExplainError($err) ?: 'پاسخ غیرمنتظره از گوگل.');
+    }
+
+    $active = eplakFcmCount($pdo);
+    $add('گوشی‌های ثبت‌شده‌ی اپ', $active > 0, $active . ' گوشی فعال',
+        $active > 0 ? '' : 'هیچ گوشی‌ای ثبت نیست: کاربران باید اپ را (آخرین نسخه) باز کنند و با شماره‌شان وارد شوند.');
+
+    return $steps;
 }
 
 /** ارسال آزمایشی به دستگاه‌های یک شماره */

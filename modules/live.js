@@ -710,60 +710,311 @@
      api/push.php می‌فرستیم تا پنل مدیریت بتواند اعلان را حتی وقتی اپ بسته است
      به گوشی برساند. اگر پروژه‌ی فایربیس راه‌اندازی نشده باشد، این تابع
      بی‌صدا هیچ کاری نمی‌کند.
-  ─────────────────────────────────────────────────────────── */
-  async function registerAppDevice(force) {
-    var bridge = nativeBridge();
-    if (!bridge || typeof bridge.getFcmToken !== 'function') {
-      return { ok: false, reason: 'not_android_app' };
-    }
 
+     چرا این‌قدر محتاط؟ اگر ثبت گوشی یک‌بار شکست بخورد (اینترنت قطع، توکن هنوز
+     از گوگل نرسیده، خطای موقت سرور) و دوباره تلاش نشود، هیچ اعلان پنلی
+     (در حال رسیدگی / انجام شد / پاسخ) به آن گوشی نمی‌رسد؛ بدون هیچ پیام خطایی.
+     پس:
+       • توکن از اندروید «غیرهمگام» می‌رسد → تلاش‌های پله‌ای ۲/۴/۸/۱۶/۳۰ ثانیه،
+       • خطای شبکه/سرور → همان تلاش‌های پله‌ای،
+       • ثبت موفق هم هر ۶ ساعت تازه می‌شود (جلوگیری از «گوشی ثبت‌شده ولی منقضی»)،
+       • وضعیت (توکن؟ ثبت؟ خطا؟) برای نمایش در صفحه‌ی اعلان‌ها نگه داشته می‌شود.
+  ─────────────────────────────────────────────────────────── */
+  var FCM_REGISTER_TTL = 6 * 60 * 60 * 1000;
+  var FCM_RETRY_DELAYS = [2000, 4000, 8000, 16000, 30000];
+  var FCM_RETRY_MAX = 14;
+  var fcmState = { token: false, registered: false, attached: false, phone: '', reason: '', attempts: 0, at: 0 };
+  var fcmRetryTimer = null;
+  var fcmRetryCount = 0;
+  var fcmInFlight = null;
+  var FCM_FORM_HEADERS = { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' };
+
+  /* fetch با مهلت: اگر اینترنت گوشی «گیر» کند، درخواست ثبت گوشی نباید تا ابد
+     معلق بماند و ثبت‌های بعدی را هم پشت خودش نگه دارد. */
+  function fcmFetch(url, options, timeoutMs) {
+    var opts = options || {};
+    var timer = null;
+    try {
+      if (typeof AbortController === 'function') {
+        var controller = new AbortController();
+        opts.signal = controller.signal;
+        timer = setTimeout(function () { try { controller.abort(); } catch (e) {} }, timeoutMs || 20000);
+      }
+    } catch (e) {}
+    return fetch(url, opts).then(function (res) {
+      if (timer) clearTimeout(timer);
+      return res;
+    }, function (err) {
+      if (timer) clearTimeout(timer);
+      throw err;
+    });
+  }
+
+  /* ارسال یک درخواست به api/push.php: اول «فرم ساده»؛ اگر فایروال/پروکسی هاست آن را
+     با صفحه‌ی HTML رد کرد (۴۰۳/۴۰۶…)، همان فیلدها یک‌بار به‌صورت JSON با نوع
+     «text/plain» (بدون پیش‌پرواز CORS) فرستاده می‌شود. سرور هر دو قالب را می‌خواند. */
+  async function postFcm(fields, timeoutMs) {
+    var form = new URLSearchParams();
+    Object.keys(fields).forEach(function (key) { form.append(key, fields[key]); });
+    var res = await fcmFetch(apiBase() + '/push.php', {
+      method: 'POST',
+      headers: FCM_FORM_HEADERS,
+      body: form.toString()
+    }, timeoutMs);
+    var data = await res.json().catch(function () { return null; });
+    if (data === null && !res.ok) {
+      res = await fcmFetch(apiBase() + '/push.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify(fields)
+      }, timeoutMs);
+      data = await res.json().catch(function () { return null; });
+    }
+    return { res: res, data: data };
+  }
+
+  function fcmFail(reason, details) {
+    fcmState.registered = false;
+    fcmState.reason = reason;
+    fcmState.attempts += 1;
+    fcmState.at = Date.now();
+    try { renderDeviceNotice(); } catch (e) {}
+    return { ok: false, reason: reason, details: details };
+  }
+
+  function scheduleFcmRetry() {
+    if (fcmRetryTimer || fcmRetryCount >= FCM_RETRY_MAX) return;
+    var delay = FCM_RETRY_DELAYS[Math.min(fcmRetryCount, FCM_RETRY_DELAYS.length - 1)];
+    fcmRetryCount += 1;
+    fcmRetryTimer = setTimeout(function () {
+      fcmRetryTimer = null;
+      registerAppDevice(false);
+    }, delay);
+  }
+
+  /* توکن فایربیس از اندروید؛ null = خود پل خطا داد، '' = هنوز نرسیده */
+  function readFcmToken(bridge) {
     var token = '';
     try {
       token = String(bridge.getFcmToken() || '');
-      if (token === '' && force && typeof bridge.refreshFcmToken === 'function') {
+      if (token === '' && typeof bridge.refreshFcmToken === 'function') {
         try { bridge.refreshFcmToken(); } catch (e) {}
         token = String(bridge.getFcmToken() || '');
       }
     } catch (e) {
-      return { ok: false, reason: 'bridge_error' };
+      return null;
     }
+    return token;
+  }
 
+  async function doRegisterAppDevice(bridge, force) {
+    var token = readFcmToken(bridge);
+    if (token === null) return fcmFail('bridge_error');
+    fcmState.token = token !== '';
     if (token === '') {
-      return { ok: false, reason: 'no_fcm_token' };
+      /* اندروید توکن را غیرهمگام از گوگل می‌گیرد؛ چند ثانیه بعد دوباره می‌پرسیم
+         (و وقتی توکن رسید، خود اندروید هم eplakOnFcmToken را صدا می‌زند) */
+      scheduleFcmRetry();
+      return fcmFail('no_fcm_token');
     }
 
-    /* ثبت تکراری لازم نیست */
+    var phone = currentPhoneSafe();
+    var signature = token + '|' + phone;
     var lastSent = '';
-    try { lastSent = window.localStorage.getItem('eplak_fcm_registered') || ''; } catch (e) {}
-    var signature = token + '|' + currentPhoneSafe();
-    if (!force && lastSent === signature) {
+    var lastAt = 0;
+    try {
+      lastSent = window.localStorage.getItem('eplak_fcm_registered') || '';
+      lastAt = parseInt(window.localStorage.getItem('eplak_fcm_registered_at') || '0', 10) || 0;
+    } catch (e) {}
+
+    /* ثبت تکراری لازم نیست؛ ولی نه برای همیشه: بعد از ۶ ساعت دوباره ثبت می‌شود */
+    if (!force && lastSent === signature && (Date.now() - lastAt) < FCM_REGISTER_TTL) {
+      fcmState.registered = true;
+      fcmState.attached = phone !== '';
+      fcmState.phone = phone;
+      fcmState.reason = '';
       return { ok: true, reason: 'already_registered' };
     }
 
     try {
-      var body = new URLSearchParams();
-      body.append('action', 'register_fcm');
-      body.append('phone', currentPhoneSafe());
-      body.append('token', token);
-      body.append('platform', 'android');
-
-      var res = await fetch(apiBase() + '/push.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: body.toString()
-      });
-      var data = await res.json().catch(function () { return null; });
+      var sent = await postFcm({ action: 'register_fcm', phone: phone, token: token, platform: 'android' }, 20000);
+      var data = sent.data;
       if (data && data.success === true) {
-        try { window.localStorage.setItem('eplak_fcm_registered', signature); } catch (e) {}
+        try {
+          window.localStorage.setItem('eplak_fcm_registered', signature);
+          window.localStorage.setItem('eplak_fcm_registered_at', String(Date.now()));
+        } catch (e) {}
+        fcmRetryCount = 0;
+        fcmState.registered = true;
+        fcmState.attached = data.attached === true || phone !== '';
+        fcmState.phone = phone;
+        fcmState.reason = '';
+        fcmState.at = Date.now();
         console.log('[fcm] دستگاه اپ ثبت شد');
-        return { ok: true, devices: data.devices, fcm_ready: data.fcm_ready };
+        try { renderDeviceNotice(); } catch (e) {}
+        return { ok: true, devices: data.devices, fcm_ready: data.fcm_ready, attached: data.attached };
       }
-      return { ok: false, reason: 'server', details: data && data.error };
+      scheduleFcmRetry();
+      return fcmFail('server', data && data.error);
     } catch (e) {
-      return { ok: false, reason: 'network', details: e && e.message };
+      scheduleFcmRetry();
+      return fcmFail('network', e && e.message);
     }
   }
+
+  var fcmRerun = false;
+  var fcmRerunForce = false;
+
+  function registerAppDevice(force) {
+    var bridge = nativeBridge();
+    if (!bridge || typeof bridge.getFcmToken !== 'function') {
+      return Promise.resolve({ ok: false, reason: 'not_android_app' });
+    }
+    /* هم‌زمان فقط یک ثبت. اگر در همین فاصله چیزی عوض شده باشد (مثلاً کاربر وارد شد
+       و شماره دارد، در حالی که ثبتِ در حال انجام با شماره‌ی خالی رفته)، پس از پایان
+       آن یک بار دیگر ثبت می‌کنیم؛ درخواست گم نمی‌شود. */
+    if (fcmInFlight) {
+      fcmRerun = true;
+      fcmRerunForce = fcmRerunForce || !!force;
+      return fcmInFlight;
+    }
+    var finish = function (result) {
+      fcmInFlight = null;
+      if (fcmRerun) {
+        var again = fcmRerunForce;
+        fcmRerun = false;
+        fcmRerunForce = false;
+        return registerAppDevice(again);
+      }
+      return result;
+    };
+    fcmInFlight = doRegisterAppDevice(bridge, !!force).then(finish, function () {
+      fcmInFlight = null;
+      return fcmFail('exception');
+    });
+    return fcmInFlight;
+  }
   window.registerAppDevice = registerAppDevice;
+
+  /* اندروید می‌گوید توکن فایربیس رسید/عوض شد (EplakMessagingService.onNewToken) */
+  window.eplakOnFcmToken = function () {
+    fcmRetryCount = 0;
+    return registerAppDevice(false);
+  };
+
+  /* خروج صریح از حساب: گوشی از شماره‌ی کاربر جدا می‌شود تا اعلان‌های شخصی او
+     به کاربر بعدیِ همین گوشی نرسد. (بستن/خروج از خود اپ، گوشی را جدا نمی‌کند؛
+     وگرنه اعلان وقتی اپ بسته است هرگز نمی‌رسید.) */
+  window.eplakDetachDevice = function () {
+    var bridge = nativeBridge();
+    if (!bridge || typeof bridge.getFcmToken !== 'function') {
+      return Promise.resolve({ ok: false, reason: 'not_android_app' });
+    }
+    var token = '';
+    try { token = String(bridge.getFcmToken() || ''); } catch (e) {}
+    try {
+      window.localStorage.removeItem('eplak_fcm_registered');
+      window.localStorage.removeItem('eplak_fcm_registered_at');
+    } catch (e) {}
+    fcmState.registered = false;
+    fcmState.attached = false;
+    fcmState.phone = '';
+    if (!token) return Promise.resolve({ ok: false, reason: 'no_fcm_token' });
+
+    var body = new URLSearchParams();
+    body.append('action', 'register_fcm');
+    body.append('phone', '');
+    body.append('token', token);
+    body.append('platform', 'android');
+    body.append('detach', '1');
+    return fetch(apiBase() + '/push.php', {
+      method: 'POST',
+      headers: FCM_FORM_HEADERS,
+      body: body.toString(),
+      keepalive: true
+    }).then(function (res) { return res.json(); })
+      .then(function (data) { return { ok: !!(data && data.success) }; })
+      .catch(function () { return { ok: false, reason: 'network' }; });
+  };
+
+  /* دکمه‌ی «تست اعلان» در صفحه‌ی اعلان‌ها: همین گوشی را در سرور می‌سنجد و
+     یک اعلان آزمایشی به «همین گوشی» می‌فرستد. خروجی: {ok, message, code} */
+  async function sendTestPush() {
+    var bridge = nativeBridge();
+    if (!bridge || typeof bridge.getFcmToken !== 'function') {
+      return { ok: false, code: 'not_android_app', message: 'این امکان فقط داخل اپ اندروید ای‌پلاک کار می‌کند.' };
+    }
+    var token = readFcmToken(bridge);
+    if (!token) {
+      return { ok: false, code: 'no_fcm_token', message: 'هنوز شناسه‌ی اعلان از گوگل به گوشی نرسیده است. اینترنت و Google Play Services را بررسی کنید و چند ثانیه بعد دوباره امتحان کنید.' };
+    }
+    if (!fcmState.registered) {
+      await registerAppDevice(true);
+    }
+    try {
+      var sentTest = await postFcm({ action: 'test', token: token, phone: currentPhoneSafe() }, 25000);
+      var res = sentTest.res;
+      var data = sentTest.data;
+      if (!data) {
+        return { ok: false, code: 'server', message: 'پاسخ سرور نامعتبر بود (کد ' + res.status + '). چند لحظه بعد دوباره امتحان کنید.' };
+      }
+      if (data.success === true) {
+        return { ok: true, code: 'sent', message: 'اعلان آزمایشی ارسال شد. اگر چند ثانیه بعد در نوار اعلان‌های گوشی نیامد، اجازه‌ی اعلان و «صرفه‌جویی باتری» ای‌پلاک را در تنظیمات گوشی بررسی کنید.' };
+      }
+      var messages = {
+        no_device: 'این گوشی هنوز در سرور ثبت نشده است؛ چند ثانیه صبر کنید و دوباره امتحان کنید.',
+        fcm_off: 'سرور هنوز برای ارسال اعلان گوشی تنظیم نشده است (کلید فایربیس در پنل مدیریت).',
+        google_error: 'سرور سایت به گوگل دسترسی ندارد؛ این مشکل از سمت هاست است و باید توسط مدیر رفع شود.',
+        failed: data.hint || data.error || 'گوگل اعلان را نپذیرفت.'
+      };
+      var text = messages[data.outcome] || data.hint || data.error || 'ارسال اعلان آزمایشی ناموفق بود.';
+      if (res.status === 429) text = data.error || 'چند ثانیه صبر کنید و دوباره امتحان کنید.';
+      return { ok: false, code: data.outcome || 'failed', message: text };
+    } catch (e) {
+      return { ok: false, code: 'network', message: 'اتصال اینترنت برقرار نیست.' };
+    }
+  }
+
+  /* نتیجه‌ی آخرین «تست اعلان»؛ با هر بازنویسی کادر وضعیت از بین نمی‌رود */
+  var pushTestLine = '';
+  var pushTestCode = '';
+
+  window.eplakTestPushClick = async function (button) {
+    if (button) button.disabled = true;
+    pushTestLine = '⏳ در حال ارسال اعلان آزمایشی…';
+    pushTestCode = 'pending';
+    renderDeviceNotice();
+    var result = await sendTestPush();
+    pushTestLine = (result.ok ? '✅ ' : '⚠️ ') + result.message;
+    pushTestCode = result.code || '';
+    renderDeviceNotice();
+    return result;
+  };
+
+  window.eplakOpenNotificationSettings = function () {
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.openNotificationSettings === 'function') {
+        window.AndroidApp.openNotificationSettings();
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  };
+
+  /* وضعیت فعلی ثبت گوشی برای نمایش (و برای عیب‌یابی) */
+  window.eplakPushState = function () {
+    var diag = null;
+    try {
+      if (window.AndroidApp && typeof window.AndroidApp.getPushDiagnostics === 'function') {
+        diag = JSON.parse(String(window.AndroidApp.getPushDiagnostics() || 'null'));
+      }
+    } catch (e) {}
+    return {
+      token: fcmState.token, registered: fcmState.registered, attached: fcmState.attached,
+      phone: fcmState.phone, reason: fcmState.reason, attempts: fcmState.attempts,
+      at: fcmState.at, native: diag
+    };
+  };
 
   /* ───────────────────────────────────────────────────────────
      حذف اعلان (فقط از فهرست همین کاربر)
@@ -941,6 +1192,24 @@
   }
   window.markNotificationsRead = markNotificationsRead;
 
+  /* وضعیت «ثبت گوشی روی سرور» به زبان کاربر */
+  function fcmStateKey() {
+    if (fcmState.registered) return currentPhoneSafe() ? 'registered' : 'guest';
+    if (fcmState.reason === 'no_fcm_token') return 'no_token';
+    if (fcmState.reason === 'server' || fcmState.reason === 'network' || fcmState.reason === 'exception') return 'error';
+    return 'pending';
+  }
+
+  function fcmStatusText() {
+    switch (fcmStateKey()) {
+      case 'registered': return '✅ این گوشی برای اعلان گزارش‌های شما ثبت شده است.';
+      case 'guest': return 'ℹ️ برای دریافت اعلان گزارش‌هایتان، وارد حساب خود شوید.';
+      case 'no_token': return '⏳ در حال دریافت شناسه‌ی اعلان از گوگل… اگر این پیام می‌ماند، اینترنت و Google Play Services گوشی را بررسی کنید.';
+      case 'error': return '⚠️ ثبت گوشی در سرور انجام نشد؛ چند لحظه بعد خودکار دوباره تلاش می‌شود.';
+      default: return '⏳ در حال آماده‌سازی اعلان گوشی…';
+    }
+  }
+
   /* ───────────────────────────────────────────────────────────
      پیام وضعیت اعلان برای کاربر (صفحه‌ی اعلان‌ها)
 
@@ -962,15 +1231,23 @@
           enabled = !!window.AndroidApp.notificationsEnabled();
         }
       } catch (e) {}
+      var btn = 'border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;margin:4px 0 0 6px;';
+      var settingsBtn = '<button type="button" onclick="eplakOpenNotificationSettings()" style="' + btn + '">تنظیمات اعلان گوشی</button>';
       if (enabled) {
         /* جمله‌ی «اعلان گوشی کاملاً فعال است» عمداً نوشته نمی‌شود؛ تا وقتی
            رسیدن اعلان در حالت بسته بودن کامل اپ روی گوشی کاربر تأیید نشده،
-           چنین ادعایی درست نیست. */
+           چنین ادعایی درست نیست. به‌جایش وضعیت «واقعی» ثبت گوشی نشان داده می‌شود
+           و دکمه‌ی «تست اعلان» رسیدن اعلان را عملاً می‌سنجد. */
         text = '🔔 اعلان‌های داخل برنامه فعال است و اعلان‌های تازه در همین فهرست نمایش داده می‌شوند. '
-             + 'اگر اعلان را در نوار اعلان‌های گوشی نمی‌بینید: در تنظیمات گوشی → برنامه‌ها → ای‌پلاک → اعلان‌ها، اجازه‌ی اعلان را روشن کنید و آخرین نسخه‌ی اپ را نصب کنید.';
+             + 'اگر اعلان را در نوار اعلان‌های گوشی نمی‌بینید: در تنظیمات گوشی → برنامه‌ها → ای‌پلاک → اعلان‌ها، اجازه‌ی اعلان را روشن کنید و آخرین نسخه‌ی اپ را نصب کنید.'
+             + '<div id="notifPushStatus" data-state="' + escapeText(fcmStateKey()) + '" style="margin-top:8px;font-weight:600;">' + escapeText(fcmStatusText()) + '</div>'
+             + '<button type="button" id="notifPushTestBtn" onclick="eplakTestPushClick(this)" style="' + btn + '">تست اعلان</button>'
+             + settingsBtn
+             + (pushTestLine ? '<div id="notifPushTestResult" data-code="' + escapeText(pushTestCode) + '" style="margin-top:8px;">' + escapeText(pushTestLine) + '</div>' : '');
       } else {
         text = '🔕 برای دریافت اعلان روی گوشی، اجازه‌ی اعلان را به این برنامه بدهید. '
-             + '<button type="button" onclick="requestPushPermission()" style="border:0;background:#ea580c;color:#fff;border-radius:9px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">فعال‌سازی اعلان</button>';
+             + '<button type="button" onclick="requestPushPermission()" style="' + btn + '">فعال‌سازی اعلان</button>'
+             + settingsBtn;
       }
     } else if (cap.kind === 'unsupported') {
       text = '📵 این دستگاه امکان اعلان پس‌زمینه ندارد؛ اعلان‌های تازه در فهرست اعلان‌های همین برنامه نمایش داده می‌شوند.';
@@ -1034,14 +1311,20 @@
     // Refresh news every 30 seconds
     setInterval(syncNews, 30000);
 
+    /* در اپ اندروید: ثبت دستگاه برای اعلان فایربیس.
+       عمداً «مستقل از Service Worker»: داخل WebView اندروید (صفحه‌ی file://)
+       Service Worker یا اصلاً ساخته نمی‌شود یا دیر آماده می‌شود، و وقتی ثبت گوشی
+       پشت آن می‌ماند هیچ گوشی‌ای ثبت نمی‌شد و هیچ اعلان پنلی نمی‌رسید. */
+    registerAppDevice(false);
+    /* هر ۱۰ دقیقه: اگر ثبت قبلی بیش از ۶ ساعت پیش بوده یا ناموفق مانده، تازه می‌شود */
+    setInterval(function () { registerAppDevice(false); }, 10 * 60 * 1000);
+
     // Service worker + اعلان پس‌زمینه
     ensureServiceWorker().then(function () {
       listenToServiceWorker();
       /* اگر کاربر قبلاً اجازه داده، اشتراک بی‌صدا تازه می‌شود تا اعلان در حالت
          قفل هم برسد؛ درخواست مجوز فقط با اولین تعامل کاربر انجام می‌شود. */
       syncPushSubscription();
-      /* در اپ اندروید: ثبت دستگاه برای اعلان فایربیس */
-      registerAppDevice(false);
     });
 
     // Request notification permission gracefully on first user interaction
@@ -1063,7 +1346,9 @@
         syncPushSubscription();
         syncNotifications();
         renderDeviceNotice();
-        /* اگر کاربر در این فاصله وارد شده یا توکن تازه ساخته شده، دوباره ثبت می‌کنیم */
+        /* اگر کاربر در این فاصله وارد شده یا توکن تازه ساخته شده، دوباره ثبت می‌کنیم
+           (شمارنده‌ی تلاش‌های ناموفق صفر می‌شود تا تلاش‌ها از نو شروع شوند) */
+        fcmRetryCount = 0;
         registerAppDevice(false);
       }
     });
