@@ -13,7 +13,8 @@
 #    pushcrypto → رمزنگاری اعلان مرورگر و امضای VAPID
 #    fcm        → موتور فایربیس (JWT، ارسال پیام، توکن باطل)
 #    backend    → دیتابیس، بذرها، آپلود عکس، صفحات پنل
-#    rescue     → ابزار بازیابی اتصال دیتابیس (rescue-db.php)
+#    security   → ابزار ناامن rescue-db.php حذف شده و به مخزن/بسته‌ی آپلود برنمی‌گردد
+#                 (و قاعده‌ی .htaccess نسخه‌ی قدیمیِ باقی‌مانده روی هاست را می‌بندد)
 #    online     → اپ فقط آنلاین (پرده‌ی «بدون اینترنت»)، حذف اعلان، اعلان فوری
 #                 پس از ثبت درخواست، و ورود دوباره با کد تایید پس از خروج از اپ
 #    geo        → نقشه‌ی موقعیت (کاشی‌های OpenStreetMap)، GPS گوشی، انتخاب
@@ -83,7 +84,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue online geo upload tiles push places placesadmin; do
+for t in notify app pushcrypto fcm backend security online geo upload tiles push places placesadmin; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

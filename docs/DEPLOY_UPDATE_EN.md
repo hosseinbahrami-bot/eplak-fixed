@@ -247,6 +247,7 @@ asks for the phone number and the verification code again. (Browser sessions are
 - [ ] **City Map & Places**: Home → “City Map” → colored markers and category chips are visible; “My location” drops a blue dot; “Dr. Mofatteh Hospital” → “Route with Neshan” → the Neshan app opens with a route from your position (needs the new APK; in a browser the Neshan web version opens)
 - [ ] **Managing places**: panel → “اماکن شهری” → the list of 134 places opens → “Add a new place” → pick a category and name, drag the map, “Save” → in the app open “City Map” (again); the new place should appear in its category.
       If you see “the places table could not be created”, check the DB user’s `CREATE TABLE` permission (the app then keeps showing the built-in list)
+- [ ] **Security:** `https://eplak.ir/eplak-fixed/rescue-db.php` must answer `403` or `404` (not the “database connection rescue” page); if that page opens, delete `rescue-db.php` in File Manager
 - [ ] If anything errors: `admin → تنظیمات → Server technical status` and the
       **Database structure** section
 
@@ -272,8 +273,34 @@ fresh folder, the file is lost and the site stops with
 **Correct upload:** extract the zip into the existing folder and choose
 **Overwrite** — do **not** delete files first.
 
-Recovery: open `https://<your-site>/rescue-db.php`, enter the database details from
-cPanel → MySQL Databases, and press “test & save”.
+Recovery (your data is safe — only the connection file has to be recreated) — create it by hand:
+1. **cPanel → File Manager** → folder `shared` → **Copy** `config.example.php` and name the copy
+   `config.php` (or create `config.php` from scratch with the content below).
+2. **Edit** `config.php` and replace these four values with yours:
+   ```php
+   <?php
+   return [
+       'driver' => 'mysql',
+       'host'   => 'localhost',
+       'user'   => 'your_database_user',
+       'pass'   => 'your_database_password',
+       'name'   => 'your_database_name',
+   ];
+   ```
+3. Take the values from **cPanel → MySQL® Databases**:
+   - **database name:** table *Current Databases*, column Databases (e.g. `wigitali_eplak-db`;
+     names usually carry the account prefix)
+   - **user name:** table *Current Users*, column Users
+   - **password:** it cannot be viewed; if you do not remember it, press **Change Password** on that
+     user and set a new one (no data is deleted)
+   - **host:** `localhost` on most hosts
+4. Open `admin/login.php` — the login page should appear.
+
+> 🔒 **The old `rescue-db.php` tool was removed.** That page had no password, so anyone could use it to
+> overwrite the site's database connection file (`shared/config.php`). The new package does not contain
+> it; **if the old copy is still on your host, delete it in cPanel → File Manager** (extracting the
+> package does not delete files that are already on the host). As a safety net, the new `.htaccess`
+> also blocks web access to it.
 
 ### 7) Automated tests (safety check before any change)
 Run the whole suite locally — no server, MySQL or Android Studio needed:

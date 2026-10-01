@@ -84,15 +84,13 @@ if hints:
         print('   •', html.unescape(re.sub(r'<[^>]+>', '', h)).strip()[:180])
 PYEOF
   say ""
-  say "**🛠 راه‌حل سریع:** این آدرس را در مرورگر باز کنید و اطلاعات دیتابیس را وارد کنید:"
+  say "**🛠 راه‌حل سریع:** فایل \`shared/config.php\` را دستی بسازید (ابزار خودکار \`rescue-db.php\` برای امنیت حذف شده است):"
   say ""
-  say "\`$BASE/rescue-db.php\`"
+  say "۱) cPanel → **File Manager** → پوشه‌ی \`shared\` → فایل \`config.example.php\` را کپی کنید و نام کپی را \`config.php\` بگذارید."
+  say "۲) \`config.php\` را Edit کنید و چهار مقدار \`host\` / \`user\` / \`pass\` / \`name\` را بنویسید."
   say ""
-  say "اگر این فایل روی هاست نیست، از بسته‌ی آپلود (\`eplak-fixed-update.zip\`) آن را Extract کنید"
-  say "یا از این آدرس دانلود و در همین پوشه بگذارید:"
-  say "\`https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/rescue-db.php\`"
-  say ""
-  say "اطلاعات دیتابیس در cPanel → **MySQL® Databases** است (ستون Databases و Users)."
+  say "اطلاعات دیتابیس در cPanel → **MySQL® Databases** است (ستون Databases و Users؛ رمز را اگر یادتان نیست با Change Password عوض کنید)."
+  say "راهنمای کامل: بخش «۶-۶» در \`docs/DEPLOY_UPDATE_FA.md\`."
   say ""
 fi
 
@@ -297,8 +295,12 @@ else
   say "| اماکن شهری (\`api/places.php\`) | $CODE_PLACES | ⚠️ پاسخ غیرمنتظره |"
 fi
 
-# ── ۵-۲) بررسی امنیتی: ابزار بازیابی نباید روی سایت بماند ──────────────────
-hdr "۵-۲) وضعیت ابزار بازیابی (rescue-db.php)"
+# ── ۵-۲) بررسی امنیتی: ابزار قدیمیِ rescue-db.php نباید روی سایت بماند ──────
+#  این ابزار رمز نداشت و می‌توانست shared/config.php را بازنویسی کند؛ از مخزن و
+#  بسته‌ی آپلود حذف شده. ولی Extract کردن بسته فایل‌های قدیمیِ هاست را پاک نمی‌کند:
+#    ۲۰۰ ← هنوز باز است (خطرناک)    ۴۰۳ ← .htaccess تازه آن را بسته است
+#    ۴۰۴ ← فایل نیست
+hdr "۵-۲) ابزار قدیمیِ بازیابی (rescue-db.php) — باید حذف شده باشد"
 RESCUE_OUT="$TMP/rescue.html"
 CODE_RESCUE=$(grab "$BASE/rescue-db.php" "$RESCUE_OUT")
 say "| مورد | نتیجه |"
@@ -307,14 +309,16 @@ say "| کد پاسخ | \`$CODE_RESCUE\` |"
 case "$CODE_RESCUE" in
   200)
     if has "$RESCUE_OUT" "بازیابی اتصال دیتابیس"; then
-      say "| وضعیت | ⚠️ ابزار بازیابی روی سایت است — اگر کارتان تمام شده، پاکش کنید |"
+      say "| وضعیت | 🔴 **ابزار قدیمی هنوز روی سایت باز است** — رمز ندارد و هر کسی می‌تواند با آن اتصال دیتابیس سایت را بازنویسی کند. از cPanel → File Manager فایل \`rescue-db.php\` را پاک کنید (و بسته‌ی تازه را Extract کنید تا \`.htaccess\` هم آن را ببندد) |"
       RESCUE_PRESENT="yes"
+      ISSUES+=("🔴 rescue-db.php (ابزار قدیمیِ بدون رمز) هنوز روی سایت باز است؛ از File Manager پاکش کنید")
     else
       say "| وضعیت | ✅ فایل نیست (صفحه‌ی دیگری پاسخ داد) |"
       RESCUE_PRESENT="no"
     fi
     ;;
-  404|403) say "| وضعیت | ✅ روی سایت نیست (خوب است) |"; RESCUE_PRESENT="no" ;;
+  404) say "| وضعیت | ✅ روی سایت نیست |"; RESCUE_PRESENT="no" ;;
+  403) say "| وضعیت | ✅ دسترسی وب بسته است (قاعده‌ی \`.htaccess\` بسته‌ی تازه فعال است). اگر فایل هنوز داخل پوشه‌ی سایت هست، از File Manager پاکش کنید |"; RESCUE_PRESENT="no" ;;
   000) say "| وضعیت | ❓ پاسخ نداد |"; RESCUE_PRESENT="no" ;;
   *) say "| وضعیت | کد $CODE_RESCUE |"; RESCUE_PRESENT="no" ;;
 esac
@@ -1102,7 +1106,7 @@ else
 fi
 say "- 📱 برای دیدن تعداد گوشی‌های ثبت‌شده: پنل ادمین → «بررسی نسخه» (باید بزرگ‌تر از صفر باشد)"
 if [ "$RESCUE_PRESENT" = "yes" ]; then
-  say "- ⚠️ ابزار بازیابی \`rescue-db.php\` روی سایت است — بعد از رفع مشکل، حذفش کنید (امنیت)"
+  say "- 🔴 ابزار قدیمیِ \`rescue-db.php\` (بدون رمز) هنوز روی سایت باز است — از cPanel → File Manager پاکش کنید"
 fi
 
 if [ ${#ISSUES[@]} -gt 0 ]; then

@@ -33,7 +33,7 @@ echo "بررسی سریع محتوای بسته:"
 LIST="$(unzip -Z1 "$OUT")"
 has() { printf '%s\n' "$LIST" | grep -Fxq "$1"; }
 
-for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared/bootstrap.php \
+for f in .htaccess index.html index.php sw.js manifest.json shared/bootstrap.php \
          shared/webpush.php shared/media.php shared/notification_reads.php shared/fcm.php \
          shared/notify_events.php shared/fa_datetime.php shared/tiles.php \
          api/_common.php api/ping.php api/push.php api/media.php api/tiles.php api/reports.php api/notifications.php \
@@ -53,3 +53,17 @@ for f in shared/config.php data/eplak.sqlite uploads/.htaccess; do
   if has "$f"; then echo "   ❌ $f نباید داخل بسته باشد!"; exit 1; fi
 done
 echo "   ✅ داده‌های کاربران و تنظیمات سرور داخل بسته نیستند"
+
+# ابزار قدیمی rescue-db.php (بدون رمز؛ می‌توانست shared/config.php را بازنویسی کند)
+# حذف شده و هرگز نباید دوباره وارد بسته شود. قاعده‌ی .htaccess هم باید داخل بسته باشد
+# تا نسخه‌ی قدیمیِ باقی‌مانده روی هاست از وب بسته شود.
+case "$LIST" in
+  rescue-db.php*|*$'\n'rescue-db.php*|*/rescue-db.php*)
+    echo "   ❌ rescue-db.php نباید داخل بسته باشد (ناامن و حذف‌شده)!"; exit 1 ;;
+esac
+HTACCESS="$(unzip -p "$OUT" .htaccess)"
+case "$HTACCESS" in
+  *'rescue-db\.php'*) ;;
+  *) echo "   ❌ قاعده‌ی بستن rescue-db.php در .htaccess بسته نیست!"; exit 1 ;;
+esac
+echo "   ✅ ابزار ناامن rescue-db.php داخل بسته نیست و در .htaccess بسته شده است"

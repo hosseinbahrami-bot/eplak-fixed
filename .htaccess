@@ -47,6 +47,21 @@ AddDefaultCharset UTF-8
   </IfModule>
 </FilesMatch>
 
+# ابزار قدیمیِ rescue-db.php حذف شده است: رمز نداشت و هر کسی می‌توانست با آن
+# اطلاعات اتصال دیتابیس سایت (shared/config.php) را بازنویسی کند. Extract کردن
+# بسته‌ی تازه فایل‌های قدیمیِ روی هاست را پاک نمی‌کند؛ پس اگر نسخه‌ی قدیمی آن
+# هنوز آنجا مانده باشد، این قاعده دسترسی وب به آن را می‌بندد.
+# (فایل را از cPanel → File Manager هم پاک کنید؛ این فقط کمربند ایمنی است.)
+<FilesMatch "^rescue-db\.php$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
 # --- پوشه‌های داخلی: هیچ دسترسی مستقیمی از مرورگر نداشته باشند -------------
 <IfModule mod_alias.c>
   RedirectMatch 404 ^/.*/(data|shared|docs|android-app|backend)(/|$)
