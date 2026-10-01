@@ -22,6 +22,10 @@
   var VEHICLE_KEY = 'eplak_citymap_vehicle';
   var USER_FRESH_MS = 120000;     /* موقعیتی که تازه‌تر از ۲ دقیقه باشد دوباره گرفته نمی‌شود */
   var PER_GROUP = 4;              /* در حالت «همه»، هر دسته چند مکان اول را نشان بدهد */
+  var REMOTE_KEY = 'eplak_places_remote_v1';   /* آخرین پاسخِ api/places.php (برای اینترنت ضعیف/قطع) */
+  var REMOTE_EVERY_MS = 90000;    /* اصلاح‌های ادمین حداکثر هر ۹۰ ثانیه یک‌بار از سرور پرسیده می‌شود */
+  var REMOTE_RETRY_MS = 15000;    /* پس از خطا، ۱۵ ثانیه بعد دوباره */
+  var REMOTE_TIMEOUT_MS = 8000;
 
   /* ── متن‌ها ───────────────────────────────────────────────────────────── */
   var TEXT = {
@@ -164,6 +168,10 @@
     routing: false,
     neshanHint: '',
     leftAt: 0,
+    remoteAt: 0,
+    remoteBusy: false,
+    remoteV: '',
+    remoteLoaded: false,
     permWaiters: [],
     permTimer: null
   };
@@ -315,6 +323,69 @@
     if (el.canvas) el.canvas.setAttribute('aria-label', tr('aria_map'));
   }
 
+  /* ── اماکنِ افزوده/اصلاح‌شده توسط ادمین (api/places.php) ────────────────────
+     فهرست پیش‌فرض همراه اپ است. هر بار که صفحه باز می‌شود، «تفاوت» از سرور گرفته و روی آن
+     اعمال می‌شود؛ آخرین پاسخ هم در localStorage می‌ماند تا با اینترنتِ ضعیف یا قطع هم
+     مکان‌های افزوده‌شده دیده شوند. هر خطایی بی‌صدا نادیده گرفته می‌شود (فهرست پیش‌فرض می‌ماند). */
+  function remoteUrl() {
+    var base = '';
+    try { base = typeof window.eplakApiBase === 'function' ? window.eplakApiBase() : ''; } catch (e) { base = ''; }
+    return String(base || 'api').replace(/\/+$/, '') + '/places.php';
+  }
+
+  function applyCachedRemote() {
+    if (st.remoteLoaded) return;
+    st.remoteLoaded = true;
+    try {
+      var raw = window.localStorage.getItem(REMOTE_KEY);
+      var cached = raw ? JSON.parse(raw) : null;
+      if (cached && cached.data) st.remoteV = Places.applyRemote(cached.data).v || '';
+    } catch (e) { /* ذخیره‌ی خراب؛ نادیده */ }
+  }
+
+  /* پس از رسیدن اصلاح‌های تازه: فهرست/نقشه به‌روز شود و کارتِ باز (اگر هنوز هست) دوباره ساخته شود */
+  function remoteChanged() {
+    if (!st.inited) return;
+    refresh({ refit: false });
+    if (st.selected) {
+      var p = Places.placeById(st.selected);
+      if (p) { renderSheet(p); markRowSelected(); }
+    }
+  }
+
+  function fetchRemote(force) {
+    if (st.remoteBusy || typeof window.fetch !== 'function') return;
+    if (!force && st.remoteAt && Date.now() - st.remoteAt < REMOTE_EVERY_MS) return;
+    st.remoteBusy = true;
+    st.remoteAt = Date.now();
+    var ctrl = null;
+    var timer = null;
+    try { if (typeof window.AbortController === 'function') ctrl = new window.AbortController(); } catch (e) { ctrl = null; }
+    if (ctrl) timer = setTimeout(function () { try { ctrl.abort(); } catch (e) { /* مهم نیست */ } }, REMOTE_TIMEOUT_MS);
+    var opts = { cache: 'no-store' };
+    if (ctrl) opts.signal = ctrl.signal;
+    function done() { st.remoteBusy = false; if (timer) { clearTimeout(timer); timer = null; } }
+
+    window.fetch(remoteUrl() + '?t=' + Date.now(), opts)
+      .then(function (res) {
+        if (!res || !res.ok) throw new Error('http');
+        return res.json();
+      })
+      .then(function (data) {
+        done();
+        if (!data || data.success !== true) return;
+        var v = typeof data.v === 'string' ? data.v : '';
+        if (v && v === st.remoteV) return;                 /* چیزی عوض نشده */
+        st.remoteV = Places.applyRemote(data).v || '';
+        try { window.localStorage.setItem(REMOTE_KEY, JSON.stringify({ t: Date.now(), data: data })); } catch (e) { /* مهم نیست */ }
+        remoteChanged();
+      })
+      .catch(function () {
+        done();
+        st.remoteAt = Date.now() - (REMOTE_EVERY_MS - REMOTE_RETRY_MS);   /* ۱۵ ثانیه‌ی دیگر دوباره */
+      });
+  }
+
   /* ── نمایش کلی صفحه (router.js وقتی screen-map باز می‌شود صدا می‌زند) ─────── */
   /* ورود تازه به صفحه (پس از رفتن به صفحه‌ی دیگر): دسته «همه»، بدون جستجو و بدون کارت مکان */
   function resetView() {
@@ -330,6 +401,7 @@
 
   function show() {
     if (!init()) return;
+    applyCachedRemote();
     var fresh = !!st.leftAt;
     if (fresh) resetView();
     applyTexts();
@@ -340,6 +412,7 @@
     }
     ensureMap();
     silentLocation();
+    fetchRemote(false);
   }
 
   /* ── نقشه ─────────────────────────────────────────────────────────────── */
@@ -898,6 +971,7 @@
     setCategory: setCategory,
     handleBack: handleBack,
     closeSheet: closeSheet,
+    reloadRemote: function () { fetchRemote(true); },
     state: st,
     /* فقط برای آزمون‌های خودکار */
     _test: { detectEnv: detectEnv, launch: launch, hooks: hooks, acquireLocation: acquireLocation }

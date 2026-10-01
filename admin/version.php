@@ -25,6 +25,11 @@ $fileChecks = [
     'modules/live.js'                 => 'کد اعلان‌های خود اپ',
     'core/upload-progress.js'         => 'نوار پیشرفت آپلود عکس و فیلم',
     'api/tiles.php'                   => 'پراکسی نقشه‌ی گزارش',
+    'core/places-data.js'             => 'فهرست اماکن «نقشه و اماکن شهری»',
+    'modules/city-map.js'             => 'صفحه‌ی «نقشه و اماکن شهری» در اپ',
+    'admin/places.php'                => 'مدیریت اماکن شهری از پنل',
+    'api/places.php'                  => 'اماکن شهری برای اپ (اصلاح‌های ادمین)',
+    'shared/places_store.php'         => 'منطق و جدول اماکن شهری',
 ];
 $files = [];
 foreach ($fileChecks as $rel => $label) {
@@ -54,6 +59,12 @@ $serverMarkers = [
     ['label' => 'دفتر ارسال اعلان گوشی (push_log)',
      'ok'    => (function () use ($pdo): bool { try { $pdo->query('SELECT 1 FROM push_log LIMIT 1'); return true; } catch (Throwable $e) { return false; } })()],
 ];
+/* جدول اماکن شهری در اولین استفاده ساخته می‌شود؛ باز شدن همین صفحه هم آن را می‌سازد و نتیجه را نشان می‌دهد */
+if (is_file(__DIR__ . '/../shared/places_store.php')) {
+    require_once __DIR__ . '/../shared/places_store.php';
+}
+$serverMarkers[] = ['label' => 'جدول اماکن شهری (city_places) ساخته شده و قابل استفاده است',
+    'ok' => function_exists('eplakPlacesEnsureTable') && eplakPlacesEnsureTable($pdo)];
 
 /* وضعیت اعلان‌ها */
 require_once __DIR__ . '/../shared/fcm.php';
@@ -135,6 +146,7 @@ function vBadge(bool $ok, string $good = 'درست', string $bad = 'ناقص'): 
         <a href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
         <a href="departments.php"><i class="fas fa-sitemap"></i> <span>واحدها</span></a>
         <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+        <a href="places.php"><i class="fas fa-map-location-dot"></i> <span>اماکن شهری</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
         <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>

@@ -284,6 +284,19 @@ for f in "admin/version.php" "admin/notification_view.php" "admin/notifications.
   if [ "$f" = "admin/version.php" ] && [ "$pc" != "404" ]; then NEW_VER_PAGE="yes"; fi
 done
 
+# اماکن شهری (مدیریت از پنل): api/places.php باید JSON سالم بدهد؛ نبودنش فقط یعنی بسته‌ی تازه آپلود نشده
+PLACES_OUT="$TMP/places.json"
+CODE_PLACES=$(grab "$BASE/api/places.php" "$PLACES_OUT")
+if has "$PLACES_OUT" '"success":true' && has "$PLACES_OUT" '"ready":true'; then
+  say "| اماکن شهری (\`api/places.php\`) | $CODE_PLACES | ✅ کار می‌کند (جدول ساخته شده؛ اصلاح‌های ادمین به اپ می‌رسد) |"
+elif has "$PLACES_OUT" '"success":true'; then
+  say "| اماکن شهری (\`api/places.php\`) | $CODE_PLACES | ⚠️ جواب می‌دهد ولی جدول ساخته نشده (دسترسی CREATE TABLE دیتابیس را بررسی کنید)؛ اپ فهرست پیش‌فرض را نشان می‌دهد |"
+elif [ "$CODE_PLACES" = "404" ]; then
+  say "| اماکن شهری (\`api/places.php\`) | $CODE_PLACES | ⏳ هنوز آپلود نشده (بسته‌ی دور ۳۰ روی هاست نیست) |"
+else
+  say "| اماکن شهری (\`api/places.php\`) | $CODE_PLACES | ⚠️ پاسخ غیرمنتظره |"
+fi
+
 # ── ۵-۲) بررسی امنیتی: ابزار بازیابی نباید روی سایت بماند ──────────────────
 hdr "۵-۲) وضعیت ابزار بازیابی (rescue-db.php)"
 RESCUE_OUT="$TMP/rescue.html"

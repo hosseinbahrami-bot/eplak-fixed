@@ -29,7 +29,8 @@ videos), `shared/config.php` (your server settings).
 - `api/media.php` — safe serving of attachment files
 - `.htaccess` — caching + security rules (explained in section 5)
 - `shared/notification_reads.php` — records who read each notification (per-user read state)
-- `core/places-data.js` · `core/places.js` · `modules/city-map.js` — “City Map & Places” (128 Varamin places + routing with Neshan; web files only, no database change; guide: `docs/CITY_MAP_EN.md`)
+- `core/places-data.js` · `core/places.js` · `modules/city-map.js` — “City Map & Places” (134 Varamin places + routing with Neshan; guide: `docs/CITY_MAP_EN.md`)
+- `admin/places.php` · `api/places.php` · `shared/places_store.php` — **managing places from the admin panel** (menu “اماکن شهری”). The `city_places` table is created automatically on first use; no manual SQL
 
 **Changed files:**
 - `shared/bootstrap.php` — automatic database-schema repair (fixes `send_id`)
@@ -244,6 +245,8 @@ asks for the phone number and the verification code again. (Browser sessions are
 - [ ] **Read status:** open a notification in the app → panel → Notifications → eye icon
       (view recipients) → it should show “خوانده شده / Read”
 - [ ] **City Map & Places**: Home → “City Map” → colored markers and category chips are visible; “My location” drops a blue dot; “Dr. Mofatteh Hospital” → “Route with Neshan” → the Neshan app opens with a route from your position (needs the new APK; in a browser the Neshan web version opens)
+- [ ] **Managing places**: panel → “اماکن شهری” → the list of 134 places opens → “Add a new place” → pick a category and name, drag the map, “Save” → in the app open “City Map” (again); the new place should appear in its category.
+      If you see “the places table could not be created”, check the DB user’s `CREATE TABLE` permission (the app then keeps showing the built-in list)
 - [ ] If anything errors: `admin → تنظیمات → Server technical status` and the
       **Database structure** section
 

@@ -231,6 +231,7 @@ jobs:
           # «نقشه و اماکن شهری»: فهرست اماکن، صفحه‌ی نقشه و پل اندروید «نشان»
           if unzip -p "$APK" assets/core/places-data.js 2>/dev/null | grep -q "mofatteh-hospital"; then PLACES_CODE="✅"; else PLACES_CODE="❌ (فهرست اماکن داخل APK نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
           if unzip -p "$APK" assets/modules/city-map.js 2>/dev/null | grep -q "openNeshan"; then CITYMAP_CODE="✅"; else CITYMAP_CODE="❌ (صفحه‌ی نقشه داخل APK نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/modules/city-map.js 2>/dev/null | grep -q "eplak_places_remote_v1" && unzip -p "$APK" assets/core/places.js 2>/dev/null | grep -q "applyRemote"; then PLACES_SYNC_CODE="✅"; else PLACES_SYNC_CODE="❌ (همگام‌سازی اماکنِ پنل با اپ داخل APK نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
           if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|neshanBridge' && printf '%s\n' "$DEX_REPORT" | grep -q 'YES|neshanPackage'; then NESHAN_KOTLIN="✅"; else NESHAN_KOTLIN="❌ (پل مسیریابی نشان داخل اپ کامپایل نشده)"; DEX_BAD=$((DEX_BAD+1)); fi
           DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | sed -n 's/^DEXFILES=\([^ ]*\).*/\1/p')"
           echo "بررسی کد داخل APK: $(printf '%s\n' "$DEX_REPORT" | tr '\n' ' ')"
@@ -264,6 +265,7 @@ jobs:
             echo "| مجوز موقعیت مکانی در مانیفست | $LOC_PERM |"
             echo "| نقشه و اماکن شهری: فهرست اماکن ورامین | $PLACES_CODE |"
             echo "| نقشه و اماکن شهری: صفحه و مسیریابی | $CITYMAP_CODE |"
+            echo "| نقشه و اماکن شهری: اماکنِ افزوده‌شده در پنل ادمین (همگام‌سازی) | $PLACES_SYNC_CODE |"
             echo "| مسیریابی با نشان: پل اندروید (openNeshan) | $NESHAN_KOTLIN |"
             echo ""
             echo "### تأیید کد سایت داخل اپ (مقایسه‌ی هش با مخزن)"
@@ -334,6 +336,7 @@ jobs:
             echo "APK_PICKED_CACHE=$PICKED_CACHE"
             echo "APK_PLACES_CODE=$PLACES_CODE"
             echo "APK_CITYMAP_CODE=$CITYMAP_CODE"
+            echo "APK_PLACES_SYNC_CODE=$PLACES_SYNC_CODE"
             echo "APK_NESHAN_KOTLIN=$NESHAN_KOTLIN"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
@@ -395,6 +398,7 @@ jobs:
             echo "| مجوز موقعیت مکانی در مانیفست | $APK_LOC_PERM |"
             echo "| نقشه و اماکن شهری: فهرست اماکن ورامین | $APK_PLACES_CODE |"
             echo "| نقشه و اماکن شهری: صفحه و مسیریابی | $APK_CITYMAP_CODE |"
+            echo "| نقشه و اماکن شهری: اماکنِ افزوده‌شده در پنل ادمین (همگام‌سازی) | $APK_PLACES_SYNC_CODE |"
             echo "| مسیریابی با نشان: پل اندروید (openNeshan) | $APK_NESHAN_KOTLIN |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."

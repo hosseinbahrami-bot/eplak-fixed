@@ -29,6 +29,8 @@
 #    places     → «نقشه و اماکن شهری»: داده‌ی اماکن ورامین (مختصات، دسته‌ها)، جستجو،
 #                 نشانگر/خوشه روی نقشه، و مسیریابی با «نشان» (Neshan) از موقعیت GPS
 #                 کاربر در اپ اندروید، مرورگر اندروید، iOS و دسکتاپ (jsdom)
+#    placesadmin → «اماکن شهری» از پنل ادمین: افزودن/اصلاح/پنهان/حذف (ورود، CSRF،
+#                 اعتبارسنجی، XSS)، api/places.php، و رسیدن همان JSON به فهرست اپ
 # ============================================================================
 set -uo pipefail
 
@@ -81,7 +83,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue online geo upload tiles push places; do
+for t in notify app pushcrypto fcm backend rescue online geo upload tiles push places placesadmin; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

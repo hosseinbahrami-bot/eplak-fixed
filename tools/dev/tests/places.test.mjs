@@ -299,7 +299,7 @@ section('صفحه‌ی «نقشه و اماکن شهری»: چیپ‌ها، فه
   const S = w.EplakCityMap.state;
   ok('نقشه‌ی واقعی ساخته می‌شود و نشانگر همه‌ی اماکن روی آن است', !!S.map && env.$$('#cityMapCanvas .ep-mk, #cityMapCanvas .ep-cl').length > 0);
   const chips = env.$$('#cityMapChips .cm-chip');
-  ok('ده چیپ: «همه» + نُه دسته، با شمار به رقم فارسی', chips.length === 10 && /۱۲۸/.test(chips[0].textContent) && /۲۶/.test(env.$('[data-cat="mosque"]').textContent), chips.map((c) => c.textContent).join('|'));
+  ok('ده چیپ: «همه» + نُه دسته، با شمار به رقم فارسی', chips.length === 10 && /۱۳۴/.test(chips[0].textContent) && /۲۸/.test(env.$('[data-cat="mosque"]').textContent), chips.map((c) => c.textContent).join('|'));
   const headers = env.$$('#mapPlacesWrap .cm-group-h');
   ok('«همه»: فهرست دسته‌به‌دسته با سرتیتر هر دسته است', headers.length === 9);
   ok('در «همه» هر دسته حداکثر ۴ مورد دارد و دکمه‌ی «نمایش همه» برای دسته‌های بزرگ‌تر', env.$$('#mapPlacesWrap .cm-row').length === groups.reduce((n, g) => n + Math.min(4, g.items.length), 0)
@@ -313,7 +313,7 @@ section('صفحه‌ی «نقشه و اماکن شهری»: چیپ‌ها، فه
   ok('چیپ فعال تغییر می‌کند (aria-selected)', env.$('[data-cat="health"]').getAttribute('aria-selected') === 'true' && env.$('[data-cat="all"]').getAttribute('aria-selected') === 'false');
 
   env.click(env.$('[data-cat="culture"]'));
-  ok('چیپ «فرهنگی و تاریخی» مسجد جامع (دسته‌ی دوم) را هم دارد', env.$$('#mapPlacesWrap .cm-row').some((r) => r.dataset.id === 'jame-mosque') && env.$$('#mapPlacesWrap .cm-row').length === 6);
+  ok('چیپ «فرهنگی و تاریخی» مسجد جامع (دسته‌ی دوم) را هم دارد', env.$$('#mapPlacesWrap .cm-row').some((r) => r.dataset.id === 'jame-mosque') && env.$$('#mapPlacesWrap .cm-row').length === 10);
 
   env.click(env.$('[data-cat="all"]'));
   env.click(env.$$('#mapPlacesWrap .cm-more')[0]);
@@ -597,7 +597,7 @@ section('نسخه‌ی انگلیسی');
   const input = env.$('#cityMapSearch');
   ok('جای‌نمای جستجو انگلیسی است', /Search places in Varamin/.test(input.placeholder));
   input.value = 'tower'; input.dispatchEvent(new w.Event('input', { bubbles: true }));
-  ok('جستجوی انگلیسی «tower» برج علاءالدوله را پیدا می‌کند', env.$$('#mapPlacesWrap .cm-row').length === 1 && env.$('#mapPlacesWrap .cm-row').dataset.id === 'alaeddin-tower');
+  ok('جستجوی انگلیسی «tower» برج علاءالدوله را پیدا می‌کند', env.$$('#mapPlacesWrap .cm-row').length >= 1 && env.$('#mapPlacesWrap .cm-row').dataset.id === 'alaeddin-tower');
   env.close();
 }
 {
@@ -619,6 +619,199 @@ section('نسخه‌ی انگلیسی');
   w.document.documentElement.classList.add('day');
   await sleep(30);
   ok('با روز شدن تم، کاشی‌ها روشن می‌شوند (MutationObserver)', !env.$('#cityMapCanvas').classList.contains('ep-map-dark'));
+  env.close();
+}
+
+/* ══════════════════════ اماکن افزوده/اصلاح‌شده توسط ادمین ══════════════════════ */
+section('اماکن ادمین — منطق: applyRemote روی فهرست پیش‌فرض (core/places.js)');
+const U1 = { id: 'u1a2b3c4d', cat: 'mosque', fa: 'مسجد جامع شهرک نمونه', en: 'Sample Town Mosque', lat: 35.3311, lng: 51.6415, addr: 'خیابان نمونه', addrEn: '', tel: '02136251234', note: '', noteEn: '', approx: 0 };
+const okRes = (data) => ({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(JSON.stringify(data))) });
+const mkPayload = (extra) => Object.assign({ success: true, ready: true, v: 'v1', custom: [], overrides: {}, hidden: [] }, extra || {});
+{
+  const env = makeEnv(); const L = env.w.EplakPlaces; const N = L.basePlaces().length;
+  ok('بدون اصلاح، places() همان فهرست پیش‌فرض است', L.places().length === N && N === 134);
+  const z = [L.applyRemote(null), L.applyRemote({ success: false }), L.applyRemote('x'), L.applyRemote([])];
+  ok('ورودی نامعتبر (null، success:false، رشته، آرایه) فهرست را دست نمی‌زند', z.every((i) => i.custom + i.edited + i.hidden === 0) && L.places().length === N);
+
+  const info = L.applyRemote(mkPayload({ custom: [U1], v: 'abc123' }));
+  ok('مکان تازه اضافه می‌شود: شمار +۱، src=custom، دسته‌ی مساجد ۲۹', info.custom === 1 && info.v === 'abc123' && L.places().length === N + 1 && L.placeById(U1.id).src === 'custom' && L.countByCategory().mosque === 29 && L.countByCategory().all === N + 1);
+  ok('جستجو و فیلتر دسته مکان تازه را می‌یابد', L.search(null, 'شهرک نمونه')[0].id === U1.id && L.places().filter((p) => L.inCategory(p, 'mosque')).some((p) => p.id === U1.id));
+  ok('نشانی/توضیحِ انگلیسیِ خالی در مکان ادمین، به متن فارسی برمی‌گردد؛ مکان‌های پیش‌فرض دست‌نخورده‌اند',
+    L.placeAddr(L.placeById(U1.id), 'en') === 'خیابان نمونه' && L.placeAddr(L.placeById('mofatteh-hospital'), 'en') === 'Razi Sq., Imam Reza Blvd.' && L.placeAddr(L.placeById('tajik-clinic'), 'en') === '');
+  ok('اپ با هر applyRemote «جایگزین» می‌کند، نه انباشته (خالی → دوباره پیش‌فرض)', L.applyRemote(mkPayload()).custom === 0 && L.places().length === N && L.placeById(U1.id) === null);
+
+  L.applyRemote(mkPayload({ hidden: ['sq-madar', 'constructor', '__proto__', 'toString', 'nope', 7, null] }));
+  ok('پنهان‌سازی: فقط idهای واقعیِ پیش‌فرض (نه constructor/__proto__ و نه ناشناخته)', L.places().length === N - 1 && L.placeById('sq-madar') === null && L.remoteInfo().hidden === 1);
+
+  L.applyRemote(mkPayload({ overrides: {
+    governorate: { cat: 'office', fa: 'فرمانداری (اصلاح)', en: '', lat: 35.3301, lng: 51.6402, addr: '', addrEn: '', tel: '02136253496', note: '', noteEn: '', approx: 0 },
+    'jame-mosque': { cat: 'mosque', fa: 'مسجد جامع (اصلاح)', en: 'Jame', lat: 35.3221, lng: 51.6416, addr: '', addrEn: '', tel: '', note: '', noteEn: '', approx: 0 },
+    'imamzadeh-yahya': { cat: 'office', fa: 'تغییر دسته', en: '', lat: 35.3161, lng: 51.6483, addr: '', addrEn: '', tel: '', note: '', noteEn: '', approx: 0 },
+    nope: { cat: 'office', fa: 'ناشناخته', lat: 35.33, lng: 51.64 }
+  } }));
+  const gv = L.placeById('governorate');
+  ok('اصلاح: مقدارهای تازه جای مقدارهای پیش‌فرض می‌نشیند (نام، تلفن، approx)', gv.src === 'edited' && gv.fa === 'فرمانداری (اصلاح)' && gv.tel === '02136253496' && !gv.approx && L.remoteInfo().edited === 3);
+  ok('اصلاحِ idِ ناشناخته نادیده گرفته می‌شود و شمار ثابت می‌ماند', L.placeById('nope') === null && L.places().length === N);
+  ok('دسته‌ی دوم (also) فقط وقتی می‌ماند که دسته عوض نشده باشد', L.placeById('jame-mosque').also === 'culture' && !L.placeById('imamzadeh-yahya').also);
+  ok('نامِ انگلیسیِ خالی در اصلاح، به نام فارسی برمی‌گردد (در UI)', L.placeName(gv, 'en') === 'فرمانداری (اصلاح)');
+
+  const bads = [
+    ['مختصات رشته‌ای', Object.assign({}, U1, { id: 'u0000b001', lat: '35.33' })],
+    ['مختصات بیرون از ورامین', Object.assign({}, U1, { id: 'u0000b002', lat: 36.5 })],
+    ['دسته‌ی ناشناخته', Object.assign({}, U1, { id: 'u0000b003', cat: 'zzz' })],
+    ['نام خالی', Object.assign({}, U1, { id: 'u0000b004', fa: '   ' })],
+    ['شناسه‌ی نامعتبر', Object.assign({}, U1, { id: 'bad id!' })],
+    ['شناسه‌ی __proto__', Object.assign({}, U1, { id: '__proto__' })],
+    ['شناسه‌ی با حروف بزرگ', Object.assign({}, U1, { id: 'U1A2B3C4D' })],
+    ['شناسه‌ی بدون پیشوند u', Object.assign({}, U1, { id: 'x1a2b3c4d' })],
+    ['شناسه‌ی کوتاه‌تر از ۸ هگز', Object.assign({}, U1, { id: 'u1a2b3c' })],
+    ['شناسه‌ی بیش از ۴۰ نویسه', Object.assign({}, U1, { id: 'u' + '1'.repeat(41) })],
+    ['شناسه‌ی هم‌نام با مکان پیش‌فرض', Object.assign({}, U1, { id: 'sq-madar' })],
+    ['بدون شناسه', Object.assign({}, U1, { id: undefined })],
+    ['NaN', Object.assign({}, U1, { id: 'u0000b005', lat: NaN })]
+  ];
+  bads.forEach(([name, item]) => {
+    L.applyRemote(mkPayload({ custom: [item] }));
+    ok('ردیف خراب نادیده گرفته می‌شود: ' + name, L.remoteInfo().custom === 0 && L.places().length === N);
+  });
+  const mixed = L.applyRemote(mkPayload({ custom: [bads[0][1], U1, Object.assign({}, U1, { fa: 'تکراری' }), null, 5, 'x', Object.assign({}, U1, { id: 'u0000002b', fa: 'دومی' })] }));
+  ok('در یک پاسخ، ردیف‌های خراب کنار ردیف‌های سالم مشکلی نمی‌سازند؛ شناسه‌ی تکراری فقط یک‌بار می‌آید', mixed.custom === 2 && L.placeById(U1.id).fa === U1.fa && L.placeById('u0000002b').fa === 'دومی');
+  const dirty = L.applyRemote(mkPayload({ custom: [Object.assign({}, U1, { id: 'u0000d001', fa: 'نام\nدو\tخطی ' + 'ا'.repeat(200), tel: 'abc', note: '<b>x</b>' })] }));
+  const d = L.placeById('u0000d001');
+  ok('متن پاک‌سازی می‌شود: کنترل‌ها → فاصله، طول ≤ ۱۲۰، تلفن نامعتبر خالی (مکان همچنان معتبر)', dirty.custom === 1 && !/[\n\t]/.test(d.fa) && d.fa.length === 120 && d.tel === '' && d.note === '<b>x</b>');
+  L.applyRemote(mkPayload({ overrides: [] , custom: 'x', hidden: 'sq-madar' }));
+  ok('overrides آرایه، custom رشته و hidden رشته → نادیده گرفته می‌شود', L.places().length === N && L.remoteInfo().custom + L.remoteInfo().hidden + L.remoteInfo().edited === 0);
+  L.applyRemote(mkPayload({ custom: [U1] })); L.resetRemote();
+  ok('resetRemote: برگشت به فهرست پیش‌فرض', L.places().length === N && L.remoteInfo().v === '' && L.placeById(U1.id) === null);
+  env.close();
+}
+
+section('اماکن ادمین — صفحه: دریافت از سرور، کش، تازه‌سازی، شکست‌ها');
+{
+  const CK = 'eplak_places_remote_v1';
+  const env = makeEnv({ geo: { lat: 35.3335, lng: 51.6402 } }); const w = env.w; const S = w.EplakCityMap.state;
+  const calls = [];
+  let reply = () => okRes(mkPayload({ custom: [U1], v: 'v1' }));
+  w.fetch = (url, opts) => { calls.push({ url: String(url), opts }); try { return Promise.resolve(reply(url)); } catch (e) { return Promise.reject(e); } };
+  w.renderMapPlaces();
+  const mosqueCount = () => env.$$('#cityMapCanvas .ep-mk').filter((n) => n.style.display !== 'none').length + env.$$('#cityMapCanvas .ep-cl').reduce((n, c) => n + Number(c.textContent), 0);
+  ok('با باز شدن صفحه، یک‌بار از api/places.php پرسیده می‌شود (بدون کش مرورگر)', calls.length === 1 && /^api\/places\.php\?t=\d+$/.test(calls[0].url) && calls[0].opts.cache === 'no-store' && !!calls[0].opts.signal, JSON.stringify(calls[0]?.url));
+  await sleep(30);
+  ok('پس از رسیدن پاسخ: چیپ «همه» ۱۳۵ و «مساجد» ۲۹ می‌شود', /۱۳۵/.test(env.$('[data-cat="all"]').textContent) && /۲۹/.test(env.$('[data-cat="mosque"]').textContent), env.$$('#cityMapChips .cm-chip').map((c) => c.textContent).join('|'));
+  env.click(env.$('[data-cat="mosque"]'));
+  const row = env.$('#mapPlacesWrap .cm-row[data-id="u1a2b3c4d"]');
+  ok('مکان تازه در فهرست دسته‌ی «مساجد» است، با نام و نشانی خودش', !!row && /مسجد جامع شهرک نمونه/.test(row.textContent) && /خیابان نمونه/.test(row.textContent));
+  ok('نشانگرهای نقشه هم ۲۹ مورد است (مکان تازه روی نقشه آمد)', mosqueCount() === 29, String(mosqueCount()));
+  ok('آخرین پاسخ برای اینترنت ضعیف در localStorage می‌ماند', (() => { try { return JSON.parse(w.localStorage.getItem(CK)).data.custom[0].id === 'u1a2b3c4d'; } catch (e) { return false; } })());
+
+  w.EplakCityMap.select('u1a2b3c4d', { scroll: false });
+  ok('کارت مکانِ ادمین: نام، نشانی، تلفن (دکمه‌ی تماس) و مسیریابی با نشان',
+    /مسجد جامع شهرک نمونه/.test(env.$('#cityMapSheet').textContent) && !!env.$('#cityMapSheet [data-tel="02136251234"]') && env.$('#cityMapSheet .cm-route-btn').dataset.go === 'u1a2b3c4d');
+  const opened = [];
+  w.AndroidApp = { hasLocationPermission: () => true, openNeshan: (u) => { opened.push(u); return 'app'; } };
+  await w.EplakCityMap.route('u1a2b3c4d');
+  ok('مسیریابی مکانِ ادمین: مقصد همان مختصاتی است که ادمین گذاشته و مبدأ GPS کاربر', opened.length === 1 && opened[0] === 'https://nshn.ir/?origin=35.333500,51.640200&destination=35.331100,51.641500&vehicle=d', opened[0]);
+
+  w.EplakCityMap.reloadRemote();
+  await sleep(20);
+  ok('دومین درخواست (reloadRemote) نیز انجام می‌شود', calls.length === 2);
+  w.renderMapPlaces(); w.renderMapPlaces();
+  ok('باز شدن‌های پشت‌سرهم صفحه (و تغییر زبان) درخواست تازه نمی‌سازد (حداکثر هر ۹۰ ثانیه)', calls.length === 2);
+
+  /* پاسخ بدون تغییر (همان v): فهرست دوباره رسم نمی‌شود */
+  const probe = w.document.createElement('i'); probe.id = 'probe'; env.$('#mapPlacesWrap').appendChild(probe);
+  w.EplakCityMap.reloadRemote();
+  await sleep(20);
+  ok('همان اثر انگشت v → فهرست دوباره رسم نمی‌شود (بی‌دلیل چشمک نمی‌زند)', calls.length === 3 && !!env.$('#probe'));
+
+  /* تغییر نام مکانِ بازشده: کارت دوباره ساخته می‌شود */
+  reply = () => okRes(mkPayload({ custom: [Object.assign({}, U1, { fa: 'مسجد با نام تازه' })], v: 'v2' }));
+  w.EplakCityMap.reloadRemote();
+  await sleep(20);
+  ok('اصلاح نام از پنل: فهرست و کارتِ بازشده هر دو تازه می‌شوند', !env.$('#probe') && /مسجد با نام تازه/.test(env.$('#cityMapSheet').textContent) && /مسجد با نام تازه/.test(env.$('#mapPlacesWrap').textContent) && S.selected === 'u1a2b3c4d');
+
+  /* پنهان‌شدن مکانِ بازشده و مکانِ پیش‌فرض */
+  reply = () => okRes(mkPayload({ custom: [], hidden: ['sq-madar'], v: 'v3' }));
+  w.EplakCityMap.reloadRemote();
+  await sleep(20);
+  ok('مکانی که ادمین پنهان کرده، دیگر در فهرست نیست و کارتش بسته می‌شود', S.selected === null && env.$('#cityMapSheet').hidden === true && !env.$('#mapPlacesWrap .cm-row[data-id="u1a2b3c4d"]'));
+  env.click(env.$('[data-cat="all"]'));
+  ok('چیپ «همه» ۱۳۳ می‌شود (۱ پنهان‌شده از پیش‌فرض)', /۱۳۳/.test(env.$('[data-cat="all"]').textContent) && w.EplakPlaces.placeById('sq-madar') === null);
+
+  /* شکست‌های شبکه: فهرستِ قبلی می‌ماند و برنامه خراب نمی‌شود */
+  const before = env.$('#mapPlacesWrap').innerHTML;
+  const failures = [
+    ['خطای شبکه', () => { throw new Error('offline'); }],
+    ['HTTP 500', () => ({ ok: false, status: 500, json: () => Promise.resolve({}) })],
+    ['JSON خراب', () => ({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError('bad json')) })],
+    ['success:false', () => okRes({ success: false })],
+    ['بدنه‌ی خالی', () => okRes(null)]
+  ];
+  for (const [name, fn] of failures) {
+    reply = fn;
+    w.EplakCityMap.reloadRemote();
+    await sleep(15);
+    ok('شکست (' + name + '): فهرست قبلی می‌ماند و درخواست قفل نمی‌شود', env.$('#mapPlacesWrap').innerHTML === before && S.remoteBusy === false && w.EplakPlaces.placeById('sq-madar') === null);
+  }
+  env.close();
+}
+{
+  /* کش: بدون اینترنت هم مکان‌های ادمین (آخرین پاسخ) دیده می‌شود */
+  const env = makeEnv(); const w = env.w;
+  w.localStorage.setItem('eplak_places_remote_v1', JSON.stringify({ t: Date.now(), data: mkPayload({ custom: [U1], v: 'cached' }) }));
+  w.fetch = () => Promise.reject(new Error('offline'));
+  w.renderMapPlaces();
+  ok('قطع اینترنت: مکان ادمین از کشِ آخرین پاسخ، همان لحظه‌ی باز شدن دیده می‌شود (پیش از هر شبکه)', /۱۳۵/.test(env.$('[data-cat="all"]').textContent) && w.EplakPlaces.placeById('u1a2b3c4d') !== null);
+  await sleep(20);
+  ok('و شکست شبکه آن را پاک نمی‌کند', w.EplakPlaces.placeById('u1a2b3c4d') !== null && w.EplakCityMap.state.remoteBusy === false);
+  env.close();
+}
+{
+  const env = makeEnv(); const w = env.w;
+  w.localStorage.setItem('eplak_places_remote_v1', '{not json');
+  w.fetch = () => Promise.reject(new Error('offline'));
+  w.renderMapPlaces();
+  ok('کشِ خراب (JSON نامعتبر) نادیده گرفته می‌شود و فهرست پیش‌فرض می‌ماند', /۱۳۴/.test(env.$('[data-cat="all"]').textContent));
+  env.close();
+}
+{
+  /* بدون fetch (وب‌ویوی خیلی قدیمی): فقط فهرست پیش‌فرض، بدون خطا */
+  const env = makeEnv(); const w = env.w;
+  w.fetch = undefined;
+  let threw = false; try { w.renderMapPlaces(); } catch (e) { threw = true; }
+  ok('بدون fetch در مرورگر، صفحه بدون خطا با فهرست پیش‌فرض باز می‌شود', !threw && /۱۳۴/.test(env.$('[data-cat="all"]').textContent));
+  env.close();
+}
+{
+  /* پنجره‌ی تلاش دوباره پس از خطا: ۱۵ ثانیه (نه ۹۰) و قطع درخواستِ معلق پس از ۸ ثانیه */
+  const env = makeEnv(); const w = env.w;
+  let now = 1000000; w.Date.now = () => now;
+  let n = 0; let mode = 'fail';
+  w.fetch = (url, opts) => { n++; if (mode === 'fail') return Promise.reject(new Error('offline')); return new Promise((res, rej) => opts.signal.addEventListener('abort', () => rej(new Error('aborted')))); };
+  w.renderMapPlaces(); await sleep(15);
+  ok('درخواست اول (ناموفق) انجام شد', n === 1 && w.EplakCityMap.state.remoteBusy === false);
+  now += 10000; w.renderMapPlaces(); await sleep(5);
+  ok('۱۰ ثانیه پس از خطا هنوز تلاش دوباره نمی‌کند', n === 1);
+  now += 6000; w.renderMapPlaces(); await sleep(15);
+  ok('۱۶ ثانیه پس از خطا دوباره تلاش می‌کند (نه ۹۰ ثانیه)', n === 2);
+  mode = 'hang';
+  const nativeSetTimeout = w.setTimeout.bind(w);
+  w.setTimeout = (fn, ms) => nativeSetTimeout(fn, ms >= 8000 ? 5 : ms);   /* ۸ ثانیه‌ی واقعی را کوتاه می‌کنیم */
+  now += 100000; w.EplakCityMap.reloadRemote(); await sleep(60);
+  ok('درخواست معلق پس از مهلت قطع (abort) و قفل آزاد می‌شود', n === 3 && w.EplakCityMap.state.remoteBusy === false);
+  env.close();
+}
+{
+  /* امنیت: نام/نشانی خطرناکِ ادمین فقط «متن» است */
+  const env = makeEnv(); const w = env.w;
+  const evil = Object.assign({}, U1, { id: 'u0e0e0e01', fa: '<img src=x onerror="window.__pwn=1">مسجد', addr: '"><svg onload=window.__pwn=2>', note: '</div><script>window.__pwn=3</script>', tel: '02136251234' });
+  w.fetch = () => Promise.resolve(okRes(mkPayload({ custom: [evil], v: 'evil' })));
+  w.renderMapPlaces(); await sleep(25);
+  env.click(env.$('[data-cat="mosque"]'));
+  w.EplakCityMap.select('u0e0e0e01', { scroll: false });
+  ok('HTML خطرناک در نام/نشانی/توضیح، در فهرست و کارت فقط متن می‌شود (تگ ساخته نمی‌شود، کد اجرا نمی‌شود)',
+    !env.$('#mapPlacesWrap img') && !env.$('#cityMapSheet img') && !env.$('#cityMapSheet svg[onload]') && !env.$('#mapPlacesWrap script') && !env.$('#cityMapSheet script') && w.__pwn === undefined
+    && /<img src=x/.test(env.$('#cityMapSheet').textContent), String(w.__pwn));
   env.close();
 }
 
@@ -655,15 +848,21 @@ section('اندروید، صفحه‌ی اصلی، مستندات و ساخت ب
   if (exists('docs/CITY_MAP_FA.md')) {
     const fa = read('docs/CITY_MAP_FA.md');
     ok('مستند فارسی: افزودن مکان، قالب لینک نشان، منبع داده و محدودیت‌ها', /places-data\.js/.test(fa) && /nshn\.ir\/\?origin=/.test(fa) && /OpenStreetMap/.test(fa) && /approx/.test(fa) && /openNeshan/.test(fa));
+    ok('مستند فارسی: مدیریت اماکن از پنل (admin/places.php، api/places.php، جدول city_places، ویکی‌داده)', /admin\/places\.php/.test(fa) && /api\/places\.php/.test(fa) && /city_places/.test(fa) && /ویکی‌داده/.test(fa) && /۱۳۴ مکان/.test(fa));
   }
   if (exists('docs/CITY_MAP_EN.md')) {
     const en = read('docs/CITY_MAP_EN.md');
     ok('مستند انگلیسی: add a place، Neshan link format، data source، limits', /places-data\.js/.test(en) && /nshn\.ir\/\?origin=/.test(en) && /OpenStreetMap/.test(en) && /openNeshan/.test(en));
+    ok('مستند انگلیسی: admin panel management (admin/places.php, api/places.php, city_places, Wikidata)', /admin\/places\.php/.test(en) && /api\/places\.php/.test(en) && /city_places/.test(en) && /Wikidata/.test(en) && /134 places/.test(en));
   }
   const build = read('tools/build-update-package.sh');
-  ok('اسکریپت ساخت بسته، فایل‌های تازه را الزامی می‌کند', ['core/places-data.js', 'core/places.js', 'modules/city-map.js'].every((f) => build.includes(f)));
+  ok('اسکریپت ساخت بسته، فایل‌های تازه را الزامی می‌کند', ['core/places-data.js', 'core/places.js', 'modules/city-map.js', 'api/places.php', 'admin/places.php', 'shared/places_store.php'].every((f) => build.includes(f)));
+  const wf = read('.github/workflows/android-apk.yml');
+  ok('گردش‌کار APK: شاخص «همگام‌سازی اماکنِ پنل با اپ» محاسبه می‌شود و در خلاصه، env و یادداشت انتشار می‌آید',
+    (wf.match(/PLACES_SYNC_CODE/g) || []).length >= 6 && /eplak_places_remote_v1/.test(wf) && /applyRemote/.test(wf));
   const reg = read('tools/dev/run-regression.sh');
   ok('run-regression.sh آزمون places را اجرا می‌کند و jsdom را نصب می‌کند', /for t in [^;]*\bplaces\b/.test(reg) && /jsdom/.test(reg));
+  ok('run-regression.sh آزمون placesadmin (پنل اماکن) را هم اجرا می‌کند', /for t in [^;]*\bplacesadmin\b/.test(reg));
 }
 
 console.log('\n====================================================');

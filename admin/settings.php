@@ -269,6 +269,7 @@ $httpsOn = eplakIsHttpsRequest();
         <a href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
         <a href="departments.php"><i class="fas fa-sitemap"></i> <span>واحدها</span></a>
         <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+        <a href="places.php"><i class="fas fa-map-location-dot"></i> <span>اماکن شهری</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
         <a class="active" href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>

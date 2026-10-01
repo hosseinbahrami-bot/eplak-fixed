@@ -9,6 +9,8 @@
    (سایت فرمانداری/شهرداری ورامین) است. تلفن‌ها: شماره‌های ملی (۱۱۰، ۱۲۳، ۱۲۵، ۱۳۷) یا شماره‌ای که
    دست‌کم دو فهرست مستقل (مثلاً دکتریاب و دکترساینا، سلامتی۲۴ و بلد) برای همان مرکز داده‌اند.
    approx: 1  یعنی موقعیت از روی قرائن (نشانی رسمی + نقشه) برآورد شده و باید بازدید میدانی شود.
+   چند اثر ملیِ ثبت‌شده (امامزاده حسین‌رضا، آرامگاه سید فتح‌الله، قلعه باجک، تصفیه‌خانه قند) در OSM نام‌گذاری
+   نشده‌اند؛ مختصات‌شان از ویکی‌داده (CC0) است و چون منبع دومی ندارند approx: 1 دارند.
 
    فیلدها:  id (یکتا)، cat (دسته)، fa/en (نام)، lat/lng، also (دسته‌ی دوم برای فیلتر)،
             addr/addrEn (نشانی کوتاه)، tel (شماره‌ی تماس)، note/noteEn (توضیح کوتاه)، approx.
@@ -46,6 +48,8 @@
       /* ── مساجد و اماکن مذهبی ── */
       {"id": "jame-mosque", "cat": "mosque", "fa": "مسجد جامع ورامین", "en": "Jame Mosque of Varamin", "lat": 35.32213, "lng": 51.64164, "also": "culture", "note": "از زیباترین مساجد چهارایوانی ایران؛ یادگار دوره ایلخانی", "noteEn": "One of Iran's finest four-iwan mosques, dating from the Ilkhanid era"},
       {"id": "imamzadeh-yahya", "cat": "mosque", "fa": "امامزاده یحیی (ع)", "en": "Imamzadeh Yahya", "lat": 35.31615, "lng": 51.6483, "also": "culture", "addr": "محله کهنه‌گل", "addrEn": "Kohneh Gol neighborhood", "note": "از مهم‌ترین زیارتگاه‌ها و بناهای تاریخی ورامین", "noteEn": "One of Varamin's most important shrines and historic buildings"},
+      {"id": "imamzadeh-hossein-reza", "cat": "mosque", "fa": "امامزاده حسین‌رضا (ع)", "en": "Imamzadeh Hossein Reza", "lat": 35.33822, "lng": 51.64375, "also": "culture", "approx": 1, "note": "برج آرامگاهی تاریخی؛ اثر ثبت‌شده در فهرست آثار ملی ایران (مختصات از ویکی‌داده)", "noteEn": "A historic tomb tower, registered on Iran's National Heritage list (coordinates from Wikidata)"},
+      {"id": "seyyed-fathollah-tomb", "cat": "mosque", "fa": "آرامگاه سید فتح‌الله", "en": "Tomb of Seyyed Fathollah", "lat": 35.32381, "lng": 51.64839, "also": "culture", "approx": 1, "note": "امامزاده و برج آرامگاهی؛ اثر ثبت‌شده در فهرست آثار ملی ایران (مختصات از ویکی‌داده)", "noteEn": "An imamzadeh and tomb tower, registered on Iran's National Heritage list (coordinates from Wikidata)"},
       {"id": "imamzadeh-zeid", "cat": "mosque", "fa": "امامزاده زید ابوالحسن حسینی ورامینی", "en": "Imamzadeh Zeid Abolhasan Hosseini", "lat": 35.32081, "lng": 51.64198},
       {"id": "imamzadeh-abdollah", "cat": "mosque", "fa": "امامزاده عبدالله (مرکز شهر)", "en": "Imamzadeh Abdollah (City Center)", "lat": 35.32068, "lng": 51.64401, "addr": "خیابان امامزاده عبدالله", "addrEn": "Imamzadeh Abdollah St."},
       {"id": "imamzadeh-abdollah-kolahdooz", "cat": "mosque", "fa": "امامزاده عبدالله (خیابان کلاهدوز)", "en": "Imamzadeh Abdollah (Kolahdooz St.)", "lat": 35.32633, "lng": 51.61736, "addr": "خیابان کلاهدوز", "addrEn": "Kolahdooz St."},
@@ -73,6 +77,8 @@
       /* ── فرهنگی و تاریخی ── */
       {"id": "alaeddin-tower", "cat": "culture", "fa": "برج علاءالدوله", "en": "Alaeddin Tower", "lat": 35.32503, "lng": 51.64559, "note": "برج آرامگاهی آجری با کتیبه‌های کوفی و کاشی‌کاری؛ از آثار ملی ایران", "noteEn": "A brick tomb tower with Kufic inscriptions and tilework; a registered national monument"},
       {"id": "iraj-castle", "cat": "culture", "fa": "قلعه ایرج (گبری)", "en": "Iraj (Gabri) Castle", "lat": 35.34229, "lng": 51.67966, "note": "از قلعه‌های تاریخی معروف به «گبری» در ورامین", "noteEn": "A historic fortress among Varamin's 'Gabri' castles"},
+      {"id": "bajak-castle", "cat": "culture", "fa": "بقایای قلعه باجک", "en": "Remains of Bajak Castle", "lat": 35.32408, "lng": 51.61044, "approx": 1, "note": "اثر ثبت‌شده در فهرست آثار ملی ایران (مختصات از ویکی‌داده)", "noteEn": "Registered on Iran's National Heritage list (coordinates from Wikidata)"},
+      {"id": "sugar-refinery", "cat": "culture", "fa": "تصفیه‌خانه قند ورامین", "en": "Varamin Sugar Refinery (heritage site)", "lat": 35.34689, "lng": 51.63528, "approx": 1, "note": "بنای صنعتی؛ اثر ثبت‌شده در فهرست آثار ملی ایران (مختصات از ویکی‌داده)", "noteEn": "An industrial heritage building, registered on Iran's National Heritage list (coordinates from Wikidata)"},
       {"id": "razi-culture-center", "cat": "culture", "fa": "فرهنگسرای رازی", "en": "Razi Cultural Center", "lat": 35.32255, "lng": 51.65452},
       {"id": "razi-library", "cat": "culture", "fa": "کتابخانه رازی", "en": "Razi Library", "lat": 35.32237, "lng": 51.65414},
       /* ── ادارات و سازمان‌ها ── */
@@ -113,6 +119,8 @@
       {"id": "applied-science-center", "cat": "edu", "fa": "مرکز علمی‌کاربردی شهرداری ورامین", "en": "Varamin Municipality Applied Science Center", "lat": 35.32672, "lng": 51.65363},
       {"id": "hawzeh-imam-sadegh", "cat": "edu", "fa": "حوزه علمیه امام صادق (ع)", "en": "Imam Sadegh Seminary", "lat": 35.32049, "lng": 51.64678},
       {"id": "hawzeh-kowsar", "cat": "edu", "fa": "حوزه علمیه کوثر (خواهران)", "en": "Kowsar Seminary (Women)", "lat": 35.3172, "lng": 51.6453},
+      {"id": "health-higher-ed", "cat": "edu", "fa": "مجتمع آموزش عالی سلامت ورامین", "en": "Varamin Higher Education Complex of Health", "lat": 35.36679, "lng": 51.62513},
+      {"id": "agri-research-center", "cat": "edu", "fa": "مرکز تحقیقات و آموزش کشاورزی و منابع طبیعی استان تهران", "en": "Tehran Province Agricultural & Natural Resources Research and Education Center", "lat": 35.35234, "lng": 51.63299, "note": "وابسته به وزارت جهاد کشاورزی", "noteEn": "Operated by the Ministry of Agriculture Jihad"},
       /* ── پارک و ورزش ── */
       {"id": "park-zeytoon", "cat": "park", "fa": "پارک زیتون", "en": "Zeytoon Park", "lat": 35.35731, "lng": 51.624},
       {"id": "park-moshahir", "cat": "park", "fa": "بوستان مشاهیر", "en": "Moshahir Park", "lat": 35.32288, "lng": 51.65453},

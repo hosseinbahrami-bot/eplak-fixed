@@ -42,6 +42,7 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
         <a href="tickets.php"><i class="fas fa-ticket-alt"></i> <span>تیکت‌ها</span></a>
         <a class="active" href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
                 <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+                <a href="places.php"><i class="fas fa-map-location-dot"></i> <span>اماکن شهری</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
 <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
 <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>

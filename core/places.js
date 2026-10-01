@@ -42,11 +42,15 @@
     return { version: '0', center: { lat: 35.33, lng: 51.643, zoom: 13 }, bounds: null, categories: [], places: [] };
   }
   var DATA = loadData();
+  var MERGED = null;          /* null = بدون اصلاحِ ادمین؛ همان فهرست پیش‌فرض */
+  var REMOTE_INFO = { custom: 0, edited: 0, hidden: 0, v: '' };
 
   function isNum(v) { return typeof v === 'number' && isFinite(v); }
 
   function categories() { return DATA.categories || []; }
-  function places() { return DATA.places || []; }
+  /* فهرست پیش‌فرضِ همراه اپ؛ و پس از applyRemote، همان فهرست + اصلاح‌های ادمین */
+  function basePlaces() { return DATA.places || []; }
+  function places() { return MERGED || basePlaces(); }
 
   function categoryById(id) {
     var list = categories();
@@ -62,8 +66,9 @@
   /* ── متن‌ها (فارسی/انگلیسی) ────────────────────────────────────────────── */
   function isEn(lang) { return lang === 'en'; }
   function placeName(p, lang) { return p ? (isEn(lang) ? (p.en || p.fa) : (p.fa || p.en)) : ''; }
-  function placeAddr(p, lang) { return p ? (isEn(lang) ? (p.addrEn || '') : (p.addr || '')) : ''; }
-  function placeNote(p, lang) { return p ? (isEn(lang) ? (p.noteEn || '') : (p.note || '')) : ''; }
+  /* مکان‌های افزوده/اصلاح‌شده‌ی ادمین (p.src) اگر متن انگلیسی نداشته باشند، متن فارسی را نشان می‌دهند */
+  function placeAddr(p, lang) { return p ? (isEn(lang) ? (p.addrEn || (p.src ? (p.addr || '') : '')) : (p.addr || '')) : ''; }
+  function placeNote(p, lang) { return p ? (isEn(lang) ? (p.noteEn || (p.src ? (p.note || '') : '')) : (p.note || '')) : ''; }
   function catName(c, lang) { return c ? (isEn(lang) ? (c.en || c.fa) : (c.fa || c.en)) : ''; }
 
   function toFaDigits(value) {
@@ -224,6 +229,96 @@
     return isNum(d) && d <= (maxKm || 30);
   }
 
+  /* ── اماکنِ افزوده/اصلاح‌شده توسط ادمین (api/places.php) ─────────────────── */
+  /* سرور فقط «تفاوت» را می‌فرستد: custom (مکان‌های تازه)، overrides (اصلاح مکانِ پیش‌فرض) و
+     hidden (پنهان‌شده‌ها). هر مقدار پیش از استفاده پاک‌سازی می‌شود؛ ورودیِ نامعتبر نادیده گرفته
+     می‌شود و هرگز فهرست پیش‌فرض را خراب نمی‌کند. */
+  var ID_RE = /^u[0-9a-f]{8,16}$/;       /* همان قالبی که سرور می‌سازد (u + هگز)؛ هرچیز دیگر رد می‌شود */
+  function hasOwn(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  function cleanText(v, max) {
+    if (typeof v !== 'string') return '';
+    var s = v.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/\s+/g, ' ').replace(/^ | $/g, '');
+    return s.length > max ? s.slice(0, max) : s;
+  }
+
+  /* مختصات باید نزدیک شهر باشد (همان حاشیه‌ی سمت سرور) */
+  function inRange(lat, lng) {
+    var b = DATA.bounds || { south: 35.305, west: 51.595, north: 35.398, east: 51.685 };
+    var pad = 0.07;
+    return lat >= b.south - pad && lat <= b.north + pad && lng >= b.west - pad && lng <= b.east + pad;
+  }
+
+  /* base: مکانِ پیش‌فرضِ اصلاح‌شونده (یا null برای مکان تازه) */
+  function cleanRemotePlace(raw, id, base) {
+    if (!raw || typeof raw !== 'object') return null;
+    var cat = typeof raw.cat === 'string' ? raw.cat : '';
+    if (!categoryById(cat)) return null;
+    var fa = cleanText(raw.fa, 120);
+    var lat = typeof raw.lat === 'number' ? raw.lat : NaN;
+    var lng = typeof raw.lng === 'number' ? raw.lng : NaN;
+    if (!fa || !isNum(lat) || !isNum(lng) || !inRange(lat, lng)) return null;
+    var tel = typeof raw.tel === 'string' ? raw.tel.replace(/[\s\-().]/g, '') : '';
+    if (tel && !/^\+?\d{3,15}$/.test(tel)) tel = '';
+    var p = {
+      id: id, cat: cat, fa: fa, en: cleanText(raw.en, 120), lat: lat, lng: lng,
+      addr: cleanText(raw.addr, 160), addrEn: cleanText(raw.addrEn, 160), tel: tel,
+      note: cleanText(raw.note, 240), noteEn: cleanText(raw.noteEn, 240),
+      approx: raw.approx ? 1 : 0,
+      src: base ? 'edited' : 'custom'
+    };
+    if (base && base.also && base.cat === cat) p.also = base.also;   /* دسته‌ی دوم فقط وقتی دسته عوض نشده */
+    return p;
+  }
+
+  /* payload پاسخ api/places.php؛ خروجی: شمارش اثرها. ورودی نامعتبر → فهرست پیش‌فرض */
+  function applyRemote(payload) {
+    var info = { custom: 0, edited: 0, hidden: 0, v: '' };
+    if (!payload || typeof payload !== 'object' || payload.success === false) {
+      MERGED = null;
+      REMOTE_INFO = info;
+      return info;
+    }
+    var base = basePlaces();
+    var known = {};
+    base.forEach(function (p) { known[p.id] = true; });
+
+    var hidden = {};
+    (Array.isArray(payload.hidden) ? payload.hidden : []).forEach(function (id) {
+      if (typeof id === 'string' && hasOwn(known, id)) hidden[id] = true;
+    });
+    var overrides = (payload.overrides && typeof payload.overrides === 'object' && !Array.isArray(payload.overrides))
+      ? payload.overrides : {};
+
+    var out = [];
+    base.forEach(function (p) {
+      if (hasOwn(hidden, p.id)) { info.hidden++; return; }
+      var o = hasOwn(overrides, p.id) ? cleanRemotePlace(overrides[p.id], p.id, p) : null;
+      if (o) { info.edited++; out.push(o); } else { out.push(p); }
+    });
+
+    var seen = {};
+    (Array.isArray(payload.custom) ? payload.custom : []).forEach(function (raw) {
+      var id = raw && typeof raw === 'object' && typeof raw.id === 'string' ? raw.id : '';
+      if (!ID_RE.test(id) || hasOwn(known, id) || hasOwn(seen, id)) return;
+      var c = cleanRemotePlace(raw, id, null);
+      if (!c) return;
+      seen[id] = true;
+      out.push(c);
+      info.custom++;
+    });
+
+    info.v = typeof payload.v === 'string' ? payload.v.slice(0, 40) : '';
+    MERGED = (info.custom || info.edited || info.hidden) ? out : null;
+    REMOTE_INFO = info;
+    return info;
+  }
+
+  function resetRemote() {
+    MERGED = null;
+    REMOTE_INFO = { custom: 0, edited: 0, hidden: 0, v: '' };
+  }
+
   /* ── لینک‌های «نشان» ──────────────────────────────────────────────────── */
   function fmt(v) { return Number(v).toFixed(6); }
 
@@ -288,6 +383,10 @@
     data: function () { return DATA; },
     categories: categories,
     places: places,
+    basePlaces: basePlaces,
+    applyRemote: applyRemote,
+    resetRemote: resetRemote,
+    remoteInfo: function () { return REMOTE_INFO; },
     categoryById: categoryById,
     placeById: placeById,
     placeName: placeName,
