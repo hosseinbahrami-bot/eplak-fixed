@@ -483,7 +483,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
       cityMap: typeof (window.EplakCityMap && window.EplakCityMap.route),
       places: typeof (window.EplakPlaces && window.EplakPlaces.neshanLinks)
     };
-    out.placesCount = (window.EplakPlaces && Array.isArray(window.EplakPlaces.places)) ? window.EplakPlaces.places.length : null;
+    out.placesCount = (window.EplakPlaces && typeof window.EplakPlaces.places === 'function') ? window.EplakPlaces.places().length : null;
     out.screen = (document.querySelector('.screen.active') || {}).id || null;
     out.offlineGate = document.documentElement.classList.contains('eplak-offline');
     out.online = navigator.onLine;

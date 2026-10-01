@@ -201,6 +201,41 @@ for (const s of stages) {
   try { new AsyncFunction(s.body); } catch (e) { err = String(e.message || e); }
   ok(`${s.name}: جاوااسکریپتش سینتکس درست دارد`, err === '', err);
 }
+/* اجرای واقعی مرحله‌های ۱ تا ۳ روی شیء واقعیِ EplakPlaces (core/places*.js) و یک DOM کوچک؛ بقیه‌ی وب ساختگی است.
+   این‌جا دیده شد که EplakPlaces.places «تابع» است نه آرایه — خطایی که فقط در CI روی مک پیدا می‌شد. */
+function stageWindow() {
+  const dom = new JSDOM('<!doctype html><html><body><div class="screen active" id="screen-login"></div>'
+    + '<div id="screen-map"><div class="cm-chip"></div><div class="cm-row"></div></div><div id="cityMapCanvas"><div class="ep-map-tiles"><img></div><div class="ep-map-markers"><i></i></div></div><div id="cityMapMeta">۱۳۴ مکان</div></body></html>',
+    { runScripts: 'outside-only', url: 'http://localhost/index.html' });   /* localStorage در jsdom با file: ممنوع است؛ پروتکل را همان شبیه‌ساز می‌سنجد */
+  const w = dom.window;
+  w.eval(read('core/places-data.js')); w.eval(read('core/places.js'));
+  w.EPLAK_API_BASE_URL = 'https://eplak.ir/eplak-fixed/api'; w.EPLAK_IOS_APP = true;
+  w.showScreen = (id) => { w.document.querySelectorAll('.screen').forEach((e) => e.classList.remove('active')); const t = w.document.getElementById(id); if (t) t.classList.add('active'); };
+  w.document.getElementById('screen-map').classList.add('screen');
+  w.EplakCityMap = {
+    route: async () => 'ios', locate: async () => ({ lat: 35.3335, lng: 51.6402, acc: 5, ts: Date.now() }),
+    _test: { detectEnv: () => 'ios' },
+  };
+  w.fetch = async () => ({ status: 200, text: async () => '{"success":true,"online":true}' });
+  return { w, close: () => dom.window.close() };
+}
+const runStage = (w, body) => new w.Function('return (async function () {' + body + '\n})()')();
+{
+  const t = stageWindow();
+  let r1 = null, r2 = null, r3 = null, err = '';
+  try {
+    r1 = JSON.parse(await runStage(t.w, stages[0].body));
+    r2 = JSON.parse(await runStage(t.w, stages[1].body.replace(/setTimeout\(r, 7000\)/, 'setTimeout(r, 5)')));
+    r3 = JSON.parse(await runStage(t.w, stages[2].body.replace(/setTimeout\(r, 2500\)/, 'setTimeout(r, 5)')));
+  } catch (e) { err = String(e && e.stack || e).slice(0, 300); }
+  ok('مرحله ۱ (روی EplakPlaces واقعی): پروتکل صفحه، آدرس API، توابع، ۱۳۰+ مکان، پینگ، localStorage',
+    !!r1 && r1.protocol === 'http:' && r1.apiBase === 'https://eplak.ir/eplak-fixed/api' && r1.nativeFlag === true
+    && r1.fns.showScreen === 'function' && r1.fns.cityMap === 'function' && r1.fns.places === 'function'
+    && r1.placesCount >= 130 && r1.ping.status === 200 && r1.localStorage === true && r1.offlineGate === false, err || JSON.stringify(r1));
+  ok('مرحله ۲: صفحه‌ی نقشه را باز می‌کند و شمارنده‌ها را برمی‌گرداند', !!r2 && r2.screen === 'screen-map' && r2.chips === 1 && r2.rows === 1 && r2.tiles === 1 && r2.markers === 1, err || JSON.stringify(r2));
+  ok('مرحله ۳: محیط، موقعیت و وضعیت مسیریابی را برمی‌گرداند', !!r3 && r3.env === 'ios' && r3.loc && r3.loc.lat === 35.3335 && r3.routeStatus === 'ios', err || JSON.stringify(r3));
+  t.close();
+}
 const allJs = stages.map((s) => s.body).join('\n');
 const html2 = html, city = read('modules/city-map.js'), epmap = read('assets/js/ep-map.js'), pdata = read('core/places-data.js'), places = read('core/places.js');
 ok('نام‌هایی که آزمون دودی از صفحه می‌خواند در کد وب هست (شناسه‌ها، کلاس‌ها، توابع)',

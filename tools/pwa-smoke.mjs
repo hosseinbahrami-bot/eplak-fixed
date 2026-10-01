@@ -71,7 +71,7 @@ try {
     out.manifestLink = !!document.querySelector('link[rel="manifest"]');
     out.appleIcon = !!document.querySelector('link[rel="apple-touch-icon"]');
     out.appleCapable = !!document.querySelector('meta[name="apple-mobile-web-app-capable"]');
-    out.places = (window.EplakPlaces && Array.isArray(window.EplakPlaces.places)) ? window.EplakPlaces.places.length : null;
+    out.places = (window.EplakPlaces && typeof window.EplakPlaces.places === 'function') ? window.EplakPlaces.places().length : null;
     try {
       const r = await fetch(out.apiBase + '/ping.php?_=' + Date.now(), { cache: 'no-store' });
       out.ping = { status: r.status, body: (await r.text()).slice(0, 100) };
