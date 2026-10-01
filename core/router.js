@@ -216,6 +216,18 @@
       return true;
     }
 
+    // ۰-ب. کارت «مکان انتخاب‌شده» در «نقشه و اماکن شهری» باز است → اول همان بسته شود
+    if (window.EplakCityMap && typeof window.EplakCityMap.handleBack === 'function') {
+      let closedByCityMap = false;
+      try { closedByCityMap = window.EplakCityMap.handleBack() === true; } catch (e) {}
+      if (closedByCityMap) {
+        if (fromPopState) {
+          try { window.history.pushState({ screenId: getCurrentActiveScreenId() }, '', '#' + getCurrentActiveScreenId()); } catch (e) {}
+        }
+        return true;
+      }
+    }
+
     // ۱. اگر منوی باز داریم، آن را ببند
     const homePanel = document.getElementById('homeProfileActionsPanel');
     if (homePanel && (homePanel.style.display === 'block' || homePanel.classList.contains('active'))) {

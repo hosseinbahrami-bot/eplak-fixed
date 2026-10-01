@@ -31,6 +31,8 @@
 - `docs/FIREBASE_SETUP_EN.md` — the same Firebase guide in English.
 - `docs/DEPLOY_UPDATE_FA.md` — راهنمای فارسی: آپلود روی هاست، ساخت دیتابیس، اعلان فایربیس، دانلود APK.
 - `docs/DEPLOY_UPDATE_EN.md` — same guide in English.
+- `docs/CITY_MAP_FA.md` — 🗺️ **نقشه و اماکن شهری + مسیریابی با «نشان»**: دسته‌ها، افزودن مکان، قالب لینک نشان، آزمون روی گوشی.
+- `docs/CITY_MAP_EN.md` — the same City Map & Neshan routing guide in English.
 - `docs/README.md` — معرفی ساختار پروژه.
 - `docs/technical-architecture.md` — معماری فنی.
 
@@ -40,6 +42,7 @@
 bash tools/dev/run-regression.sh          # همه‌ی آزمون‌های خودکار
 bash tools/dev/run-regression.sh fcm      # فقط موتور فایربیس
 bash tools/dev/run-regression.sh syntax   # فقط بررسی نحوی PHP و JS
+bash tools/dev/run-regression.sh places   # نقشه و اماکن شهری + مسیریابی با نشان
 ```
 
 همین آزمون‌ها با هر تغییر روی گیت‌هاب هم اجرا می‌شوند:

@@ -33,6 +33,19 @@
    مختصات نمایش داده می‌شود و دکمه‌ی «تلاش دوباره» هست.
    منبع‌ها قابل تغییرند: options.tileSources یا window.EPLAK_MAP_TILE_SOURCES
    (آرایه‌ای از قالب‌های {z}/{x}/{y}).
+
+   ── حالت «نقشه‌ی نمایشی» (نقشه و اماکن شهری) ─────────────────────────────────
+   علاوه بر «انتخاب موقعیت» (نشانگر ثابت وسط نقشه)، همین موتور می‌تواند اماکن را
+   به‌صورت نشانگر نشان بدهد:
+     const map = EplakMap.create(el, { picker: false, lat, lng, zoom,
+        onMarkerClick: (id, item) => {}, onMapClick: (lat, lng) => {} });
+     map.setMarkers([{ id, lat, lng, color, ink, glyph, label }]);   // نشانگرهای دسته‌دار
+     map.setSelected(id);                 // برجسته کردن یک نشانگر
+     map.setUserLocation(lat, lng, acc);  // نقطه‌ی آبی «موقعیت من» + دایره‌ی دقت
+     map.fitBounds({south,west,north,east}, { padding: 36, maxZoom: 16 });
+     map.panTo(lat, lng, zoom);
+   نشانگرهای نزدیک به هم خودکار «خوشه» می‌شوند (شماره‌دار)؛ لمس خوشه، همان‌جا زوم می‌کند.
+   زوم با دو انگشت، Ctrl+چرخ موس و دابل‌کلیک در همه‌ی نقشه‌ها فعال است (options.gestures=false خاموش می‌کند).
    ============================================================================ */
 (function (global) {
   'use strict';
@@ -44,6 +57,9 @@
   var STYLE_ID = 'epMapStyles';
   var MAX_TILE_ERRORS = 4;   /* بعد از این تعداد خطا، پیام «نقشه در دسترس نیست» */
   var SOURCE_WATCHDOG_MS = 12000;  /* اگر در این مدت هیچ کاشی نیامد (نه خطا، نه تصویر)، منبع بعدی */
+  var CLUSTER_RADIUS = 28;     /* px: نشانگرهای نزدیک‌تر از این، یک «خوشه» می‌شوند */
+  var CLUSTER_MAX_ZOOM = 17;   /* از این بزرگ‌نمایی به بعد هر نشانگر جدا دیده می‌شود */
+  var TAP_SLOP = 7;            /* px: جابه‌جایی کمتر از این «لمس» است، نه «کشیدن» */
 
   /* ── منبع‌های کاشی به ترتیب اولویت ─────────────────────────────────── */
   function fillTemplate(template, z, x, y) {
@@ -107,7 +123,36 @@
       '  background:rgba(13,21,39,0.72);color:#fff;font-size:17px;font-weight:800;line-height:1;cursor:pointer;}',
       '.ep-map-zoom button:active{transform:scale(0.94);}',
       '.ep-map-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;',
-      '  z-index:2;background:rgba(223,230,238,0.65);font-size:12px;color:#334155;}'
+      '  z-index:2;background:rgba(223,230,238,0.65);font-size:12px;color:#334155;}',
+      /* ── نقشه‌ی نمایشی: نشانگر اماکن، خوشه، نقطه‌ی «موقعیت من» ── */
+      '.ep-map-viewer .ep-map-fallback{inset:auto 8px 8px 8px;border-radius:12px;padding:8px 10px;',
+      '  flex-direction:row;flex-wrap:wrap;gap:6px 10px;font-size:11px;line-height:1.7;background:rgba(13,21,39,0.92);}',
+      '.ep-map-viewer .ep-map-fallback .ep-map-retry{margin:0;padding:5px 12px;}',
+      '.ep-map-viewer .ep-map-loading{background:transparent;color:#475569;align-items:flex-start;justify-content:center;',
+      '  padding-top:10px;pointer-events:none;}',
+      '.ep-map-markers{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;}',
+      '.ep-mk{position:absolute;left:0;top:0;width:34px;height:34px;margin:-41px 0 0 -17px;padding:0;border:0;',
+      '  background:none;pointer-events:auto;cursor:pointer;z-index:2;transform-origin:17px 41px;',
+      '  -webkit-tap-highlight-color:transparent;font-family:inherit;}',
+      '.ep-mk-pin{position:absolute;inset:0;border-radius:50% 50% 50% 0;transform:rotate(-45deg);',
+      '  background:var(--c,#ef4444);border:2.5px solid #fff;box-shadow:0 3px 9px rgba(0,0,0,0.38);}',
+      '.ep-mk-gl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink,#fff);}',
+      '.ep-mk-gl svg{width:17px;height:17px;display:block;}',
+      '.ep-mk.sel{z-index:6;}',
+      '.ep-mk.sel .ep-mk-pin{box-shadow:0 0 0 3px rgba(255,255,255,0.55),0 5px 14px rgba(0,0,0,0.5);}',
+      '.ep-mk.sel::after{content:"";position:absolute;left:50%;top:41px;width:16px;height:16px;margin:-8px 0 0 -8px;',
+      '  border-radius:50%;border:2px solid var(--c,#ef4444);opacity:0;animation:epMkRing 1.7s ease-out infinite;}',
+      '@keyframes epMkRing{0%{transform:scale(0.5);opacity:0.9;}100%{transform:scale(2.6);opacity:0;}}',
+      '.ep-cl{position:absolute;left:0;top:0;min-width:38px;height:38px;margin:-19px 0 0 -19px;padding:0 6px;',
+      '  box-sizing:border-box;border-radius:19px;background:var(--c,#0f766e);color:#fff;border:3px solid rgba(255,255,255,0.96);',
+      '  box-shadow:0 3px 10px rgba(0,0,0,0.4);font:800 13px/32px Vazirmatn,Tahoma,sans-serif;text-align:center;',
+      '  pointer-events:auto;cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent;}',
+      '.ep-cl:active{transform-origin:center;}',
+      '.ep-me{position:absolute;left:0;top:0;width:0;height:0;z-index:1;pointer-events:none;}',
+      '.ep-me-acc{position:absolute;left:0;top:0;border-radius:50%;background:rgba(37,99,235,0.13);',
+      '  border:1px solid rgba(37,99,235,0.35);transform:translate(-50%,-50%);}',
+      '.ep-me-dot{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2563eb;',
+      '  border:3px solid #fff;box-sizing:border-box;box-shadow:0 2px 7px rgba(0,0,0,0.45);}'
     ].join('');
     (document.head || document.documentElement).appendChild(style);
   }
@@ -140,10 +185,16 @@
     injectStyles();
     var opts = options || {};
 
+    /* حالت «نمایشی»: بدون نشانگر/هدف وسط نقشه (برای نقشه‌ی اماکن) */
+    var viewerMode = opts.picker === false;
+    var gestures = opts.gestures !== false;   /* زوم با دو انگشت، چرخ موس و دابل‌کلیک */
+    var minZoom = isFiniteNumber(opts.minZoom) ? Math.max(MIN_ZOOM, Math.round(opts.minZoom)) : MIN_ZOOM;
+    var maxZoom = isFiniteNumber(opts.maxZoom) ? Math.min(MAX_ZOOM, Math.round(opts.maxZoom)) : MAX_ZOOM;
+
     var state = {
       lat: isFiniteNumber(opts.lat) ? opts.lat : 35.3242,   /* پیش‌فرض: ورامین */
       lng: isFiniteNumber(opts.lng) ? opts.lng : 51.6455,
-      zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, isFiniteNumber(opts.zoom) ? opts.zoom : 15)),
+      zoom: Math.max(minZoom, Math.min(maxZoom, isFiniteNumber(opts.zoom) ? opts.zoom : 15)),
       draggable: opts.draggable !== false,
       /* hasFix=false یعنی lat/lng فقط «مرکز اولیه‌ی نقشه» است و کاربر هنوز
          نقطه‌ای انتخاب نکرده (نشانگر پنهان می‌ماند). */
@@ -163,9 +214,16 @@
     container.classList.add('ep-map');
     container.innerHTML = '';
 
+    if (viewerMode) container.classList.add('ep-map-viewer');
+
     tilesLayer = document.createElement('div');
     tilesLayer.className = 'ep-map-tiles';
     container.appendChild(tilesLayer);
+
+    /* لایه‌ی نشانگرها (نقشه‌ی نمایشی): بالای کاشی‌ها، زیر دکمه‌های زوم */
+    var markersLayer = document.createElement('div');
+    markersLayer.className = 'ep-map-markers';
+    container.appendChild(markersLayer);
 
     var crosshair = document.createElement('div');
     crosshair.className = 'ep-map-crosshair';
@@ -181,15 +239,16 @@
 
     /* تا وقتی نقطه‌ای انتخاب نشده، به‌جای نشانگر یک «هدف» در مرکز دیده می‌شود
        (یعنی: نقشه را بکشید تا محل را انتخاب کنید). */
-    pin.style.display = state.hasFix ? '' : 'none';
-    crosshair.style.display = state.hasFix ? 'none' : '';
+    pin.style.display = (state.hasFix && !viewerMode) ? '' : 'none';
+    crosshair.style.display = (state.hasFix || viewerMode) ? 'none' : '';
 
     fallback = document.createElement('div');
     fallback.className = 'ep-map-fallback';
-    fallback.innerHTML = '<div>🗺️ نقشه در دسترس نیست (اینترنت یا دسترسی به سرور نقشه)</div>'
+    fallback.innerHTML = typeof opts.fallbackHtml === 'string' ? opts.fallbackHtml
+      : ('<div>🗺️ نقشه در دسترس نیست (اینترنت یا دسترسی به سرور نقشه)</div>'
       + '<div class="ep-map-coords">—</div>'
       + '<div>مختصات همین‌جا ثبت می‌شود و در پنل ادمین نمایش داده می‌شود.</div>'
-      + '<button type="button" class="ep-map-retry">تلاش دوباره برای نقشه</button>';
+      + '<button type="button" class="ep-map-retry">تلاش دوباره برای نقشه</button>');
     container.appendChild(fallback);
     var retryBtn = fallback.querySelector('.ep-map-retry');
     if (retryBtn) {
@@ -366,6 +425,7 @@
       });
 
       updateFallbackCoords();
+      renderMarkers();
     }
 
     function notify() {
@@ -382,50 +442,362 @@
       state.lat = Math.max(-85, Math.min(85, lat));
       state.lng = ((lng + 180) % 360 + 360) % 360 - 180;
       state.hasFix = true;
-      pin.style.display = '';
-      crosshair.style.display = 'none';
+      if (!viewerMode) {
+        pin.style.display = '';
+        crosshair.style.display = 'none';
+      }
       render(silent !== true);
     }
 
     function setZoom(zoom) {
-      var next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoom)));
+      var next = Math.max(minZoom, Math.min(maxZoom, Math.round(zoom)));
       if (next === state.zoom) return;
       state.zoom = next;
       render(true);
+    }
+
+    /* زوم حول یک نقطه‌ی مشخص از ظرف (px)؛ همان نقطه‌ی جغرافیایی زیر انگشت می‌ماند */
+    function zoomAt(zoom, px, py) {
+      var next = Math.max(minZoom, Math.min(maxZoom, Math.round(zoom)));
+      if (next === state.zoom) return;
+      var box = size();
+      var fx = isFiniteNumber(px) ? px : box.w / 2;
+      var fy = isFiniteNumber(py) ? py : box.h / 2;
+      var wx = lngToWorldX(state.lng, state.zoom) - box.w / 2 + fx;
+      var wy = latToWorldY(state.lat, state.zoom) - box.h / 2 + fy;
+      var focusLng = worldXToLng(wx, state.zoom);
+      var focusLat = worldYToLat(wy, state.zoom);
+      state.zoom = next;
+      state.lng = worldXToLng(lngToWorldX(focusLng, next) - fx + box.w / 2, next);
+      state.lat = Math.max(-85, Math.min(85, worldYToLat(latToWorldY(focusLat, next) - fy + box.h / 2, next)));
+      render(true);
+    }
+
+    /* مختصات ↔ پیکسل ظرف (برای نشانگرها و لمس روی نقشه) */
+    function latLngToPx(lat, lng) {
+      var box = size();
+      return {
+        x: lngToWorldX(lng, state.zoom) - (lngToWorldX(state.lng, state.zoom) - box.w / 2),
+        y: latToWorldY(lat, state.zoom) - (latToWorldY(state.lat, state.zoom) - box.h / 2)
+      };
+    }
+    function pxToLatLng(px, py) {
+      var box = size();
+      var wx = lngToWorldX(state.lng, state.zoom) - box.w / 2 + px;
+      var wy = latToWorldY(state.lat, state.zoom) - box.h / 2 + py;
+      return { lat: worldYToLat(wy, state.zoom), lng: worldXToLng(wx, state.zoom) };
+    }
+
+    function getBounds() {
+      var box = size();
+      var nw = pxToLatLng(0, 0);
+      var se = pxToLatLng(box.w, box.h);
+      return { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng };
+    }
+
+    /* نمایش یک محدوده (مثلاً همه‌ی اماکن فیلترشده) با بیشترین زوم ممکن */
+    function fitBounds(b, o) {
+      if (!b || !isFiniteNumber(b.south) || !isFiniteNumber(b.north) || !isFiniteNumber(b.west) || !isFiniteNumber(b.east)) return;
+      var po = o || {};
+      var pad = isFiniteNumber(po.padding) ? po.padding : 32;
+      var hiZ = Math.min(maxZoom, isFiniteNumber(po.maxZoom) ? po.maxZoom : 16);
+      var box = size();
+      var availW = Math.max(40, box.w - pad * 2);
+      var availH = Math.max(40, box.h - pad * 2);
+      var z = hiZ;
+      for (; z > minZoom; z--) {
+        var w = lngToWorldX(b.east, z) - lngToWorldX(b.west, z);
+        var h = latToWorldY(b.south, z) - latToWorldY(b.north, z);
+        if (w <= availW && h <= availH) break;
+      }
+      state.zoom = Math.max(minZoom, z);
+      var midX = (lngToWorldX(b.west, state.zoom) + lngToWorldX(b.east, state.zoom)) / 2;
+      var midY = (latToWorldY(b.north, state.zoom) + latToWorldY(b.south, state.zoom)) / 2;
+      state.lng = worldXToLng(midX, state.zoom);
+      state.lat = Math.max(-85, Math.min(85, worldYToLat(midY, state.zoom)));
+      render(true);
+    }
+
+    /* انتقال نقشه به یک نقطه (با زوم اختیاری) */
+    function panTo(lat, lng, zoom) {
+      if (!isFiniteNumber(lat) || !isFiniteNumber(lng)) return;
+      state.lat = Math.max(-85, Math.min(85, lat));
+      state.lng = ((lng + 180) % 360 + 360) % 360 - 180;
+      if (isFiniteNumber(zoom)) state.zoom = Math.max(minZoom, Math.min(maxZoom, Math.round(zoom)));
+      render(true);
+    }
+
+    /* ── نشانگرها، خوشه‌ها و «موقعیت من» (نقشه‌ی نمایشی) ──────────────────── */
+    var markerItems = [];
+    var markerNodes = {};
+    var clusterNodes = [];
+    var selectedId = null;
+    var userFix = null;
+    var userNode = null;
+    var userAcc = null;
+    var suppressClickUntil = 0;
+    var onMarkerClick = typeof opts.onMarkerClick === 'function' ? opts.onMarkerClick : null;
+    var onMapClick = typeof opts.onMapClick === 'function' ? opts.onMapClick : null;
+    var onClusterClick = typeof opts.onClusterClick === 'function' ? opts.onClusterClick : null;
+
+    function itemById(id) {
+      for (var i = 0; i < markerItems.length; i++) if (markerItems[i].id === id) return markerItems[i];
+      return null;
+    }
+
+    function ensureMarkerNode(it) {
+      var node = markerNodes[it.id];
+      if (node) return node;
+      node = document.createElement('button');
+      node.type = 'button';
+      node.className = 'ep-mk' + (it.id === selectedId ? ' sel' : '');
+      node.dataset.id = it.id;
+      node.setAttribute('aria-label', it.label || '');
+      node.style.setProperty('--c', it.color || '#ef4444');
+      node.style.setProperty('--ink', it.ink || '#ffffff');
+      node.innerHTML = '<span class="ep-mk-pin"></span><span class="ep-mk-gl">' + (it.glyph || '') + '</span>';
+      markersLayer.appendChild(node);
+      markerNodes[it.id] = node;
+      return node;
+    }
+
+    function placeNode(node, x, y, selected) {
+      node.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)' + (selected ? ' scale(1.2)' : '');
+    }
+
+    function clusterColor(members) {
+      var color = members[0].it.color || '';
+      for (var i = 1; i < members.length; i++) {
+        if ((members[i].it.color || '') !== color) return '';
+      }
+      return color;
+    }
+
+    function metersPerPixel(lat, zoom) {
+      return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+    }
+
+    function renderMarkers() {
+      if (!markerItems.length && !userFix && !clusterNodes.length) return;
+      var box = size();
+      var left = lngToWorldX(state.lng, state.zoom) - box.w / 2;
+      var top = latToWorldY(state.lat, state.zoom) - box.h / 2;
+      var pad = 48;
+      var visible = [];
+
+      markerItems.forEach(function (it) {
+        var x = lngToWorldX(it.lng, state.zoom) - left;
+        var y = latToWorldY(it.lat, state.zoom) - top;
+        var existing = markerNodes[it.id];
+        if (x < -pad || y < -pad || x > box.w + pad || y > box.h + pad) {
+          if (existing) existing.style.display = 'none';
+          return;
+        }
+        visible.push({ it: it, x: x, y: y });
+      });
+
+      var clustering = opts.cluster !== false && state.zoom < CLUSTER_MAX_ZOOM && visible.length > 1;
+      var groups = [];
+      var singles = [];
+      visible.forEach(function (v) {
+        if (!clustering || v.it.id === selectedId) { singles.push(v); return; }
+        for (var k = 0; k < groups.length; k++) {
+          var g = groups[k];
+          var dx = g.x - v.x;
+          var dy = g.y - v.y;
+          if (dx * dx + dy * dy <= CLUSTER_RADIUS * CLUSTER_RADIUS) {
+            g.members.push(v);
+            g.x += (v.x - g.x) / g.members.length;
+            g.y += (v.y - g.y) / g.members.length;
+            return;
+          }
+        }
+        groups.push({ x: v.x, y: v.y, members: [v] });
+      });
+
+      var clusters = [];
+      groups.forEach(function (g) {
+        if (g.members.length === 1) singles.push(g.members[0]);
+        else clusters.push(g);
+      });
+
+      singles.forEach(function (v) {
+        var node = ensureMarkerNode(v.it);
+        node.style.display = '';
+        placeNode(node, v.x, v.y, v.it.id === selectedId);
+      });
+      clusters.forEach(function (g) {
+        g.members.forEach(function (v) {
+          var node = markerNodes[v.it.id];
+          if (node) node.style.display = 'none';
+        });
+      });
+
+      clusterNodes.forEach(function (n) { n.remove(); });
+      clusterNodes = clusters.map(function (g) {
+        var node = document.createElement('button');
+        node.type = 'button';
+        node.className = 'ep-cl';
+        var color = clusterColor(g.members);
+        if (color) node.style.setProperty('--c', color);
+        node.dataset.ids = g.members.map(function (v) { return v.it.id; }).join(',');
+        node.textContent = String(g.members.length);
+        node.setAttribute('aria-label', String(g.members.length));
+        node.style.transform = 'translate(' + g.x.toFixed(1) + 'px,' + g.y.toFixed(1) + 'px)';
+        markersLayer.appendChild(node);
+        return node;
+      });
+
+      renderUser(left, top);
+    }
+
+    function renderUser(left, top) {
+      if (!userFix) {
+        if (userNode) userNode.style.display = 'none';
+        return;
+      }
+      if (!userNode) {
+        userNode = document.createElement('div');
+        userNode.className = 'ep-me';
+        userAcc = document.createElement('span');
+        userAcc.className = 'ep-me-acc';
+        var dot = document.createElement('span');
+        dot.className = 'ep-me-dot';
+        userNode.appendChild(userAcc);
+        userNode.appendChild(dot);
+        markersLayer.appendChild(userNode);
+      }
+      var x = lngToWorldX(userFix.lng, state.zoom) - left;
+      var y = latToWorldY(userFix.lat, state.zoom) - top;
+      userNode.style.display = '';
+      userNode.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+      var radius = isFiniteNumber(userFix.acc) && userFix.acc > 0
+        ? Math.min(220, userFix.acc / metersPerPixel(userFix.lat, state.zoom)) : 0;
+      if (radius >= 14) {
+        userAcc.style.display = '';
+        userAcc.style.width = (radius * 2).toFixed(0) + 'px';
+        userAcc.style.height = (radius * 2).toFixed(0) + 'px';
+      } else {
+        userAcc.style.display = 'none';
+      }
+    }
+
+    function setMarkers(items) {
+      markerItems = (items || []).filter(function (it) {
+        return it && it.id != null && isFiniteNumber(it.lat) && isFiniteNumber(it.lng);
+      });
+      var keep = {};
+      markerItems.forEach(function (it) { keep[it.id] = true; });
+      Object.keys(markerNodes).forEach(function (id) {
+        if (!keep[id]) {
+          markerNodes[id].remove();
+          delete markerNodes[id];
+        }
+      });
+      if (selectedId != null && !keep[selectedId]) selectedId = null;
+      renderMarkers();
+    }
+
+    function setSelected(id) {
+      selectedId = id == null ? null : id;
+      Object.keys(markerNodes).forEach(function (key) {
+        markerNodes[key].classList.toggle('sel', selectedId != null && key === String(selectedId));
+      });
+      renderMarkers();
+    }
+
+    function setUserLocation(lat, lng, acc) {
+      if (!isFiniteNumber(lat) || !isFiniteNumber(lng)) return;
+      userFix = { lat: lat, lng: lng, acc: isFiniteNumber(acc) ? acc : 0 };
+      renderMarkers();
+    }
+    function clearUserLocation() {
+      userFix = null;
+      renderMarkers();
     }
 
     function getPosition() {
       return { lat: state.lat, lng: state.lng, zoom: state.zoom, hasFix: state.hasFix };
     }
 
-    /* ── پن کردن نقشه با انگشت/موس (نشانگر در مرکز می‌ماند) ── */
+    /* ── پن کردن نقشه با انگشت/موس (نشانگر در مرکز می‌ماند) و زوم با دو انگشت ── */
     var drag = null;
+    var dragMoved = false;
+    var downPt = null;
+    var pinch = null;
     function pointerPos(e) {
       if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
       return { x: e.clientX, y: e.clientY };
     }
+    function touchDistance(e) {
+      var a = e.touches[0];
+      var b = e.touches[1];
+      return Math.sqrt(Math.pow(a.clientX - b.clientX, 2) + Math.pow(a.clientY - b.clientY, 2));
+    }
+    function touchMid(e) {
+      var rect = container.getBoundingClientRect();
+      return {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2 - (rect.left || 0),
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2 - (rect.top || 0)
+      };
+    }
     function onDown(e) {
+      if (gestures && e.touches && e.touches.length >= 2) {
+        /* دو انگشت: کشیدن لغو و زوم شروع می‌شود */
+        drag = null;
+        pinch = { d0: Math.max(1, touchDistance(e)), z0: state.zoom };
+        container.classList.add('ep-map-dragging');
+        return;
+      }
       if (!state.draggable) return;
       var p = pointerPos(e);
       drag = { x: p.x, y: p.y, worldX: lngToWorldX(state.lng, state.zoom), worldY: latToWorldY(state.lat, state.zoom) };
+      downPt = { x: p.x, y: p.y };
+      dragMoved = false;
       container.classList.add('ep-map-dragging');
     }
     function onMove(e) {
+      if (pinch) {
+        if (e.touches && e.touches.length >= 2) {
+          if (e.cancelable) e.preventDefault();
+          /* هر ~۳۲٪ فاصله‌ی بیشتر/کمتر بین دو انگشت = یک پله زوم */
+          var steps = Math.round(1.25 * Math.log(touchDistance(e) / pinch.d0) / Math.LN2);
+          var mid = touchMid(e);
+          zoomAt(pinch.z0 + steps, mid.x, mid.y);
+        }
+        return;
+      }
       if (!drag) return;
       if (e.cancelable) e.preventDefault();
       var p = pointerPos(e);
+      if (!dragMoved && downPt && (Math.abs(p.x - downPt.x) > TAP_SLOP || Math.abs(p.y - downPt.y) > TAP_SLOP)) {
+        dragMoved = true;
+      }
       var worldX = drag.worldX - (p.x - drag.x);
       var worldY = drag.worldY - (p.y - drag.y);
       state.lng = worldXToLng(worldX, state.zoom);
       state.lat = Math.max(-85, Math.min(85, worldYToLat(worldY, state.zoom)));
       state.hasFix = true;
-      pin.style.display = '';
-      crosshair.style.display = 'none';
+      if (!viewerMode) {
+        pin.style.display = '';
+        crosshair.style.display = 'none';
+      }
       renderTiles();
     }
-    function onUp() {
+    function onUp(e) {
+      if (pinch) {
+        if (!e || !e.touches || e.touches.length < 2) {
+          pinch = null;
+          suppressClickUntil = Date.now() + 350;
+          container.classList.remove('ep-map-dragging');
+          notify();
+        }
+        return;
+      }
       if (!drag) return;
       drag = null;
+      if (dragMoved) suppressClickUntil = Date.now() + 350;   /* «کشیدن» را «لمس» حساب نکن */
+      dragMoved = false;
       container.classList.remove('ep-map-dragging');
       notify();
     }
@@ -440,6 +812,61 @@
 
     window.addEventListener('resize', function () { renderTiles(); });
 
+    /* چرخ موس و دابل‌کلیک (نسخه‌ی مرورگر/دسکتاپ) */
+    var lastWheelAt = 0;
+    if (gestures) {
+      container.addEventListener('wheel', function (e) {
+        /* بدون Ctrl/⌘ چرخ موس صفحه را اسکرول می‌کند (نقشه نباید اسکرول صفحه را بدزدد)؛
+           با Ctrl/⌘ و در لمس‌پدِ لپ‌تاپ (حرکت دو انگشتیِ بزرگ‌نمایی) نقشه زوم می‌شود. */
+        if (!e.ctrlKey && !e.metaKey && opts.wheelZoom !== 'always') return;
+        if (e.cancelable) e.preventDefault();
+        var now = Date.now();
+        if (now - lastWheelAt < 160) return;
+        lastWheelAt = now;
+        var rect = container.getBoundingClientRect();
+        zoomAt(state.zoom + (e.deltaY < 0 ? 1 : -1), e.clientX - (rect.left || 0), e.clientY - (rect.top || 0));
+      }, { passive: false });
+      container.addEventListener('dblclick', function (e) {
+        var t = e.target;
+        if (t && t.closest && t.closest('.ep-mk, .ep-cl, .ep-map-zoom, .ep-map-fallback')) return;
+        var rect = container.getBoundingClientRect();
+        zoomAt(state.zoom + 1, e.clientX - (rect.left || 0), e.clientY - (rect.top || 0));
+      });
+    }
+
+    /* لمس نشانگر/خوشه و لمس جای خالیِ نقشه */
+    markersLayer.addEventListener('click', function (e) {
+      if (Date.now() < suppressClickUntil) return;
+      var t = e.target;
+      var el = t && t.closest ? t.closest('.ep-mk, .ep-cl') : null;
+      if (!el) return;
+      if (e.stopPropagation) e.stopPropagation();
+      if (el.classList.contains('ep-cl')) {
+        var ids = String(el.dataset.ids || '').split(',');
+        var members = ids.map(itemById).filter(Boolean);
+        if (onClusterClick) { onClusterClick(ids, members); return; }
+        var lats = members.map(function (m) { return m.lat; });
+        var lngs = members.map(function (m) { return m.lng; });
+        if (members.length) {
+          var bounds = { south: Math.min.apply(null, lats), north: Math.max.apply(null, lats),
+                         west: Math.min.apply(null, lngs), east: Math.max.apply(null, lngs) };
+          var before = state.zoom;
+          fitBounds(bounds, { padding: 56, maxZoom: Math.min(maxZoom, CLUSTER_MAX_ZOOM) });
+          if (state.zoom <= before) setZoom(before + 1);
+        }
+        return;
+      }
+      if (onMarkerClick) onMarkerClick(el.dataset.id, itemById(el.dataset.id));
+    });
+    container.addEventListener('click', function (e) {
+      if (!onMapClick || Date.now() < suppressClickUntil) return;
+      var t = e.target;
+      if (t && t.closest && t.closest('.ep-mk, .ep-cl, .ep-map-zoom, .ep-map-attrib, .ep-map-fallback')) return;
+      var rect = container.getBoundingClientRect();
+      var ll = pxToLatLng(e.clientX - (rect.left || 0), e.clientY - (rect.top || 0));
+      onMapClick(ll.lat, ll.lng);
+    });
+
     /* رسم اولیه: بدون این کار، نقشه تا اولین جابه‌جایی/زوم خالی می‌ماند. */
     renderTiles();
     armWatchdog();
@@ -450,7 +877,19 @@
       setZoom: setZoom,
       zoomIn: function () { setZoom(state.zoom + 1); },
       zoomOut: function () { setZoom(state.zoom - 1); },
+      zoomAt: zoomAt,
       refresh: function () { renderTiles(); },
+      /* ── نقشه‌ی نمایشی ── */
+      setMarkers: setMarkers,
+      setSelected: setSelected,
+      getSelected: function () { return selectedId; },
+      setUserLocation: setUserLocation,
+      clearUserLocation: clearUserLocation,
+      fitBounds: fitBounds,
+      panTo: panTo,
+      getBounds: getBounds,
+      latLngToPx: latLngToPx,
+      pxToLatLng: pxToLatLng,
       setTheme: function (night) { container.classList.toggle('ep-map-dark', !!night); },
       retry: retryTiles,
       /* برای عیب‌یابی و آزمون: کدام منبع کاشی فعال/تأییدشده است */

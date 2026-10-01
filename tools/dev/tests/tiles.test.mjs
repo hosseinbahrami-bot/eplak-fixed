@@ -391,7 +391,7 @@ ok('options.tileSources بر همه‌چیز می‌چربد؛ window.EPLAK_MAP_
 const mapSrc = read('assets/js/ep-map.js');
 ok('نقشه هنوز آدرس OpenStreetMap مستقیم را (به‌عنوان منبع دوم) دارد',
   /tile\.openstreetmap\.org/.test(mapSrc) && /© OpenStreetMap/.test(mapSrc));
-ok('پنل ادمین کاشی‌ها را از همان پروکسی می‌گیرد', /tileProxy: '\.\.\/api\/tiles\.php'/.test(read('admin/report_detail.php')) && /ep-map\.js\?v=3/.test(read('admin/report_detail.php')));
+ok('پنل ادمین کاشی‌ها را از همان پروکسی می‌گیرد', /tileProxy: '\.\.\/api\/tiles\.php'/.test(read('admin/report_detail.php')) && /ep-map\.js\?v=4/.test(read('admin/report_detail.php')));
 ok('دکمه‌ی «مشاهده در نقشه» در اپ، برنامه‌های نقشه‌ی گوشی (نشان، بلد، …) را از طریق geo: باز می‌کند',
   /AndroidApp\.openUrl\('geo:'/.test(read('modules/reports.js')));
 

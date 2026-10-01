@@ -137,24 +137,7 @@
   // Payments — آرایه خالی؛ داده‌های هر کاربر از localStorage بارگذاری می‌شود
   let payments = [];
 
-  const mapPlaces = [
-    { name: 'ساختمان مرکزی شهرداری', dist: '۲۰۰ متر', icon: '🏢', bg: 'rgba(0,201,167,0.12)' },
-    { name: 'پارک شهر', dist: '۴۵۰ متر', icon: '🌳', bg: 'rgba(0,180,80,0.12)' },
-    { name: 'بیمارستان امام خمینی', dist: '۱.۲ کیلومتر', icon: '🏥', bg: 'rgba(255,80,80,0.12)' },
-    { name: 'کتابخانه عمومی', dist: '۸۰۰ متر', icon: '📚', bg: 'rgba(100,150,255,0.12)' },
-    { name: 'میدان شهرداری', dist: '۲۰۰ متر', icon: '📍', bg: 'rgba(255,180,0,0.12)' },
-    { name: 'پایانه مسافربری', dist: '۲.۵ کیلومتر', icon: '🚌', bg: 'rgba(150,80,255,0.12)' }
-  ];
-
-  const mapPlaces_EN = [
-    { name: 'Central Municipal Building', dist: '200 m', icon: '🏢', bg: 'rgba(0,201,167,0.12)' },
-    { name: 'City Park', dist: '450 m', icon: '🌳', bg: 'rgba(0,180,80,0.12)' },
-    { name: 'Imam Khomeini Hospital', dist: '1.2 km', icon: '🏥', bg: 'rgba(255,80,80,0.12)' },
-    { name: 'Public Library', dist: '800 m', icon: '📚', bg: 'rgba(100,150,255,0.12)' },
-    { name: 'Municipality Square', dist: '200 m', icon: '📍', bg: 'rgba(255,180,0,0.12)' },
-    { name: 'Bus Terminal', dist: '2.5 km', icon: '🚌', bg: 'rgba(150,80,255,0.12)' }
-  ];
-  if (typeof window !== 'undefined') window.mapPlaces_EN = mapPlaces_EN;
+  /* فهرست اماکن «نقشه و اماکن شهری» حالا در core/places-data.js است (مختصات واقعی ورامین) */
 
   // Notifications — آرایه خالی؛ داده‌های هر کاربر از localStorage بارگذاری می‌شود
   let notifications = [];
@@ -177,7 +160,7 @@
     { id: 'tender_projects', icon: '📑', bg: 'rgba(2,132,199,0.16)', title: 'مناقصات و مزایدات', sub: 'پروژه‌های عمرانی و واگذاری‌های رسمی شهرداری', serviceId: 'tender_projects', group: 'مناقصات' },
     { id: 'biz_permit', icon: '📜', bg: 'rgba(217,119,6,0.16)', title: 'پروانه کسب', sub: 'استعلام صدور و تمدید پروانه‌های تجاری', serviceId: 'biz_permit', group: 'کسب و کار' },
     { id: 's3', icon: '📢', bg: 'rgba(245,158,11,0.16)', title: 'اخبار و اطلاعیه‌ها', sub: 'آخرین مصوبات، اطلاعیه‌ها و اخبار شهر', screen: 'screen-news', group: 'اطلاعات' },
-    { id: 's5', icon: '🗺️', bg: 'rgba(0,201,167,0.16)', title: 'نقشه شهر', sub: 'مسیریابی مراکز خدماتی و درمانی ورامین', screen: 'screen-map', group: 'عمومی' },
+    { id: 's5', icon: '🗺️', bg: 'rgba(0,201,167,0.16)', title: 'نقشه شهر', sub: 'اماکن مهم ورامین و مسیریابی با نشان', screen: 'screen-map', group: 'عمومی' },
     { id: 's6', icon: '📞', bg: 'rgba(20,184,166,0.16)', title: 'تماس با ما', sub: 'سامانه ارتباط مستقیم ۱۳۷ و مدیران', screen: 'screen-contact', group: 'عمومی' },
     { id: 's7', icon: '🤝', bg: 'rgba(168,85,247,0.16)', title: 'ملاقات با مسئولان', sub: 'ثبت نوبت دیدار حضوری با شهردار و شورای شهر', action: 'openMayorMeetingModal', group: 'مدیریت' },
     { id: 's4', icon: '✨', bg: 'rgba(150,80,255,0.16)', title: 'سامانه خدمات شهری', sub: 'مشاهده لیست کامل تمام سرویس‌های شهرداری', screen: 'screen-services', group: 'عمومی' }
@@ -200,7 +183,7 @@
     { id: 'tender_projects', icon: '📑', bg: 'rgba(2,132,199,0.16)', title: 'Tenders & Auctions', sub: 'Municipal projects and official tenders', serviceId: 'tender_projects', group: 'Tenders' },
     { id: 'biz_permit', icon: '📜', bg: 'rgba(217,119,6,0.16)', title: 'Business Permit', sub: 'Permit renewal and licensing', serviceId: 'biz_permit', group: 'Business' },
     { id: 's3', icon: '📢', bg: 'rgba(245,158,11,0.16)', title: 'News & Notices', sub: 'Latest civic news and announcements', screen: 'screen-news', group: 'News' },
-    { id: 's5', icon: '🗺️', bg: 'rgba(0,201,167,0.16)', title: 'City Map', sub: 'Navigate Varamin municipal offices', screen: 'screen-map', group: 'General' },
+    { id: 's5', icon: '🗺️', bg: 'rgba(0,201,167,0.16)', title: 'City Map', sub: 'Key places in Varamin & Neshan routing', screen: 'screen-map', group: 'General' },
     { id: 's6', icon: '📞', bg: 'rgba(20,184,166,0.16)', title: 'Contact Us', sub: 'Direct line and 137 helpline', screen: 'screen-contact', group: 'General' },
     { id: 's7', icon: '🤝', bg: 'rgba(168,85,247,0.16)', title: 'Mayor Meeting', sub: 'Request meeting with Mayor & Council', action: 'openMayorMeetingModal', group: 'Management' },
     { id: 's4', icon: '✨', bg: 'rgba(150,80,255,0.16)', title: 'All Services', sub: 'View full catalog of city services', screen: 'screen-services', group: 'General' }

@@ -42,7 +42,8 @@ for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared
          assets/js/ep-map.js assets/js/ep-camera.js assets/js/icons.js \
          core/storage.js core/upload-progress.js core/router.js core/i18n.js core/state.js \
          modules/reports.js modules/live.js modules/auth.js modules/dashboard.js modules/online-guard.js \
-         docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md \
+         core/places-data.js core/places.js modules/city-map.js \
+         docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md docs/CITY_MAP_FA.md docs/CITY_MAP_EN.md \
          docs/REPORT_MEDIA_GPS_FA.md docs/REPORT_MEDIA_GPS_EN.md \
          docs/FIREBASE_SETUP_FA.md docs/FIREBASE_SETUP_EN.md; do
   if has "$f"; then echo "   ✅ $f"; else echo "   ❌ $f گم شده!"; exit 1; fi

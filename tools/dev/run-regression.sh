@@ -26,6 +26,9 @@
 #                 فرم ساده و JSON، سه مسیر پنل (جزئیات/تغییر سریع/ویرایش)، گوگلِ
 #                 ساختگی، push_log، شکست‌ها (گوشی ثبت‌نشده، قطع بودن گوگل، توکن
 #                 باطل، ۴۰۱) و تلاش مجدد/تست اعلان در لایه‌ی وب اپ
+#    places     → «نقشه و اماکن شهری»: داده‌ی اماکن ورامین (مختصات، دسته‌ها)، جستجو،
+#                 نشانگر/خوشه روی نقشه، و مسیریابی با «نشان» (Neshan) از موقعیت GPS
+#                 کاربر در اپ اندروید، مرورگر اندروید، iOS و دسکتاپ (jsdom)
 # ============================================================================
 set -uo pipefail
 
@@ -50,6 +53,13 @@ if [ ! -d node_modules/php-parser ] || [ ! -d node_modules/@php-wasm ]; then
     echo "❌ نصب ابزارها ناموفق بود. اتصال اینترنت را بررسی کنید."; exit 1; }
 fi
 
+# jsdom فقط برای آزمون «نقشه و اماکن شهری» لازم است (DOM واقعی صفحه)
+if [ ! -d node_modules/jsdom ]; then
+  echo "→ نصب jsdom (برای آزمون نقشه و اماکن شهری)…"
+  npm install jsdom@26.1.0 --no-audit --no-fund >/dev/null 2>&1 || {
+    echo "❌ نصب jsdom ناموفق بود. اتصال اینترنت را بررسی کنید."; exit 1; }
+fi
+
 # اسکریپت‌ها داخل پوشه‌ی آزمون کپی می‌شوند تا node_modules همان‌جا پیدا شود
 cp "$DEV/php-run.mjs" "$DEV/php-syntax.mjs" "$DEV/js-syntax.mjs" "$WORK/" 2>/dev/null || true
 cp "$DEV/tests/"*.mjs "$WORK/" 2>/dev/null || true
@@ -71,7 +81,7 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "syntax" ]; then
   run_step "بررسی نحوی JS"  node "$WORK/js-syntax.mjs"  "$ROOT"
 fi
 
-for t in notify app pushcrypto fcm backend rescue online geo upload tiles push; do
+for t in notify app pushcrypto fcm backend rescue online geo upload tiles push places; do
   if [ "$TARGET" = "all" ] || [ "$TARGET" = "$t" ]; then
     if [ -f "$WORK/$t.test.mjs" ]; then
       run_step "آزمون $t" node "$WORK/$t.test.mjs"

@@ -40,6 +40,9 @@ class MainActivity : AppCompatActivity() {
         const val SESSION_PREFS = "eplak_session"
         const val KEY_REQUIRE_LOGIN = "require_login"
 
+        /* بسته‌ی برنامه‌ی «نشان» (Neshan) — برای مسیریابی در «نقشه و اماکن شهری» */
+        const val NESHAN_PACKAGE = "org.rajman.neshan.traffic.tehran.navigator"
+
         /* آخرین WebView زنده. وقتی فایربیس توکن تازه‌ای می‌دهد (توکن غیرهمگام
            می‌رسد؛ در اولین اجرا لایه‌ی وب آن را هنوز ندارد)، به لایه‌ی وب خبر
            می‌دهیم تا همان لحظه گوشی را در سرور ثبت کند. بدون این هم‌خوانی، ثبت
@@ -766,6 +769,65 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Throwable) {
                     Toast.makeText(activity, "برنامه‌ای برای باز کردن این لینک پیدا نشد", Toast.LENGTH_SHORT).show()
                 }
+            }
+        }
+
+        /* ── نشان (Neshan): مسیریابی از موقعیت کاربر تا مقصد ────────────────────
+           لایه‌ی وب (modules/city-map.js) لینک مستندِ نشان را می‌سازد:
+               https://nshn.ir/?origin=lat,lng&destination=lat,lng&vehicle=d
+           (مبدأ = GPS کاربر؛ بدون GPS فقط https://nshn.ir/?lat=..&lng=.. برای نمایش مقصد)
+           و همین‌جا باز می‌شود:
+             ۱) اگر برنامه‌ی نشان نصب باشد، مستقیم در همان باز می‌شود؛
+             ۲) وگرنه نسخه‌ی وب نشان در مرورگر گوشی.
+           خروجی برای لایه‌ی وب:  "app" | "web" | "none"
+           فقط لینک‌های خودِ نشان (nshn.ir) پذیرفته می‌شود تا این پل برای باز کردن
+           هر آدرس دلخواهی استفاده نشود. */
+        @JavascriptInterface
+        fun openNeshan(url: String): String {
+            val uri = try { Uri.parse(url.trim()) } catch (e: Throwable) { return "none" }
+            val scheme = (uri.scheme ?: "").lowercase(Locale.ROOT)
+            val host = (uri.host ?: "").lowercase(Locale.ROOT)
+            val nshn = host == "nshn.ir" || host.endsWith(".nshn.ir")
+            if ((scheme != "https" && scheme != "http") || !nshn) return "none"
+
+            /* ۱) خودِ برنامه‌ی نشان: اول همان لینک https، و اگر برنامه فقط شکل http را
+               ثبت کرده باشد همان لینک با http. بدون NEW_TASK: با دکمه‌ی «بازگشت» در نشان،
+               کاربر به همین اپ برمی‌گردد. */
+            val candidates = ArrayList<Uri>()
+            candidates.add(uri)
+            if (scheme == "https") candidates.add(uri.buildUpon().scheme("http").build())
+            for (candidate in candidates) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, candidate).apply {
+                        setPackage(NESHAN_PACKAGE)
+                    }
+                    activity.startActivity(intent)
+                    return "app"
+                } catch (e: ActivityNotFoundException) {
+                    /* برنامه این شکل لینک را نمی‌شناسد یا نصب نیست → شکل بعدی / نسخه‌ی وب */
+                } catch (e: Throwable) {
+                    /* ادامه */
+                }
+            }
+
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                return "web"
+            } catch (e: Throwable) {
+                /* مرورگری هم پیدا نشد */
+            }
+            return "none"
+        }
+
+        /** آیا برنامه‌ی «نشان» روی این گوشی نصب است؟ */
+        @Suppress("DEPRECATION")
+        @JavascriptInterface
+        fun isNeshanInstalled(): Boolean {
+            return try {
+                activity.packageManager.getPackageInfo(NESHAN_PACKAGE, 0)
+                true
+            } catch (e: Throwable) {
+                false
             }
         }
 

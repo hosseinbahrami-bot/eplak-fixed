@@ -25,6 +25,12 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- «نقشه و اماکن شهری»: تشخیص نصب بودن برنامه‌ی نشان (Neshan) برای مسیریابی.
+         از اندروید ۱۱ بدون این بخش، گوشی نصب بودن برنامه‌های دیگر را نشان نمی‌دهد. -->
+    <queries>
+        <package android:name="org.rajman.neshan.traffic.tehran.navigator" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

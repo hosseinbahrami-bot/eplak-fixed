@@ -340,27 +340,7 @@
   }
 
 
-  /* =========================================================
-     Map
-  ========================================================= */
-  function renderMapPlaces() {
-    const wrap = document.getElementById('mapPlacesWrap');
-    if (!wrap) return;
-    const isEn = (window.i18n && typeof window.i18n.getLanguage === 'function')
-      ? window.i18n.getLanguage() === 'en'
-      : (window.i18n && window.i18n.currentLang === 'en');
-    const places = isEn ? (window.mapPlaces_EN || mapPlaces) : mapPlaces;
-
-    wrap.innerHTML = places.map(pl => `
-      <div class="menu-item" onclick="showToast('${isEn ? ('Route to ' + escapeHtml(pl.name) + ' shown') : ('مسیر به ' + escapeHtml(pl.name) + ' نمایش داده شد')}')">
-        <span class="menu-item-value">${pl.dist}</span>
-        <div class="menu-item-right">
-          <div class="menu-item-icon" style="background:${pl.bg};">${window.EplakIcons ? window.EplakIcons.get(pl.icon) : pl.icon}</div>
-          <span class="menu-item-label">${escapeHtml(pl.name)}</span>
-        </div>
-      </div>
-    `).join('');
-  }
+  /* نقشه و اماکن شهری: modules/city-map.js (renderMapPlaces را آن‌جا تعریف می‌کند) */
 
 
   /* =========================================================
