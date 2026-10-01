@@ -510,6 +510,11 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
+  /* مسیر کوتاه و خوانا برای صفحه‌ی دانلود اپ (فقط ابزار توسعه) */
+  if (p === '/apk' || p === '/apk/' || p === '/download' || p === '/download/') {
+    return serveStatic(req, res, '/tools/apk-download.html');
+  }
+
   try {
     if (p.endsWith('/api/media.php')) return await handleMedia(req, res, url);
     if (p.endsWith('/api/reports.php')) return await handleReports(req, res, url);
