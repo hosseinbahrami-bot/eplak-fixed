@@ -1,0 +1,171 @@
+# ============================================================================
+#  ساخت خودکار فایل APK اپ اندروید (روی سرورهای گیت‌هاب — بدون نیاز به Android Studio)
+#
+#  چرا؟ فایل‌های سایت (index.html و پوشه‌های core/ و modules/) هنگام ساخت APK
+#  داخل خود اپ بسته‌بندی می‌شوند؛ پس تغییرات عکس/فیلم فقط با یک APK تازه روی
+#  گوشی دیده می‌شود. این ورک‌فلو همان APK را می‌سازد و منتشر می‌کند.
+#
+#  نتیجه کجاست؟
+#    ۱) Actions → آخرین اجرا → بخش Artifacts → «eplak-apk»
+#    ۲) صفحه‌ی Releases با برچسب apk-latest (لینک ثابت و مستقیم برای گوشی)
+# ============================================================================
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+    paths:
+      - 'android-app/**'
+      - 'index.html'
+      - 'app.js'
+      - 'core/**'
+      - 'modules/**'
+      - 'views/**'
+      - 'assets/**'
+      - 'tools/make-install-card.py'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v5
+
+      - name: نصب Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # کلید امضای دیباگ را کش می‌کنیم تا همه‌ی ساخت‌ها یک امضا داشته باشند و
+      # نسخه‌ی تازه روی نسخه‌ی قبلی نصب شود (بدون نیاز به حذف اپ).
+      - name: کش کلید امضا
+        uses: actions/cache@v4
+        with:
+          path: ~/.android
+          key: eplak-android-signing-v1
+
+      - name: درج شماره‌ی ساخت در نسخه
+        run: |
+          RUN="${{ github.run_number }}"
+          sed -i "s/versionCode [0-9]\+/versionCode $RUN/" android-app/app/build.gradle
+          sed -i "s/versionName '[^']*'/versionName '2.0.$RUN'/" android-app/app/build.gradle
+          grep -nE "versionCode|versionName" android-app/app/build.gradle
+
+      - name: ساخت APK
+        working-directory: android-app
+        run: |
+          set -o pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK" > local.properties
+          echo "Android SDK: $SDK"
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -n 60
+
+      - name: بازرسی APK (آیا کد عکس و فیلم داخلش هست؟)
+        id: apk
+        run: |
+          set -e
+          SRC=$(find android-app/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          cp "$SRC" eplak-app.apk
+          SIZE=$(stat -c%s eplak-app.apk)
+          SHA=$(sha256sum eplak-app.apk | awk '{print $1}')
+
+          echo "حجم APK: $((SIZE/1024)) کیلوبایت"
+          echo "sha256: $SHA"
+
+          # ۱) موتور رسانه داخل assets اپ باشد
+          if unzip -p eplak-app.apk assets/core/media.js | grep -q "EplakMedia"; then
+            echo "✅ موتور عکس/فیلم (EplakMedia) داخل APK هست"
+          else
+            echo "❌ موتور عکس/فیلم داخل APK نیست!"; exit 1
+          fi
+          # ۲) دکمه‌های دوربین/گالری در صفحه باشند
+          if unzip -p eplak-app.apk assets/index.html | grep -q "reportPhotoInput"; then
+            echo "✅ دکمه‌های عکس/فیلم در صفحه هست"
+          else
+            echo "❌ صفحه‌ی داخل APK دکمه‌های رسانه را ندارد!"; exit 1
+          fi
+          # ۳) صفحه روی مبدأ امن asset loader سرو شود (لازمه‌ی دوربین داخل اپ)
+          if unzip -p eplak-app.apk classes.dex | strings | grep -q "appassets.androidplatform.net"; then
+            echo "✅ سرو صفحه روی مبدأ امن (دوربین داخل اپ) فعال است"
+          else
+            echo "⚠️ نشانه‌ی asset loader در dex پیدا نشد"
+          fi
+
+          {
+            echo "size=$SIZE"
+            echo "sha=$SHA"
+            echo "version=$(grep -m1 -oP "versionName\s+'\K[^']+" android-app/app/build.gradle || echo '?')"
+          } >> "$GITHUB_OUTPUT"
+          ls -la eplak-app.apk
+
+      - name: بارگذاری APK به‌عنوان Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eplak-apk
+          path: eplak-app.apk
+          if-no-files-found: error
+
+      - name: انتشار APK در Releases (لینک ثابت برای دانلود با گوشی)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION="${{ steps.apk.outputs.version }}"
+          BUILD="${{ github.run_number }}"
+          SHA7="${GITHUB_SHA:0:7}"
+          SIZE_KB=$(( ${{ steps.apk.outputs.size }} / 1024 ))
+          NOTES="## اپ ای‌پلاک — نسخه‌ی آزمایشی
+          ساخت شماره‌ی ${BUILD} • نسخه ${VERSION} • کامیت \`${SHA7}\` • حجم ${SIZE_KB} کیلوبایت
+          sha256: \`${{ steps.apk.outputs.sha }}\`
+
+          **فایل نصبی:** \`eplak-app.apk\` (همین صفحه، بخش Assets)
+
+          ---
+          ### چه چیزی در این نسخه اصلاح شده؟
+          - بارگذاری **عکس و فیلم** گزارش‌ها (پیش‌تر هیچ فایلی واقعاً به سرور نمی‌رفت)
+          - **گرفتن عکس و فیلم با دوربین داخل خود اپ** (به‌جای دوربین سیستمی)
+          - انتخاب از گالری، فشرده‌سازی خودکار عکس، نمایش درصد پیشرفت ارسال
+          - **صف آفلاین:** اگر اینترنت قطع بود، فایل می‌ماند و بعداً خودش ارسال می‌شود
+          - نمایش عکس/فیلم در جزئیات گزارش و در پنل مدیریت
+
+          ### آزمون روی گوشی
+          1. دوربین گوشی را روی کد QR کارت نصب بگیرید و فایل را دانلود کنید
+          2. اگر گوشی اجازه خواست، «نصب از منابع ناشناس» را برای مرورگر روشن کنید
+          3. نصب کنید — روی نسخه‌ی قبلی هم به‌عنوان به‌روزرسانی می‌نشیند
+          4. در اپ: ثبت گزارش ← دکمه‌ی «عکس» و «فیلم» ← گرفتن با دوربین یا انتخاب از گالری
+          5. بعد از ثبت، در «گزارش‌های من» باید عکس و فیلم را ببینید (و در پنل مدیریت هم)
+
+          > نکته: هنگام اولین ارسال عکس/فیلم، اپ یک‌بار آدرس سرویس‌دهی (پوشه‌ی api) را
+          > می‌پرسد؛ آن را وارد کنید تا ذخیره شود."
+          gh release view apk-latest >/dev/null 2>&1 \
+            && gh release edit apk-latest --title "آخرین APK آزمایشی" --notes "$NOTES" \
+            || gh release create apk-latest --title "آخرین APK آزمایشی" --notes "$NOTES" --prerelease
+          gh release upload apk-latest eplak-app.apk --clobber
+          gh release view apk-latest --json url --jq .url
+
+      # کارت نصب (QR + راهنمای فارسی) — اگر ساخت آن به هر دلیلی ممکن نشد،
+      # خودِ انتشار APK ناموفق به‌حساب نمی‌آید.
+      - name: ساخت و پیوست کارت نصب (QR)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 -m pip install --quiet qrcode pillow arabic-reshaper python-bidi fonttools brotli
+          REF="${{ github.repository }}"
+          python3 tools/make-install-card.py \
+            --url "https://github.com/$REF/releases/download/apk-latest/eplak-app.apk" \
+            --version "${{ steps.apk.outputs.version }}" \
+            --build "${{ github.run_number }}" \
+            --kb "$(( ${{ steps.apk.outputs.size }} / 1024 ))" \
+            --out eplak-apk-install-card.png
+          gh release upload apk-latest eplak-apk-install-card.png --clobber

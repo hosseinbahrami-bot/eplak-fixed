@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>دانلود اپ ای‌پلاک — نسخه‌ی آزمایشی</title>
+<style>
+  :root { --teal:#00c9a7; --dark:#0f172a; --gray:#64748b; --line:#e2e8f0; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:22px 16px 40px; font-family:"IranianSans","Vazirmatn",Tahoma,system-ui,sans-serif;
+    background:#f8fafc; color:var(--dark); direction:rtl; text-align:right;
+  }
+  .wrap { max-width:560px; margin:0 auto; }
+  .head {
+    background:linear-gradient(135deg,#00c9a7,#00a88c); color:#fff; border-radius:20px;
+    padding:22px 20px; text-align:center; box-shadow:0 10px 24px rgba(0,201,167,.25);
+  }
+  .head h1 { margin:0 0 6px; font-size:22px; }
+  .head p { margin:0; font-size:13px; opacity:.95; line-height:1.9; }
+  .card {
+    background:#fff; border:1px solid var(--line); border-radius:18px; padding:18px;
+    margin-top:16px; box-shadow:0 4px 14px rgba(15,23,42,.05);
+  }
+  .btn {
+    display:block; text-align:center; text-decoration:none; background:var(--teal); color:#04211c;
+    font-weight:800; font-size:16px; padding:15px 18px; border-radius:14px;
+    box-shadow:0 8px 18px rgba(0,201,167,.3);
+  }
+  .btn:active { transform:translateY(1px); }
+  .meta { text-align:center; font-size:12px; color:var(--gray); margin-top:10px; line-height:2; direction:ltr; }
+  .qr { display:flex; gap:18px; align-items:center; margin-top:4px; }
+  .qr img { width:150px; height:150px; border:1px solid var(--line); border-radius:14px; padding:6px; background:#fff; }
+  .qr div { font-size:13px; line-height:2; color:#334155; }
+  h2 { font-size:15px; margin:0 0 10px; color:var(--teal); }
+  ol { margin:0; padding-right:20px; font-size:13.5px; line-height:2.2; }
+  ul { margin:8px 0 0; padding-right:20px; font-size:13.5px; line-height:2.2; }
+  code { direction:ltr; display:inline-block; background:#f1f5f9; border-radius:6px; padding:1px 6px; font-size:12px; }
+  .warn { background:#fffbeb; border:1px solid #fde68a; border-radius:14px; padding:14px; font-size:13px; line-height:2; margin-top:14px; }
+  .foot { text-align:center; font-size:12px; color:var(--gray); margin-top:18px; line-height:2; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <h1>اپ ای‌پلاک — نسخه‌ی آزمایشی</h1>
+    <p>شامل اصلاح بارگذاری عکس و فیلم + گرفتن عکس/فیلم با دوربین داخل اپ</p>
+  </div>
+
+  <div class="card">
+    <a class="btn" id="dl" target="_blank" rel="noopener" href="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/apk-latest/eplak-app.apk">
+      ⬇️ دانلود فایل نصبی اپ (حدود ۱۱ مگابایت)
+    </a>
+    <div class="meta">
+      نسخه ۲٫۰٫۳۵ &nbsp;•&nbsp; آخرین ساخت &nbsp;•&nbsp; لینک همیشه آخرین نسخه را می‌دهد
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>نصب روی گوشی</h2>
+    <ol>
+      <li>با گوشی روی دکمه‌ی بالا بزنید و فایل را دانلود کنید.</li>
+      <li>اگر گوشی اجازه خواست، <b>نصب از منابع ناشناس</b> را برای مرورگر روشن کنید.</li>
+      <li>فایل را نصب کنید؛ روی نسخه‌ی قبلی به‌عنوان <b>به‌روزرسانی</b> می‌نشیند (نیازی به پاک کردن اپ قبلی نیست).</li>
+      <li>اپ را باز کنید و فرم را پر کنید.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <div class="qr">
+      <img src="apk-download-qr.png" alt="کد QR دانلود اپ">
+      <div>
+        <b>یا با دوربین گوشی:</b><br>
+        کد را مقابل دوربین بگیرید و لینک را باز کنید.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>چه چیزی را تست کنیم؟</h2>
+    <ul>
+      <li>ثبت گزارش ← دکمه‌ی «عکس» و «فیلم» ← گرفتن با <b>دوربین داخل اپ</b> یا انتخاب از گالری.</li>
+      <li>بعد از ثبت، در «گزارش‌های من» عکس و فیلم نمایش داده شود (و در پنل مدیریت هم).</li>
+      <li>اینترنت را قطع کنید، عکس بگیرید و ثبت کنید؛ بعد از وصل شدن، فایل خودش ارسال می‌شود (صف آفلاین).</li>
+      <li>در اولین ارسال عکس/فیلم، اپ یک‌بار <b>آدرس سرویس‌دهی (پوشه‌ی api)</b> را می‌پرسد؛ وارد کنید و ذخیره کنید.</li>
+    </ul>
+  </div>
+
+  <div class="warn">
+    ⚠️ برای اینکه فیلم‌ها ارسال شوند، روی هاست این موارد لازم است: بالا بردن
+    <code>post_max_size</code> و <code>upload_max_filesize</code>، و قابل‌نوشت‌بودن پوشه‌ی
+    <code>uploads/</code>. راهنما: <code>docs/media-upload.md</code> — یا اجرای <code>php tools/media-selftest.php</code>.
+  </div>
+
+  <div class="foot">
+    صفحه‌ی نسخه‌ها: <a target="_blank" rel="noopener" href="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/tag/apk-latest">Releases / apk-latest</a><br>
+    این صفحه بخشی از اپ نیست؛ فقط راهنمای دانلود نسخه‌ی آزمایشی است.
+  </div>
+
+</div>
+</body>
+</html>

@@ -25,6 +25,9 @@ if ($report && !isset($report['image_path'])) {
     $report['image_path'] = null;
 }
 
+/* عکس‌ها و فیلم‌های واقعی ارسالی کاربر (جدول media) */
+$reportMedia = $report ? getReportMedia($pdo, (int) $report['id']) : [];
+
 // دریافت اطلاعات کاربر
 $userInfo = null;
 if ($report && !empty($report['user_phone'])) {
@@ -213,6 +216,51 @@ if ($report && !empty($report['user_phone'])) {
               <a href="<?= htmlspecialchars((string)$report['image_path']) ?>" target="_blank">
                 <img src="<?= htmlspecialchars((string)$report['image_path']) ?>" alt="تصویر گزارش" class="report-image">
               </a>
+            </div>
+          </div>
+          <?php endif; ?>
+
+          <?php if (!empty($reportMedia)): ?>
+          <div class="detail-item full-width">
+            <span class="detail-label">
+              <i class="fas fa-photo-video" style="color: var(--dark-400); margin-left: 6px;"></i>
+              عکس‌ها و فیلم‌های ارسالی کاربر (<?= number_format(count($reportMedia)) ?> مورد):
+            </span>
+            <div class="report-media-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:14px; margin-top:10px;">
+              <?php foreach ($reportMedia as $media): ?>
+                <?php $isVideo = ($media['kind'] ?? 'image') === 'video'; ?>
+                <div class="report-media-card" style="background:#0f172a0d; border:1px solid #e2e8f0; border-radius:14px; padding:10px; text-align:center;">
+                  <?php if (!$media['exists']): ?>
+                    <div style="font-size:13px; color:#b91c1c; padding:18px 6px;">
+                      <i class="fas fa-triangle-exclamation"></i> فایل روی سرور یافت نشد
+                    </div>
+                  <?php elseif ($isVideo): ?>
+                    <video controls preload="metadata" playsinline
+                           style="width:100%; height:140px; border-radius:10px; background:#000;"
+                           src="<?= htmlspecialchars($media['url']) ?>"></video>
+                  <?php else: ?>
+                    <a href="<?= htmlspecialchars($media['url']) ?>" target="_blank" rel="noopener">
+                      <img src="<?= htmlspecialchars($media['url']) ?>" alt="پیوست گزارش"
+                           loading="lazy" style="width:100%; height:140px; object-fit:cover; border-radius:10px; background:#0f172a14;">
+                    </a>
+                  <?php endif; ?>
+                  <div style="font-size:12px; color:#475569; margin-top:8px; direction:ltr; text-align:center; overflow-wrap:anywhere;">
+                    <?= $isVideo ? '🎬 فیلم' : '🖼️ عکس' ?> — <?= htmlspecialchars($media['size_text'] ?? '') ?>
+                  </div>
+                  <div style="display:flex; gap:6px; justify-content:center; margin-top:8px; flex-wrap:wrap;">
+                    <a class="btn btn-secondary" style="padding:6px 10px; font-size:12px;"
+                       href="<?= htmlspecialchars($media['url']) ?><?= strpos($media['url'], '?') === false ? '?' : '&' ?>download=1"
+                       target="_blank" rel="noopener" download>
+                      <i class="fas fa-download"></i> دانلود
+                    </a>
+                    <a class="btn btn-danger" style="padding:6px 10px; font-size:12px;"
+                       href="actions.php?type=media_delete&id=<?= (int)$media['id'] ?>&report_id=<?= (int)$report['id'] ?><?= eplakCsrfQuery() ?>"
+                       onclick="return confirm('این فایل برای همیشه حذف شود؟')">
+                      <i class="fas fa-trash"></i> حذف
+                    </a>
+                  </div>
+                </div>
+              <?php endforeach; ?>
             </div>
           </div>
           <?php endif; ?>

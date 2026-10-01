@@ -15,11 +15,18 @@
   const LS_CURRENT      = 'eplak_current_phone';
   const DEFAULT_NAME    = 'شهروند';
   const DEFAULT_AVATAR  = '👤';
-  // در گوشی واقعی باید IP کامپیوترِ دارای XAMPP استفاده شود؛ 127.0.0.1 به خود گوشی اشاره می‌کند.
-  // در صورت تغییر IP سیستم، فقط مقدار زیر را تغییر دهید.
-  const BACKEND_BASE_URL = window.EPLAK_API_BASE_URL ||
-    (window.location.protocol === 'file:' ? 'https://eplak.ir/eplak-fixed/api' : 'api');
-  window.EPLAK_API_BASE_URL = BACKEND_BASE_URL;
+  /* آدرس سرور از موتور مشترک EplakApi (core/media.js) خوانده می‌شود تا
+     در وب، اپ اندروید و حالت پروکسی یکسان باشد. اگر آدرس تنظیم نشده باشد
+     و صفحه از file:// باز شده باشد، '' برمی‌گردد و درخواست‌ها با پیام
+     راهنمای «تنظیم آدرس سرور» مدیریت می‌شوند. */
+  function backendBaseUrl() {
+    if (window.EplakApi && typeof window.EplakApi.base === 'function') {
+      return window.EplakApi.base();
+    }
+    return window.EPLAK_API_BASE_URL ||
+      (window.location.protocol === 'file:' ? '' : 'api');
+  }
+  window.EPLAK_API_BASE_URL = backendBaseUrl();
 
   /* ─── کمکی‌های خام localStorage ─────────────────────────────────── */
   function lsGet(key) {
@@ -45,7 +52,7 @@
   async function syncDataToBackend(endpoint, payload) {
     if (!payload || typeof payload !== 'object') return null;
     try {
-      const response = await fetch(BACKEND_BASE_URL + '/' + endpoint + '.php', {
+      const response = await fetch(backendBaseUrl() + '/' + endpoint + '.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -61,8 +68,8 @@
     }
   }
 
-  function syncUserProfileToBackend(phone = getCurrentPhone()) {
-    if (!phone) return;
+  function syncUserProfileToBackend(phone = getCurrentPhone(), options = {}) {
+    if (!phone) return Promise.resolve(null);
     const nameInput = document.getElementById('editNameInput');
     const addressInput = document.getElementById('editAddressInput');
     const nidInput = document.getElementById('editNidInput');
@@ -73,7 +80,11 @@
       address: (addressInput?.value || '').trim(),
       nid: (nidInput?.value || '').trim()
     };
-    syncDataToBackend('users', payload);
+    /* آدرس عکس پروفایل فقط اگر روی همین سرور باشد قابل ثبت است */
+    if (profile.avatar && /^https?:\/\//i.test(profile.avatar)) {
+      payload.avatar = profile.avatar;
+    }
+    return syncDataToBackend('users', payload);
   }
 
   /* ─── پروفایل (نام + عکس) ──────────────────────────────────────── */
@@ -119,16 +130,21 @@
   async function loadUserProfileFromBackend(phone) {
     if (!phone) return;
     try {
-      const response = await fetch(BACKEND_BASE_URL + '/users.php?phone=' + encodeURIComponent(phone));
+      const response = await fetch(backendBaseUrl() + '/users.php?phone=' + encodeURIComponent(phone));
       if (!response.ok) return;
       const data = await response.json();
       if (!data.success || !data.user) return;
-      updateProfileByPhone(phone, {
+      const patch = {
         name:    data.user.name || DEFAULT_NAME,
         address: data.user.address || '',
-        nid:     data.user.nid || '',
-        avatar:  data.user.avatar || DEFAULT_AVATAR
-      });
+        nid:     data.user.nid || ''
+      };
+      /* آدرس عکس از سرور فقط وقتی جایگزین می‌شود که واقعاً وجود داشته باشد؛
+         در غیر این‌صورت عکس آفلاینِ ذخیره‌شده روی گوشی حفظ می‌شود. */
+      if (data.user.avatar) {
+        patch.avatar = data.user.avatar;
+      }
+      updateProfileByPhone(phone, patch);
       if (typeof userProfile === 'object' && userProfile) {
         userProfile.name = data.user.name || DEFAULT_NAME;
       }
@@ -242,10 +258,14 @@
   const DEFAULT_AVATAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:55%;height:55%;color:rgba(255,255,255,0.9);margin:auto;"><circle cx="12" cy="8" r="4.5" fill="currentColor" fill-opacity="0.25"/><path d="M20 21a8 8 0 0 0-16 0" fill="currentColor" fill-opacity="0.15"/></svg>';
 
   /* ─── رندر UI پروفایل ───────────────────────────────────────────── */
+  function isRemoteAvatar(value) {
+    return !!value && /^https?:\/\//i.test(value);
+  }
+
   function renderAvatarInto(el, avatarValue) {
     if (!el) return;
-    if (avatarValue && avatarValue.startsWith('data:image')) {
-      el.innerHTML = '<img src="' + avatarValue + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;aspect-ratio:1/1;">';
+    if (avatarValue && (avatarValue.startsWith('data:image') || isRemoteAvatar(avatarValue))) {
+      el.innerHTML = '<img src="' + avatarValue + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;aspect-ratio:1/1;" onerror="this.style.display=&#39;none&#39;;">';
     } else if (avatarValue && avatarValue.indexOf('<svg') !== -1) {
       el.innerHTML = avatarValue;
     } else {
@@ -477,21 +497,72 @@
 
     upload.addEventListener('change', e => {
       const file = e.target.files[0];
-      upload.value = '';
+      /* پاک‌کردن مقدار ورودی «قبل» از پردازش تا انتخاب مجدد همان فایل هم
+         همیشه رویداد change بدهد (باگ قبلی: پس از خطا، دیگر فایلی انتخاب نمی‌شد) */
+      try { upload.value = ''; } catch (err) { /* بی‌اهمیت */ }
       if (!file) return;
+
       const phone = getCurrentPhone();
       if (!phone) { if (typeof showToast === 'function') showToast('برای تغییر عکس ابتدا وارد شوید'); return; }
-      const isImage = (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif|avif|tiff?)$/i.test(file.name || '');
+
+      const isImage = (file.type && file.type.startsWith('image/')) ||
+        /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif|avif|tiff?)$/i.test(file.name || '');
       if (!isImage) { if (typeof showToast === 'function') showToast('لطفاً یک فایل تصویری انتخاب کنید'); return; }
-      if (file.size > 8 * 1024 * 1024) { if (typeof showToast === 'function') showToast('حجم تصویر باید کمتر از ۸ مگابایت باشد'); return; }
-      const reader = new FileReader();
-      reader.onload = () => {
-        updateProfileByPhone(phone, { avatar: reader.result });
-        updateProfileUI();
-        if (typeof showToast === 'function') showToast('عکس پروفایل به‌روزرسانی شد');
+      if (file.size > 12 * 1024 * 1024) { if (typeof showToast === 'function') showToast('حجم تصویر باید کمتر از ۱۲ مگابایت باشد'); return; }
+
+      const engine = (typeof window.EplakMedia === 'object' && window.EplakMedia) ? window.EplakMedia : null;
+      const localPreview = (smallFile) => {
+        /* پیش‌نمایش محلی: فایل کوچک‌شده به dataURL تبدیل می‌شود تا سهم
+           حافظه‌ی مرورگر پر نشود (باگ قبلی: عکس ۸ مگابایتی در localStorage
+           ذخیره می‌شد و به‌خاطر سقف حجم، ذخیره‌سازی بی‌صدا شکست می‌خورد). */
+        return new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(smallFile);
+        });
       };
-      reader.onerror = () => { if (typeof showToast === 'function') showToast('خطا در خواندن فایل تصویر'); };
-      reader.readAsDataURL(file);
+
+      const applyLocal = (dataUrl) => {
+        if (!dataUrl) return;
+        updateProfileByPhone(phone, { avatar: dataUrl });
+        updateProfileUI();
+      };
+
+      if (!engine) {
+        localPreview(file).then(dataUrl => {
+          applyLocal(dataUrl);
+          if (typeof showToast === 'function') showToast('عکس پروفایل به‌روزرسانی شد');
+        });
+        return;
+      }
+
+      if (typeof showToast === 'function') showToast('⏳ در حال بارگذاری عکس پروفایل…');
+
+      engine.uploadAvatar(file, phone).then(uploaded => {
+        /* مسیر سروری بر مسیر محلی اولویت دارد تا روی همه‌ی دستگاه‌ها دیده شود */
+        const serverUrl = uploaded && (uploaded.url || uploaded.path);
+        if (serverUrl) {
+          updateProfileByPhone(phone, { avatar: engine.absoluteUrl(serverUrl) });
+          updateProfileUI();
+          if (typeof syncUserProfileToBackend === 'function') syncUserProfileToBackend(phone);
+          if (typeof showToast === 'function') showToast('✅ عکس پروفایل روی سرور ذخیره شد');
+          return;
+        }
+        throw new Error('no-url');
+      }).catch(err => {
+        /* آفلاین یا خطای سرور: عکس کوچک‌شده در حافظه‌ی گوشی می‌ماند */
+        const fallbackFile = (err && err.smallFile) || file;
+        localPreview(fallbackFile).then(dataUrl => {
+          applyLocal(dataUrl);
+          const offline = err && (err.status === 0 || /ارتباط|شبکه|timeout/i.test(err.message || ''));
+          if (typeof showToast === 'function') {
+            showToast(offline
+              ? '📶 اینترنت قطع است؛ عکس فعلاً روی گوشی ذخیره شد'
+              : '⚠️ ' + ((err && err.message) || 'بارگذاری عکس ممکن نشد'));
+          }
+        });
+      });
     });
     return upload;
   }
@@ -506,16 +577,20 @@
     const phone = getCurrentPhone();
     if (!phone) { if (typeof showToast === 'function') showToast('برای حذف عکس ابتدا وارد شوید'); return; }
     const profile = getProfileByPhone(phone);
-    if (!profile.avatar || !profile.avatar.startsWith('data:image')) return;
+    if (!profile.avatar || (!profile.avatar.startsWith('data:image') && !isRemoteAvatar(profile.avatar))) return;
     updateProfileByPhone(phone, { avatar: DEFAULT_AVATAR });
     updateProfileUI();
+    /* هم‌زمان روی سرور هم پاک می‌شود تا در دستگاه دیگر برنگردد */
+    if (typeof syncUserProfileToBackend === 'function') {
+      try { syncUserProfileToBackend(phone, { clearAvatar: true }); } catch (e) { /* بی‌اهمیت */ }
+    }
     if (typeof showToast === 'function') showToast('عکس پروفایل حذف شد');
   }
 
   function refreshAvatarActionButtons() {
     const phone = getCurrentPhone();
     const profile = getProfileByPhone(phone);
-    const hasPhoto = !!(profile.avatar && profile.avatar.startsWith('data:image'));
+    const hasPhoto = !!(profile.avatar && (profile.avatar.startsWith('data:image') || isRemoteAvatar(profile.avatar)));
     const removeBtn = document.getElementById('removeAvatarBtn');
     if (removeBtn) removeBtn.style.display = hasPhoto ? 'flex' : 'none';
   }
