@@ -104,10 +104,13 @@ jobs:
           python3 -m http.server 8099 --bind 127.0.0.1 --directory pwa-dist > /dev/null 2>&1 &
           sleep 2
           UDID="$(cat evidence/udid.txt)"
-          xcrun simctl openurl "$UDID" "http://127.0.0.1:8099/index.html"
-          sleep 35
-          xcrun simctl io "$UDID" screenshot evidence/4-pwa-in-safari.png
-          ls -l evidence/4-pwa-in-safari.png
+          xcrun simctl openurl "$UDID" "http://localhost:8099/index.html"
+          # Safari در شبیه‌ساز بار اول کند بالا می‌آید؛ دو عکس با فاصله می‌گیریم
+          sleep 45
+          xcrun simctl io "$UDID" screenshot evidence/4-pwa-in-safari-45s.png
+          sleep 45
+          xcrun simctl io "$UDID" screenshot evidence/4-pwa-in-safari-90s.png
+          ls -l evidence/4-pwa-in-safari-*.png
 
       - name: بارگذاری عکس‌ها و گزارش آزمون دودی
         if: always()
@@ -200,8 +203,8 @@ jobs:
             --clobber --repo "$GITHUB_REPOSITORY"
           echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: (موقت) ارسال عکس‌های آزمون دودی به یک برچسب گیت برای بازبینی دستیار
-        if: always()
+      - name: ارسال عکس‌ها و گزارش آزمون به یک برچسب گیت (فقط وقتی پیام کامیت «[evidence]» دارد)
+        if: ${{ always() && contains(github.event.head_commit.message, '[evidence]') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

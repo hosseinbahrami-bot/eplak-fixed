@@ -92,8 +92,8 @@ jobs:
             echo "- SHA-256: \`$(cut -d' ' -f1 eplak-pwa.zip.sha256)\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: (موقت) ارسال عکس‌های آزمون PWA به یک برچسب گیت برای بازبینی دستیار
-        if: always()
+      - name: ارسال عکس‌ها و گزارش آزمون به یک برچسب گیت (فقط وقتی پیام کامیت «[evidence]» دارد)
+        if: ${{ always() && contains(github.event.head_commit.message, '[evidence]') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

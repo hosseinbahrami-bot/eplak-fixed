@@ -122,6 +122,9 @@ an app that is already installed — the app needs a **rebuilt APK**:
 > Inside the app the API address is `https://eplak.ir/eplak-fixed/api`, so all data
 > (news, tips, reports, notifications) is read from the same live site.
 
+> 🍎 **iPhone and PWA:** like Android, the iOS app has the site files bundled inside (a new IPA is built on every change), but the
+> **PWA is the site itself** and updates as soon as you upload the host package. Install steps and differences: `docs/IOS_PWA_EN.md`.
+
 ---
 
 ## 6.1) Notifications — what arrives where

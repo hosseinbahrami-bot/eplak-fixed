@@ -1,4 +1,4 @@
-# اپلک — سایت، پنل ادمین و اپ اندروید
+# اپلک — سایت، پنل ادمین، اپ اندروید، اپ iOS و PWA
 
 > **این صفحه اولین جایی است که بعد از هر تغییر باید نگاه کنید:** همین‌جا لینک دانلود همه‌چیز هست.
 
@@ -7,6 +7,8 @@
 | فایل | توضیح | لینک دانلود |
 |---|---|---|
 | 📱 **اپ اندروید** | فایل نصب گوشی (`eplak-app.apk`) — نسخه‌ی آخر همیشه: [صفحه‌ی Releases](https://github.com/hosseinbahrami-bot/eplak-fixed/releases) | **[دانلود APK](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk)** |
+| 🍎 **اپ iOS (آیفون)** | فایل نصب بدون امضا (`eplak-app-unsigned.ipa`) — با Sideloadly / AltStore / Xcode و Apple ID خودتان نصب می‌شود؛ راهنما: `docs/IOS_PWA_FA.md` | **[دانلود `eplak-app-unsigned.ipa`](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app-unsigned.ipa)** |
+| 🌍 **PWA (آیفون و اندروید)** | خودِ سایت یک PWA است: آیفون ← Safari ← «افزودن به صفحه اصلی»؛ اندروید ← Chrome ← «نصب». نسخه‌ی ایستای مستقل برای میزبان‌های بدون PHP: | [دانلود `eplak-pwa.zip`](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-pwa.zip) |
 | 🌐 **بسته‌ی سایت و پنل** | برای آپلود روی `eplak.ir/eplak-fixed` | **[دانلود `eplak-fixed-update.zip`](https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip)** |
 | 🗂️ **همه‌ی نسخه‌ها** | صفحه‌ی Releases گیت‌هاب | [صفحه‌ی Releases](https://github.com/hosseinbahrami-bot/eplak-fixed/releases/tag/v2.0-eplak-update) |
 
@@ -33,6 +35,8 @@
 - `docs/DEPLOY_UPDATE_EN.md` — same guide in English.
 - `docs/CITY_MAP_FA.md` — 🗺️ **نقشه و اماکن شهری + مسیریابی با «نشان»**: دسته‌ها، **مدیریت اماکن از پنل ادمین** (افزودن/اصلاح/پنهان)، قالب لینک نشان، آزمون روی گوشی.
 - `docs/CITY_MAP_EN.md` — the same City Map & Neshan routing guide in English.
+- `docs/IOS_PWA_FA.md` — 🍎 **نسخه iOS و PWA**: نصب IPA (Sideloadly/AltStore/Xcode)، نصب PWA روی آیفون و اندروید، تفاوت اعلان‌ها، و آنچه امتحان شده/نشده.
+- `docs/IOS_PWA_EN.md` — the same iOS & PWA guide in English.
 - `docs/README.md` — معرفی ساختار پروژه.
 - `docs/technical-architecture.md` — معماری فنی.
 
@@ -44,6 +48,9 @@ bash tools/dev/run-regression.sh fcm      # فقط موتور فایربیس
 bash tools/dev/run-regression.sh syntax   # فقط بررسی نحوی PHP و JS
 bash tools/dev/run-regression.sh places   # نقشه و اماکن شهری + مسیریابی با نشان
 bash tools/dev/run-regression.sh placesadmin   # مدیریت اماکن از پنل ادمین (PHP واقعی)
+bash tools/dev/run-regression.sh security   # ابزار ناامن rescue-db.php حذف شده و برنمی‌گردد
+bash tools/dev/run-regression.sh ios        # پروژه‌ی iOS، بسته‌ی وب، پل GPS، ورک‌فلوها
+bash tools/dev/run-regression.sh pwa        # manifest، بسته‌ی PWA مستقل
 ```
 
 همین آزمون‌ها با هر تغییر روی گیت‌هاب هم اجرا می‌شوند:
@@ -53,3 +60,12 @@ bash tools/dev/run-regression.sh placesadmin   # مدیریت اماکن از پ
 
 با هر تغییر در فایل‌های اپ/سایت، گیت‌هاب خودش APK تازه می‌سازد و در Releases می‌گذارد:
 **Actions → Build Android APK**. کلید امضای اپ ثابت می‌ماند تا نسخه‌ی تازه روی نسخه‌ی نصب‌شده به‌روزرسانی شود.
+
+## 🍎 ساخت خودکار اپ iOS و PWA
+
+با هر تغییر در فایل‌های اپ/سایت، گیت‌هاب علاوه بر APK این‌ها را هم می‌سازد و به همان صفحه‌ی Releases می‌گذارد:
+
+- **Actions → Build iOS IPA** (روی macOS): اپ را روی شبیه‌ساز iPhone واقعاً اجرا و می‌سنجد (پینگ سرور، نقشه، «موقعیت من»، لینک نشان)،
+  سپس `eplak-app-unsigned.ipa` (بدون امضا) و `eplak-ios-project.zip` (پروژه‌ی Xcode) را می‌سازد.
+- **Actions → Build PWA package**: `eplak-pwa.zip` را می‌سازد و در Chrome واقعی، روی origin جدا و با سرور واقعی می‌سنجد
+  (CORS، سرویس‌ورکر، قابلیت نصب، نقشه).

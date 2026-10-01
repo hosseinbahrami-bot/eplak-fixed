@@ -99,6 +99,8 @@ sign and publish it with their enterprise/Ad-Hoc certificate. I have not tested 
   iPhone, give people the PWA (iOS 16.4+, added to the Home Screen).
 - **Internet:** like Android, the app does not work offline and shows the “no internet connection” curtain.
 - **Camera, gallery, location:** iOS asks the first time (the texts are in Persian). “My location” and “Route with Neshan” need the location permission.
+  The app reads the location itself through CoreLocation (the `GeoBridge`), so the iOS permission dialog appears only once. (Without this bridge WebKit showed a dialog
+  with “the path of index.html inside the app” on every request — seen in the simulator test and fixed.)
 - **Neshan:** “Route with Neshan” opens a `neshan://…` link; if the Neshan app is not installed, the Neshan web version opens in Safari a moment later.
 - **Updates:** the web files inside the IPA go in at build time just like the APK; every change rebuilds the IPA and `eplak-pwa.zip`
   (`.github/workflows/ios-ipa.yml` and `pwa.yml`). The server (PHP) always comes from the host and is updated by uploading the host package.
@@ -109,8 +111,8 @@ sign and publish it with their enterprise/Ad-Hoc certificate. I have not tested 
 
 **Tried (automatically, on GitHub):**
 - Building the iOS app with Xcode on macOS; building the unsigned IPA (arm64, minimum iOS 14); comparing the web files inside the IPA with the repository.
-- Running the app for real on an **iPhone simulator**: the page loads from `file://`, `api/ping.php` answers from inside the `WKWebView`, the city map opens,
-  “My location” and “Route with Neshan” hand the `neshan://…` link to the native shell, with screenshots (`ios-app/ci/simulator-smoke.sh`).
+- Running the app for real on an **iPhone simulator** (iPhone 17 Pro, iOS 26.2): the page loads from `file://`, `api/ping.php` answers from inside the `WKWebView`, the city map opens with tiles and markers,
+  the simulator's location reaches the page through CoreLocation and distances are computed, “Route with Neshan” hands `neshan://?origin=user location&destination=Mofatteh hospital` to the native shell, with screenshots (`ios-app/ci/simulator-smoke.sh`).
 - The PWA in **Chrome** on a separate origin against the real server: CORS, service worker, installability (`Page.getInstallabilityErrors` is empty), manifest, the map (`tools/pwa-smoke.mjs`).
 
 **Not yet tried on a real phone:** installing the IPA on an iPhone, camera/gallery, the Neshan app actually opening,

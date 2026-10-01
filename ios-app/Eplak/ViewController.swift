@@ -240,6 +240,13 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKSc
         activityIndicator.stopAnimating()
     }
 
+    /// iOS هنگام کمبود حافظه فرایند وب را در پس‌زمینه می‌کُشد (مثلاً وقتی برای مسیریابی به برنامه‌ی نشان می‌روید)؛
+    /// بدون این تابع، برگشتن به اپ صفحه‌ی سفید نشان می‌دهد. با بارگذاری دوباره (ورود کاربر در حافظه می‌ماند) درست می‌شود.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        activityIndicator.startAnimating()
+        loadWebContent()
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else {
             decisionHandler(.cancel)

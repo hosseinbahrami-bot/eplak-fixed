@@ -180,6 +180,7 @@ const need = {
   'لرزش لمسی (haptic)': /case "haptic":/,
   'باز کردن بیرونی (UIApplication.open)': /UIApplication\.shared\.open\(url/,
   'آزمون دودی فقط با آرگومان -eplakSelfTest': /arguments\.contains\("-eplakSelfTest"\)/,
+  'کشته شدن فرایند وب در پس‌زمینه ← بارگذاری دوباره (نه صفحه‌ی سفید)': /webViewWebContentProcessDidTerminate[\s\S]*loadWebContent\(\)/,
   'پل موقعیت: شیم جاوااسکریپت هنگام شروع صفحه تزریق می‌شود': /source: ViewController\.geolocationShim,\s*\n\s*injectionTime: \.atDocumentStart/,
   'پل موقعیت: پیام‌های geoGet و geoStatus مدیریت می‌شوند': /case "geoGet":[\s\S]*geo\.request\(id: id[\s\S]*case "geoStatus":[\s\S]*geo\.status\(id: id\)/,
   'پل موقعیت: CoreLocation (اجازه‌ی «هنگام استفاده»، requestLocation، تغییر اجازه، خطا)':
