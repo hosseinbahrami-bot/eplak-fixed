@@ -1,0 +1,200 @@
+# ============================================================================
+#  ساخت خودکار اپ iOS (فایل IPA بدون امضا) — در سرورهای مک گیت‌هاب؛ نیازی به مک و Xcode نیست
+#
+#  چرا این‌جا؟ مثل اپ اندروید، فایل‌های سایت (index.html و پوشه‌های core/ و modules/ …) هنگام
+#  ساخت داخل خودِ اپ بسته‌بندی می‌شوند؛ پس برای دیدن تغییرات در اپ باید IPA تازه ساخته شود.
+#
+#  چه می‌شود؟
+#   ۱) فایل‌های وب با ios-app/sync-web.sh داخل پروژه‌ی Xcode کپی می‌شوند
+#   ۲) اپ برای «شبیه‌ساز iPhone» ساخته و واقعاً اجرا می‌شود (ios-app/ci/simulator-smoke.sh):
+#      صفحه‌ی اپ، پینگ سرور، نقشه‌ی اماکن شهری، «موقعیت من» و لینک نشان سنجیده و از صفحه عکس گرفته می‌شود
+#   ۳) اپ برای دستگاه واقعی بدون امضا ساخته و در IPA بسته می‌شود؛ محتوایش با مخزن مقایسه می‌شود
+#   ۴) IPA، فایل SHA-256 و پروژه‌ی Xcode (zip) به همان صفحه‌ی Releases اپ اندروید پیوست می‌شوند
+#
+#  IPA «بدون امضا» است: مستقیم از Safari نصب نمی‌شود. با Sideloadly / AltStore / Xcode و
+#  Apple ID خودتان امضا و نصب کنید (docs/IOS_PWA_FA.md).
+# ============================================================================
+name: Build iOS IPA
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+    paths:
+      - 'ios-app/**'
+      - 'index.html'
+      - 'app.js'
+      - 'core/**'
+      - 'modules/**'
+      - 'views/**'
+      - 'assets/**'
+      - '.github/workflows/ios-ipa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: v2.0-eplak-update
+  APP_NAME: Eplak
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v5
+
+      - name: انتخاب Xcode و نمایش ابزارها
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode.app || true
+          xcodebuild -version
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          xcrun simctl list runtimes | head -20
+
+      - name: نسخه
+        run: |
+          set -euo pipefail
+          echo "VERSION_NAME=2.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "اپ iOS نسخه‌ی 2.0.${GITHUB_RUN_NUMBER}"
+
+      - name: کپی فایل‌های وب داخل پروژه‌ی iOS
+        run: bash ios-app/sync-web.sh
+
+      - name: ساخت برای شبیه‌ساز iPhone
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios-app/Eplak.xcodeproj \
+            -scheme Eplak \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/sim" \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="$VERSION_NAME" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            build
+          APP="$RUNNER_TEMP/sim/Build/Products/Debug-iphonesimulator/Eplak.app"
+          test -d "$APP"
+          echo "SIM_APP=$APP" >> "$GITHUB_ENV"
+
+      - name: آزمون دودی روی شبیه‌ساز (اجرای واقعی اپ)
+        run: bash ios-app/ci/simulator-smoke.sh "$SIM_APP" "$GITHUB_WORKSPACE/evidence"
+
+      - name: بارگذاری عکس‌ها و گزارش آزمون دودی
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-evidence
+          path: evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: ساخت اپ برای دستگاه واقعی (بدون امضا)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios-app/Eplak.xcodeproj \
+            -scheme Eplak \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            MARKETING_VERSION="$VERSION_NAME" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/out" \
+            build
+          test -d "$GITHUB_WORKSPACE/out/Eplak.app"
+
+      - name: بسته‌بندی IPA و پروژه‌ی Xcode
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          rm -rf Payload && mkdir Payload
+          cp -R out/Eplak.app Payload/Eplak.app
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload dist/eplak-app-unsigned.ipa
+          (cd dist && shasum -a 256 eplak-app-unsigned.ipa > eplak-app-unsigned.ipa.sha256)
+          # پروژه‌ی Xcode (برای کسی که مک دارد: باز کردن، انتخاب Team و Run) — همراه فایل‌های وب
+          zip -qr dist/eplak-ios-project.zip ios-app -x 'ios-app/build/*' '*.DS_Store'
+          ls -l dist
+
+      - name: بازرسی IPA (محتوا، معماری، نسخه، برابری با مخزن)
+        run: |
+          set -euo pipefail
+          IPA=dist/eplak-app-unsigned.ipa
+          rm -rf "$RUNNER_TEMP/ipa" && mkdir -p "$RUNNER_TEMP/ipa"
+          unzip -q "$IPA" -d "$RUNNER_TEMP/ipa"
+          APPDIR="$RUNNER_TEMP/ipa/Payload/Eplak.app"
+          BIN="$APPDIR/Eplak"
+          for f in Eplak Info.plist Web/index.html Web/app.js Web/core/storage.js Web/modules/city-map.js Web/core/places-data.js Assets.car; do
+            test -e "$APPDIR/$f" && echo "ok   $f" || { echo "گم شده: $f"; exit 1; }
+          done
+          echo "--- معماری و پلتفرم"
+          LIPO="$(lipo -info "$BIN")"; echo "$LIPO"
+          VT="$(vtool -show-build "$BIN")"; echo "$VT" | grep -E "platform|minos|sdk" || true
+          case "$LIPO" in *arm64*) ;; *) echo "معماری arm64 نیست"; exit 1 ;; esac
+          echo "$VT" | grep -E "platform" | grep -q -E "IOS$" || { echo "پلتفرم iOS (دستگاه واقعی) نیست"; exit 1; }
+          echo "--- مشخصات Info.plist"
+          for k in CFBundleIdentifier CFBundleShortVersionString CFBundleVersion MinimumOSVersion UIRequiredDeviceCapabilities; do
+            printf '%s = ' "$k"; /usr/libexec/PlistBuddy -c "Print :$k" "$APPDIR/Info.plist" | tr '\n' ' '; echo
+          done
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APPDIR/Info.plist")" = "ir.eplak.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APPDIR/Info.plist")" = "$VERSION_NAME"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocationWhenInUseUsageDescription' "$APPDIR/Info.plist" > /dev/null
+          echo "--- فایل‌های وب داخل IPA با مخزن یکی‌اند؟"
+          for item in index.html app.js core modules views assets; do
+            [ -e "$item" ] || continue
+            if [ -d "$item" ]; then diff -rq "$item" "$APPDIR/Web/$item"; else cmp "$item" "$APPDIR/Web/$item"; fi
+          done
+          echo "فایل‌های وب داخل IPA: $(find "$APPDIR/Web" -type f | wc -l | tr -d ' ')"
+          echo "✅ بازرسی IPA گذشت"
+          {
+            echo "## اپ iOS ($VERSION_NAME)"
+            echo ""
+            echo "- فایل: \`eplak-app-unsigned.ipa\` — $(stat -f%z "$IPA") بایت"
+            echo "- SHA-256: \`$(cut -d' ' -f1 dist/eplak-app-unsigned.ipa.sha256)\`"
+            echo "- کامیت: \`${GITHUB_SHA:0:7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: پیوست به Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            dist/eplak-app-unsigned.ipa \
+            dist/eplak-app-unsigned.ipa.sha256 \
+            dist/eplak-ios-project.zip \
+            --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: (موقت) ارسال عکس‌های آزمون دودی به یک برچسب گیت برای بازبینی دستیار
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          [ -d evidence ] || exit 0
+          D="$RUNNER_TEMP/evidence-repo"; rm -rf "$D"; mkdir -p "$D"; cp -R evidence/. "$D"/
+          cd "$D" || exit 0
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "ios smoke evidence (run ${GITHUB_RUN_NUMBER})"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/ios-evidence-${GITHUB_RUN_NUMBER}"
+          exit 0

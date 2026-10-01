@@ -19,7 +19,7 @@ rm -f "$OUT"
 
 zip -q -r "$OUT" . \
   -x ".git/*" ".github/*" ".arena/*" "node_modules/*" \
-     "android-app/*" "backend/*" "views/*" "tools/*" \
+     "android-app/*" "ios-app/*" "backend/*" "views/*" "tools/*" \
      "data/*" "uploads/*" "test-fixtures/*" \
      "*.zip" ".gitignore" ".gitattributes" ".vscode/*" \
      "INSTALL_GUIDE_FA.md" "*/README.md" "docs/README.md" "docs/technical-architecture.md"
