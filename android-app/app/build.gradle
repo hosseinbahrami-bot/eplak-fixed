@@ -7,7 +7,7 @@ plugins {
 android {
     namespace 'com.example.eplakfixed'
     compileSdk 36
-    buildToolsVersion"36.0.0"
+    buildToolsVersion "36.0.0"
 
     defaultConfig {
         applicationId 'com.example.eplakfixed'
@@ -50,6 +50,7 @@ tasks.register('syncWebAssets', Sync) {
         include 'modules/**'
         include 'views/**'
         include 'assets/**'
+        include 'uploads/**'
     }
     into(webAssetsDir)
 }
@@ -63,6 +64,10 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.2'
+
+    // وب‌ویو مدرن: WebViewAssetLoader برای سرو صفحه روی مبدأ امن https
+    // (بدون آن، دوربین داخل اپ یعنی getUserMedia کار نمی‌کند)
+    implementation 'androidx.webkit:webkit:1.11.0'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2'
 
     // Room

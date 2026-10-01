@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^30.1.1",
+    "php-wasm": "^0.2.0",
+    "php-wasm-sqlite": "^0.2.0"
+  }
+}

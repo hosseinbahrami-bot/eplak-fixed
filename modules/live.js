@@ -10,6 +10,9 @@
   var isSyncing = false;
 
   function apiBase() {
+    if (window.EplakApi && typeof window.EplakApi.base === 'function') {
+      return window.EplakApi.base();
+    }
     return (typeof window.EPLAK_API_BASE_URL === 'string' && window.EPLAK_API_BASE_URL)
       ? window.EPLAK_API_BASE_URL.replace(/\/$/, '')
       : 'api';

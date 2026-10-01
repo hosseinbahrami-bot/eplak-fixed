@@ -1,2 +1,10 @@
 shared/config.php
 data/
+
+# فایل‌های آپلودی کاربران (عکس/فیلم) — در گیت نگه داشته نمی‌شوند
+uploads/
+tools/.media-e2e/node_modules/
+tools/.media-e2e/package-lock.json
+
+# dev server state (tools/dev-server.mjs)
+.devdata/

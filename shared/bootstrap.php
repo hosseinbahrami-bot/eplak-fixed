@@ -255,6 +255,98 @@ function eplakRegisterSqliteFunctions(PDO $pdo): void {
     }, 2);
 }
 
+/* جدول «رسانه» (عکس/فیلم کاربران) — مشترک بین SQLite و MySQL.
+   این جدول پایه‌ی ذخیره‌سازی عکس و فیلم گزارش‌های مردمی است؛ اگر نباشد
+   آپلود کاربران جایی برای ثبت و بازیابی ندارد. ساخت آن idempotent است و
+   روی دیتابیس‌های موجود هم بی‌خطر اجرا می‌شود. */
+function eplakEnsureMediaTable(PDO $pdo): void {
+    $isSqlite = eplakIsSqlite($pdo);
+
+    if ($isSqlite) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone VARCHAR(20) NOT NULL DEFAULT '',
+            report_id INTEGER NULL,
+            kind VARCHAR(10) NOT NULL DEFAULT 'image',
+            mime VARCHAR(100) NOT NULL DEFAULT '',
+            original_name VARCHAR(255) NOT NULL DEFAULT '',
+            stored_name VARCHAR(120) NOT NULL DEFAULT '',
+            rel_path VARCHAR(500) NOT NULL DEFAULT '',
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            width INTEGER NULL,
+            height INTEGER NULL,
+            duration_ms INTEGER NULL,
+            sha256 VARCHAR(64) NULL,
+            source VARCHAR(20) NOT NULL DEFAULT 'upload',
+            token VARCHAR(64) NOT NULL DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_phone)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_media_report ON media(report_id)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_media_token ON media(token)');
+    } else {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS media (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_phone VARCHAR(20) NOT NULL DEFAULT '',
+            report_id INT NULL,
+            kind VARCHAR(10) NOT NULL DEFAULT 'image',
+            mime VARCHAR(100) NOT NULL DEFAULT '',
+            original_name VARCHAR(255) NOT NULL DEFAULT '',
+            stored_name VARCHAR(120) NOT NULL DEFAULT '',
+            rel_path VARCHAR(500) NOT NULL DEFAULT '',
+            size_bytes BIGINT NOT NULL DEFAULT 0,
+            width INT NULL,
+            height INT NULL,
+            duration_ms INT NULL,
+            sha256 CHAR(64) NULL,
+            source VARCHAR(20) NOT NULL DEFAULT 'upload',
+            token VARCHAR(64) NOT NULL DEFAULT '',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_media_user (user_phone),
+            KEY idx_media_report (report_id),
+            KEY idx_media_token (token)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_persian_ci");
+
+        /* ارتقاء نصب‌های قدیمی‌تر که جدول media را با ستون‌های کمتر دارند */
+        $mediaColumns = [
+            'token'    => "VARCHAR(64) NOT NULL DEFAULT ''",
+            'source'   => "VARCHAR(20) NOT NULL DEFAULT 'upload'",
+            'sha256'   => 'CHAR(64) NULL',
+            'width'    => 'INT NULL',
+            'height'   => 'INT NULL',
+            'duration_ms' => 'INT NULL',
+        ];
+        foreach ($mediaColumns as $column => $definition) {
+            $col = $pdo->query("SHOW COLUMNS FROM media LIKE " . $pdo->quote($column))->fetch();
+            if (!$col) {
+                $pdo->exec("ALTER TABLE media ADD COLUMN `$column` $definition");
+            }
+        }
+    }
+}
+
+/* ستون عکس پروفایل برای کاربران (نصب‌های قدیمی این ستون را ندارند) */
+function eplakEnsureUsersAvatarColumn(PDO $pdo): void {
+    if (eplakIsSqlite($pdo)) {
+        $has = false;
+        foreach ($pdo->query('PRAGMA table_info(users)')->fetchAll() as $col) {
+            if (isset($col['name']) && strtolower((string) $col['name']) === 'avatar') {
+                $has = true;
+                break;
+            }
+        }
+        if (!$has) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''");
+        }
+        return;
+    }
+
+    $col = $pdo->query("SHOW COLUMNS FROM users LIKE 'avatar'")->fetch();
+    if (!$col) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''");
+    }
+}
+
 /* اسکیمای کامل SQLite — معادل اسکیمای نهایی MySQL (شامل ستون‌های ارتقاء‌یافته) */
 function eplakSqliteBootstrap(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
@@ -284,6 +376,7 @@ function eplakSqliteBootstrap(PDO $pdo): void {
         name VARCHAR(255) NOT NULL DEFAULT '',
         address VARCHAR(500) DEFAULT '',
         nid VARCHAR(20) DEFAULT '',
+        avatar VARCHAR(500) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
@@ -354,13 +447,23 @@ function eplakSqliteBootstrap(PDO $pdo): void {
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_department_name_parent ON departments(name, parent_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_department_parent ON departments(parent_id)');
 
+    eplakEnsureMediaTable($pdo);
+    eplakEnsureUsersAvatarColumn($pdo);
+
     eplakSeedDefaultDepartments($pdo);
     eplakSeedDefaultAdmin($pdo);
 }
 
 /* کوئری upsert جدول users — سازگار با هر دو درایور */
-function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
-    $base = 'INSERT INTO users (phone, name, address, nid) VALUES (:phone, :name, :address, :nid) ';
+function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false, bool $withAvatar = false): string {
+    $columns = 'phone, name, address, nid' . ($withAvatar ? ', avatar' : '');
+    $values  = ':phone, :name, :address, :nid' . ($withAvatar ? ', :avatar' : '');
+    $base = 'INSERT INTO users (' . $columns . ') VALUES (' . $values . ') ';
+    $avatarUpdate = $withAvatar ? ',
+            avatar = IF(VALUES(avatar) != "", VALUES(avatar), avatar)' : '';
+    $avatarUpdateSqlite = $withAvatar ? ',
+            avatar = CASE WHEN excluded.avatar <> "" THEN excluded.avatar ELSE avatar END' : '';
+
     if (eplakIsSqlite($pdo)) {
         $nameExpr = $keepDefaultName
             ? 'CASE WHEN (excluded.name <> "" AND excluded.name <> "شهروند") THEN excluded.name WHEN name <> "" THEN name ELSE excluded.name END'
@@ -368,7 +471,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
         return $base . 'ON CONFLICT(phone) DO UPDATE SET
             name = ' . $nameExpr . ',
             address = CASE WHEN excluded.address <> "" THEN excluded.address ELSE address END,
-            nid = CASE WHEN excluded.nid <> "" THEN excluded.nid ELSE nid END';
+            nid = CASE WHEN excluded.nid <> "" THEN excluded.nid ELSE nid END' . $avatarUpdateSqlite;
     }
     $nameExpr = $keepDefaultName
         ? 'IF(VALUES(name) != "" AND VALUES(name) != "شهروند", VALUES(name), IF(name != "", name, VALUES(name)))'
@@ -376,7 +479,7 @@ function eplakUsersUpsertSql(PDO $pdo, bool $keepDefaultName = false): string {
     return $base . 'ON DUPLICATE KEY UPDATE
             name = ' . $nameExpr . ',
             address = IF(VALUES(address) != "", VALUES(address), address),
-            nid = IF(VALUES(nid) != "", VALUES(nid), nid)';
+            nid = IF(VALUES(nid) != "", VALUES(nid), nid)' . $avatarUpdate;
 }
 
 function eplakGetPdo(): PDO {
@@ -480,6 +583,7 @@ function eplakGetPdo(): PDO {
         name VARCHAR(255) NOT NULL DEFAULT '',
         address VARCHAR(500) DEFAULT '',
         nid VARCHAR(20) DEFAULT '',
+        avatar VARCHAR(500) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
@@ -592,6 +696,10 @@ function eplakGetPdo(): PDO {
             $pdo->exec("ALTER TABLE departments ADD COLUMN `$column` $definition");
         }
     }
+
+    /* رسانه‌های کاربران (عکس/فیلم گزارش‌ها) و عکس پروفایل */
+    eplakEnsureMediaTable($pdo);
+    eplakEnsureUsersAvatarColumn($pdo);
 
     eplakSeedDefaultDepartments($pdo);
     eplakSeedDefaultAdmin($pdo);

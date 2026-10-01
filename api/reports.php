@@ -10,6 +10,7 @@
    فهرست‌کردن یا حذف گزارش‌های سایر کاربران وجود ندارد.
 */
 require_once __DIR__ . '/_common.php';
+require_once __DIR__ . '/../shared/media.php';
 
 eplakApiHeaders();
 
@@ -25,7 +26,32 @@ if ($method === 'GET') {
         $stmt = $pdo->prepare('SELECT id, user_phone, title, description, category, department, sub_department, location, status, reply, created_at
                                FROM reports WHERE user_phone = :phone ORDER BY created_at DESC, id DESC LIMIT 200');
         $stmt->execute([':phone' => $phone]);
-        eplakJson(['success' => true, 'reports' => $stmt->fetchAll()]);
+        $rows = $stmt->fetchAll() ?: [];
+
+        /* رسانه‌های هر گزارش با یک کوئری گروهی (به‌جای N کوئری) */
+        $mediaByReport = [];
+        $ids = [];
+        foreach ($rows as $row) {
+            $ids[] = (int) $row['id'];
+        }
+        if ($ids) {
+            try {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $stmtMedia = $pdo->prepare('SELECT * FROM media WHERE report_id IN (' . $placeholders . ') ORDER BY id ASC');
+                $stmtMedia->execute($ids);
+                foreach ($stmtMedia->fetchAll() ?: [] as $mediaRow) {
+                    $mediaByReport[(int) $mediaRow['report_id']][] = eplakMediaRowToPublic($mediaRow);
+                }
+            } catch (Throwable $e) {
+                /* نبود جدول media نباید کل فهرست گزارش‌ها را از کار بیندازد */
+                error_log('[eplak-api:reports.media] ' . $e->getMessage());
+            }
+        }
+        foreach ($rows as $index => $row) {
+            $rows[$index]['media'] = isset($mediaByReport[(int) $row['id']]) ? $mediaByReport[(int) $row['id']] : [];
+        }
+
+        eplakJson(['success' => true, 'reports' => $rows]);
     } catch (Throwable $e) {
         eplakServerError($e, 'reports.get');
     }
@@ -60,6 +86,14 @@ if ($isDelete) {
             // یا وجود ندارد، یا متعلق به این کاربر نیست — هر دو 404 (بدون افشای وجود رکورد)
             eplakJson(['success' => false, 'error' => 'گزارش یافت نشد', 'deleted_id' => $id], 404);
         }
+
+        /* عکس/فیلم‌های پیوستِ همان گزارش هم از سرور و دیسک پاک می‌شوند */
+        try {
+            eplakMediaDeleteForReport($pdo, $id);
+        } catch (Throwable $e) {
+            error_log('[eplak-api:reports.delete-media] ' . $e->getMessage());
+        }
+
         eplakJson(['success' => true, 'deleted_id' => $id]);
     } catch (Throwable $e) {
         eplakServerError($e, 'reports.delete');
@@ -121,11 +155,47 @@ try {
     ]);
     $insertId = (int) $pdo->lastInsertId();
 
+    /* پیوست عکس/فیلم‌های آپلودشده به همین گزارش.
+       اپ اول فایل‌ها را آپلود می‌کند (چون تا ساخته‌نشدن گزارش شناسه‌ای
+       وجود ندارد) و سپس شناسه‌ها را در media_ids می‌فرستد. اگر شناسه‌ای
+       نیامد، رسانه‌های بی‌گزارشِ همین کاربر به گزارش جدید وصل می‌شوند
+       تا فایل‌های آپلودشده‌ی آفلاین گم نشوند. */
+    $attachedMedia = [];
+    try {
+        $mediaIds = [];
+        if (isset($input['media_ids']) && is_array($input['media_ids'])) {
+            $mediaIds = $input['media_ids'];
+        } elseif (isset($input['mediaIds']) && is_array($input['mediaIds'])) {
+            $mediaIds = $input['mediaIds'];
+        }
+
+        eplakMediaAttachToReport($pdo, $mediaIds, $insertId, $phone);
+
+        if (!$mediaIds) {
+            $pending = $pdo->prepare('SELECT id FROM media WHERE user_phone = :phone AND report_id IS NULL ORDER BY id ASC LIMIT 20');
+            $pending->execute([':phone' => $phone]);
+            $pendingIds = [];
+            foreach ($pending->fetchAll() ?: [] as $pendingRow) {
+                $pendingIds[] = (int) $pendingRow['id'];
+            }
+            if ($pendingIds) {
+                eplakMediaAttachToReport($pdo, $pendingIds, $insertId, $phone);
+            }
+        }
+
+        foreach (eplakMediaRowsForReport($pdo, $insertId) as $mediaRow) {
+            $attachedMedia[] = eplakMediaRowToPublic($mediaRow);
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-api:reports.attach-media] ' . $e->getMessage());
+    }
+
     $pdo->commit();
     eplakJson([
         'success'       => true,
         'id'            => $insertId,
         'tracking_code' => 'EP-1403-' . str_pad((string) $insertId, 4, '0', STR_PAD_LEFT),
+        'media'         => $attachedMedia,
     ]);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) {

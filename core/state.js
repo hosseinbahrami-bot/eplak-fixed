@@ -204,7 +204,7 @@
   let favoriteIds = [];
 
   // Multi-step report form draft
-  let reportDraft = { type: 'سایر', department: '', subDepartment: '', desc: '', location: '', photos: [] };
+  let reportDraft = { type: 'سایر', department: '', subDepartment: '', desc: '', location: '', photos: [], media: [] };
   let activeReportId = null; // for detail screen
   let pendingPaymentId = null;
 

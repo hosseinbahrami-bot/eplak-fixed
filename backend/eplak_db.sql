@@ -210,6 +210,38 @@ CREATE TABLE `payments`  (
 -- ----------------------------
 
 -- ----------------------------
+-- Table structure for media
+-- (افزوده شد: نگهداری عکس و فیلم گزارش‌های کاربران — آپلود از اپ/سایت)
+-- ----------------------------
+DROP TABLE IF EXISTS `media`;
+CREATE TABLE `media`  (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_phone` varchar(20) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL,
+  `report_id` int NULL DEFAULT NULL,
+  `kind` varchar(10) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT 'image',
+  `mime` varchar(100) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT '',
+  `original_name` varchar(255) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT '',
+  `stored_name` varchar(120) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT '',
+  `rel_path` varchar(500) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT '',
+  `size_bytes` bigint NOT NULL DEFAULT 0,
+  `width` int NULL DEFAULT NULL,
+  `height` int NULL DEFAULT NULL,
+  `duration_ms` int NULL DEFAULT NULL,
+  `sha256` char(64) CHARACTER SET utf8 COLLATE utf8_persian_ci NULL DEFAULT NULL,
+  `source` varchar(20) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT 'upload',
+  `token` varchar(64) CHARACTER SET utf8 COLLATE utf8_persian_ci NOT NULL DEFAULT '',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_media_user`(`user_phone` ASC) USING BTREE,
+  INDEX `idx_media_report`(`report_id` ASC) USING BTREE,
+  INDEX `idx_media_token`(`token` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8 COLLATE = utf8_persian_ci ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Records of media
+-- ----------------------------
+
+-- ----------------------------
 -- Table structure for reports
 -- ----------------------------
 DROP TABLE IF EXISTS `reports`;
@@ -277,6 +309,7 @@ CREATE TABLE `users`  (
   `address` varchar(500) CHARACTER SET utf8 COLLATE utf8_persian_ci NULL DEFAULT NULL,
   `nid` varchar(20) CHARACTER SET utf8 COLLATE utf8_persian_ci NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `avatar` varchar(500) CHARACTER SET utf8 COLLATE utf8_persian_ci NULL DEFAULT '',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `phone`(`phone` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 20 CHARACTER SET = utf8 COLLATE = utf8_persian_ci ROW_FORMAT = Dynamic;
@@ -284,11 +317,11 @@ CREATE TABLE `users`  (
 -- ----------------------------
 -- Records of users
 -- ----------------------------
-INSERT INTO `users` VALUES (1, '09306060331', 'شهروند', 'ورامین میدان رازی', '0421088273', '2026-08-10 20:39:25');
-INSERT INTO `users` VALUES (2, '09104927131', 'مرتضی بهنامی', 'ورامین', '0421088273', '2026-08-10 20:40:08');
-INSERT INTO `users` VALUES (7, '09359307540', 'مرتضی بهنامی', 'ادرس میدان امام خامنه ای', '0421088273', '2026-08-10 20:56:35');
-INSERT INTO `users` VALUES (10, '09123947714', 'محمود بهنامی', 'تهران میدان ارژانتین', '04210101010', '2026-08-10 21:13:45');
-INSERT INTO `users` VALUES (19, '09123456789', 'Test User', 'ورامین', '1234567890', '2026-08-19 02:13:29');
+INSERT INTO `users` VALUES (1, '09306060331', 'شهروند', 'ورامین میدان رازی', '0421088273', '2026-08-10 20:39:25', '');
+INSERT INTO `users` VALUES (2, '09104927131', 'مرتضی بهنامی', 'ورامین', '0421088273', '2026-08-10 20:40:08', '');
+INSERT INTO `users` VALUES (7, '09359307540', 'مرتضی بهنامی', 'ادرس میدان امام خامنه ای', '0421088273', '2026-08-10 20:56:35', '');
+INSERT INTO `users` VALUES (10, '09123947714', 'محمود بهنامی', 'تهران میدان ارژانتین', '04210101010', '2026-08-10 21:13:45', '');
+INSERT INTO `users` VALUES (19, '09123456789', 'Test User', 'ورامین', '1234567890', '2026-08-19 02:13:29', '');
 
 -- ----------------------------
 -- Table structure for news

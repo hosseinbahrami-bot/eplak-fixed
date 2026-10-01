@@ -6,4 +6,10 @@
     <string name="address_hint">آدرس</string>
     <string name="save_success">اطلاعات با موفقیت ارسال شد</string>
     <string name="save_error">خطا در ارسال اطلاعات</string>
+    <string name="pick_file">انتخاب فایل</string>
+
+    <!-- آدرس سرور (پوشه‌ی api) برای بارگذاری عکس و فیلم.
+         مثال: https://eplak.ir/eplak-fixed/api  یا  http://192.168.1.50/eplak-fixed/api
+         اگر خالی بماند، اپ هنگام بارگذاری عکس/فیلم آدرس را از کاربر می‌پرسد. -->
+    <string name="api_base_url" translatable="false"></string>
 </resources>

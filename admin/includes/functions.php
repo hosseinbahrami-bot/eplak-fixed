@@ -1,4 +1,7 @@
 <?php
+/* ابزارهای مشترک رسانه (عکس/فیلم گزارش‌ها) — برای نمایش در پنل مدیریت */
+require_once dirname(__DIR__, 2) . '/shared/media.php';
+
 function getDashboardStats(PDO $pdo): array {
     $reportsCount = $pdo->query('SELECT COUNT(*) as count FROM reports')->fetch();
     $usersCount = $pdo->query('SELECT COUNT(*) as count FROM users')->fetch();
@@ -517,9 +520,63 @@ function saveTicketDetails(PDO $pdo, int $id, string $title, string $description
 }
 
 function deleteReport(PDO $pdo, int $id): void {
+    /* ابتدا عکس/فیلم‌های پیوست (هم رکورد، هم فایل روی دیسک) پاک می‌شوند */
+    try {
+        eplakMediaDeleteForReport($pdo, $id);
+    } catch (Throwable $e) {
+        error_log('[eplak-admin:delete-media] ' . $e->getMessage());
+    }
+
     $stmt = $pdo->prepare('DELETE FROM reports WHERE id = :id');
     $stmt->bindValue(':id', $id, PDO::PARAM_INT);
     $stmt->execute();
+}
+
+/* رسانه‌های یک گزارش برای نمایش در پنل مدیریت */
+function getReportMedia(PDO $pdo, int $reportId): array {
+    if ($reportId <= 0) {
+        return [];
+    }
+    try {
+        $rows = eplakMediaRowsForReport($pdo, $reportId);
+        $out = [];
+        foreach ($rows as $row) {
+            $item = eplakMediaRowToPublic($row);
+            $abs  = eplakMediaAbsolutePath($row);
+            $item['exists']    = ($abs !== '' && is_file($abs));
+            $item['size_text'] = formatBytesFa((int) ($row['size_bytes'] ?? 0));
+            $out[] = $item;
+        }
+        return $out;
+    } catch (Throwable $e) {
+        error_log('[eplak-admin:report-media] ' . $e->getMessage());
+        return [];
+    }
+}
+
+/** نمایش حجم فایل به‌صورت خوانا */
+function formatBytesFa(int $bytes): string {
+    if ($bytes <= 0) {
+        return '—';
+    }
+    $units = ['بایت', 'کیلوبایت', 'مگابایت', 'گیگابایت'];
+    $i = 0;
+    $value = (float) $bytes;
+    while ($value >= 1024 && $i < count($units) - 1) {
+        $value /= 1024;
+        $i++;
+    }
+    $digits = $i === 0 ? 0 : 1;
+    return number_format($value, $digits) . ' ' . $units[$i];
+}
+
+/** تعداد رسانه‌های گزارش (برای لیست‌ها) */
+function countReportMedia(PDO $pdo, int $reportId): int {
+    try {
+        return eplakMediaCountForReport($pdo, $reportId);
+    } catch (Throwable $e) {
+        return 0;
+    }
 }
 
 function deleteUser(PDO $pdo, int $id): void {

@@ -13,6 +13,7 @@
   <title>ثبت گزارش - ای‌پلاک</title>
 
   <!-- Google Maps API -->
+  <script src="../core/media.js?v=1"></script>
   <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initMap" async defer></script>
 
   <style>
@@ -978,12 +979,17 @@
         <div class="step"><div class="step-num">4</div><span class="step-label">تایید</span></div>
       </div>
 
-      <label for="reportPhotoInput" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:130px; border:2px dashed var(--card-border); border-radius:var(--radius-md); background:var(--card-bg); cursor:pointer; transition:0.3s;">
-        <span style="font-size:30px;">📷</span>
-        <span style="font-size:13px; font-weight:700; color:var(--text-muted);">برای افزودن تصویر ضربه بزنید</span>
-        <span style="font-size:11px; color:var(--text-muted);">حداکثر ۳ تصویر</span>
-      </label>
-      <input type="file" id="reportPhotoInput" accept="image/*" multiple style="display:none;" onchange="addReportPhotos(this)">
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn-teal" style="flex:1; padding:12px 8px; font-size:13px;" onclick="openReportCamera('photo')">📷 گرفتن عکس</button>
+        <button type="button" class="btn-teal" style="flex:1; padding:12px 8px; font-size:13px;" onclick="openReportCamera('video')">🎥 ضبط فیلم</button>
+      </div>
+      <button type="button" onclick="openReportGallery()" style="width:100%; margin-top:10px; height:52px; border:2px dashed var(--card-border); border-radius:16px; background:var(--card-bg); color:var(--text-muted); font-size:13px; font-weight:700; cursor:pointer;">
+        🖼️ انتخاب از گالری گوشی
+      </button>
+      <div id="reportMediaCounter" style="font-size:11.5px; color:var(--text-muted); text-align:center; margin-top:8px;">حداکثر ۶ عکس یا فیلم</div>
+      <input type="file" id="reportPhotoInput" accept="image/*,video/*" multiple style="display:none;" onchange="addReportPhotos(this)">
+      <input type="file" id="reportVideoInput" accept="video/*" capture="camcorder" style="display:none;" onchange="addReportPhotos(this)">
+      <input type="file" id="reportCameraInput" accept="image/*" capture="environment" style="display:none;" onchange="addReportPhotos(this)">
 
       <div class="photo-preview" id="reportPhotosPreview"></div>
 
@@ -1303,40 +1309,79 @@
       showScreen('screen-report-success');
     }
 
-    // ===== آپلود تصاویر =====
-    function addReportPhotos(input) {
-      const files = input.files;
-      const preview = document.getElementById('reportPhotosPreview');
-
-      for (let i = 0; i < Math.min(files.length, 3); i++) {
-        if (uploadedPhotos.length >= 3) {
-          showToast('⚠️ حداکثر ۳ تصویر مجاز است');
-          break;
-        }
-        const file = files[i];
-        uploadedPhotos.push(file);
-
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          const div = document.createElement('div');
-          div.className = 'photo-thumb';
-          div.innerHTML = `
-            <img src="${e.target.result}" alt="تصویر">
-            <button class="remove-photo" onclick="removePhoto(this, '${file.name}')">✕</button>
-          `;
-          preview.appendChild(div);
-        };
-        reader.readAsDataURL(file);
+    // ===== دوربین/گالری (در این صفحه‌ی مستقل، فقط انتخاب فایل) =====
+    function openReportCamera(mode) {
+      if (window.EplakMedia && typeof window.EplakMedia.openCamera === 'function') {
+        window.EplakMedia.openCamera(mode === 'video' ? 'video' : 'photo').then(file => {
+          if (file) addReportPhotos([file]);
+        }).catch(() => {});
+        return;
       }
-      input.value = '';
+      const input = document.getElementById(mode === 'video' ? 'reportVideoInput' : 'reportCameraInput');
+      if (input) input.click();
     }
 
-    function removePhoto(el, fileName) {
-      uploadedPhotos = uploadedPhotos.filter(f => f.name !== fileName);
-      el.closest('.photo-thumb').remove();
-      if (uploadedPhotos.length === 0) {
-        document.getElementById('reportPhotosPreview').innerHTML = '';
+    function openReportGallery() {
+      const input = document.getElementById('reportPhotoInput');
+      if (input) input.click();
+    }
+
+    // ===== افزودن عکس/فیلم (نسخه‌ی اصلاح‌شده) =====
+    // اگر موتور مشترک EplakMedia (core/media.js) بارگذاری شده باشد، همان
+    // مسیر واقعی اپ استفاده می‌شود: فشرده‌سازی، پیش‌نمایش و آپلود سروری.
+    function addReportPhotos(input) {
+      const files = input && input.files ? input.files : input;
+      if (input && input.value !== undefined) {
+        try { input.value = ''; } catch (e) {}
       }
+      if (!files || !files.length) return;
+
+      if (window.EplakMedia && typeof window.addReportMediaFiles === 'function') {
+        window.addReportMediaFiles(files, 'gallery');
+        return;
+      }
+
+      const preview = document.getElementById('reportPhotosPreview');
+      const list = Array.from(files);
+      const limit = 6;
+      list.slice(0, Math.max(0, limit - uploadedPhotos.length)).forEach(file => {
+        const index = uploadedPhotos.length;
+        uploadedPhotos.push(file);
+        const url = URL.createObjectURL(file);
+        const isVideo = /^video\//i.test(file.type || '');
+        const div = document.createElement('div');
+        div.className = 'photo-thumb';
+        div.innerHTML = isVideo
+          ? `<video src="${url}" muted playsinline preload="metadata"></video>
+             <button class="remove-photo" onclick="removePhoto(event, ${index})">✕</button>`
+          : `<img src="${url}" alt="تصویر">
+             <button class="remove-photo" onclick="removePhoto(event, ${index})">✕</button>`;
+        preview.appendChild(div);
+      });
+      if (list.length + uploadedPhotos.length > limit) {
+        showToast('⚠️ حداکثر ' + limit + ' فایل مجاز است');
+      }
+    }
+
+    // حذف بر اساس «اندیس» (نسخه‌ی قبلی بر اساس نام فایل حذف می‌کرد و
+    // اگر دو فایل همنام بودند هر دو پاک می‌شدند / خطای removePhoto می‌داد)
+    function removePhoto(event, index) {
+      if (event && event.stopPropagation) event.stopPropagation();
+      uploadedPhotos.splice(index, 1);
+      const preview = document.getElementById('reportPhotosPreview');
+      preview.innerHTML = '';
+      uploadedPhotos.forEach((file, i) => {
+        const url = URL.createObjectURL(file);
+        const isVideo = /^video\//i.test(file.type || '');
+        const div = document.createElement('div');
+        div.className = 'photo-thumb';
+        div.innerHTML = isVideo
+          ? `<video src="${url}" muted playsinline preload="metadata"></video>
+             <button class="remove-photo" onclick="removePhoto(event, ${i})">✕</button>`
+          : `<img src="${url}" alt="تصویر">
+             <button class="remove-photo" onclick="removePhoto(event, ${i})">✕</button>`;
+        preview.appendChild(div);
+      });
     }
 
     // ==========================================================
