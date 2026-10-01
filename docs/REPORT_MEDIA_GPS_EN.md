@@ -437,3 +437,75 @@ the existing report and code, so even an old app cannot create two reports with 
    one row with one code and the same photo/video.
 4. Previously created duplicates are not deleted automatically; remove them from the
    admin panel (Reports → delete) if you want.
+
+---
+
+## 25) Round 26 — “Photos and videos are not re-uploaded” (root-cause fix) + in-app camera
+
+### 1. Symptom
+- On build 2.0.30, photos and videos were not uploaded when submitting a report, and
+  “retry sending photo/video” never succeeded. The report stayed at
+  “در حال بارگذاری عکس/فیلم…” and no tracking code was issued.
+
+### 2. Root cause (four real defects, all fixed)
+1. **Chunks were sent without the unique request reference.** The primary upload path is
+   `api/media.php?action=chunk`; the request body only carried
+   `phone/reportId/uploadId/index/total/name/mime/data` — no `client_ref`. Because the new
+   “media first, report later” flow sends `reportId = 0`, the server answered
+   `شناسه‌ی گزارش نامعتبر است` and **rejected every file**.
+2. **Any server answer was treated as a hard failure**, so the file was neither retried with
+   a smaller chunk nor sent through the backup gateway — it was silently dropped.
+3. **The backup gateway had no staging mode.** `api/reports.php?action=add_media` only
+   accepted `reportId > 0`, so the last-resort path was closed too.
+4. **The retry queue was never cleaned.** `flushPendingMediaRef` used a transaction where a
+   store was expected (`tx.objectStore('files')`), so no row was deleted and the function
+   returned `false` even after a successful upload → the report was never created and every
+   retry restarted from scratch.
+
+### 3. Fixes
+- `client_ref` is now sent with **every chunk** and on the backup gateway path.
+- Only size/type/limit errors are “hard” (`isHardMediaError`); every other error gets another
+  chance, and after a logical server answer we go straight to the backup gateway.
+- `api/reports.php?action=add_media` now also accepts staged files (`reportId = 0` + `client_ref`)
+  and returns `staged` and `media_count`.
+- The queue is cleared with a correct transaction (`pendingDbDelete`): only rows that really
+  reached the server are removed; on failure the files stay on the phone.
+- “Retry” now takes files from **three sources**: the page’s own files, an in-memory copy of the
+  last attempt, and the persistent IndexedDB queue (survives app restarts).
+- Once stranded files arrive, `flushPendingCreates` creates the report so **one tracking code**
+  (with its attachments) is issued.
+- If the files are gone from app memory, a “select photo/video again” button appears; the file is
+  uploaded with the **same unique reference**, so no second report or second code is created.
+
+### 4. In-app camera (take photos and videos with the phone)
+- The “images” step now has two new buttons: **“گرفتن عکس” (take photo)** and
+  **“گرفتن فیلم” (take video)**, next to “choose from gallery”.
+- `assets/js/ep-camera.js` opens the camera **inside the app** (getUserMedia): live viewfinder,
+  front/rear switch, full-sensor photo capture encoded as JPEG, and video recording with
+  MediaRecorder (60-second cap + elapsed-time badge).
+- If camera permission is denied or recording is unsupported, the app silently falls back to the
+  **phone’s own camera** (`input capture="environment"` / `camcorder`).
+- Android side: `CAMERA` and `RECORD_AUDIO` permissions, a registered `FileProvider`, a “Camera”
+  entry added to the file chooser, permission requested before opening the camera, the captured
+  photo copied into app storage, and `onPermissionRequest` granting video/audio capture to the WebView.
+- Camera output is a regular file and travels the very same shared path
+  (`prepareCapturedFiles` → chunked upload → retry queue).
+
+### 5. Tests
+- 35 new tests: 8 server-side (staged storage through both the chunk path and the backup gateway,
+  rejection without a reference, retry idempotency, both paths attaching to **one** report with
+  **one** code) and 27 app-side — including **real execution** of the camera module
+  (photo/video → file) and **real execution** of the queue and upload code with a fake IndexedDB
+  and XHR (reference present in every chunk, delivery through the backup gateway, queue emptied
+  after success, files kept on the phone after failure).
+- Result: NOTIFY 32 · APP 156 · PUSHCRYPTO 8 · FCM 28 · BACKEND 137 · RESCUE 19 · ONLINE 55 ·
+  GEO/MEDIA 128 — all green.
+
+### Deploy steps
+1. Extract the fresh `eplak-fixed-update.zip` over the `eplak-fixed` folder on the host (Overwrite).
+   No database structure change is required (still `2026-10-03.1`).
+2. Install the new APK (**2.0.31** or newer); the in-app camera and the fixed retry exist only there.
+3. The first time you tap “take photo/video”, tap **Allow** on the camera permission prompt.
+4. Test: submit a report with a photo **and** a video (one from the camera, one from the gallery).
+   You should see “در حال بارگذاری… ٪” and then **one tracking code**, and in the report details
+   **one row** with that photo/video.

@@ -139,16 +139,33 @@ if (!$input && !$isMultipart && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
 if ((($input['action'] ?? ($query['action'] ?? '')) === 'add_media')) {
     $reportId = (int) ($input['reportId'] ?? ($input['report_id'] ?? 0));
     $owner    = eplakNormalizePhone($input['phone'] ?? '');
-    if ($reportId <= 0 || $owner === '') {
+
+    /* ── حالت «در انتظار اتصال» (staging) ────────────────────────────────
+       اپ عکس و فیلم را پیش از ساخت گزارش می‌فرستد تا کد پیگیری فقط پس از
+       پایان بارگذاری صادر شود؛ در این حالت reportId صفر است و فایل با شناسه‌ی
+       یکتای درخواست ذخیره می‌شود. این دروازه همیشه باز است، پس اگر مسیر
+       api/media.php روی هاست بسته باشد، پیوست‌ها از همین‌جا بالا می‌روند. */
+    $clientRef = strtoupper(preg_replace('/[^A-Za-z0-9\-]/', '', (string) ($input['client_ref'] ?? ($input['clientRef'] ?? ''))) ?? '');
+    $clientRef = substr($clientRef, 0, 64);
+    $staging = ($reportId <= 0) && ($clientRef !== '') && eplakTableHasColumn($pdo, 'report_media', 'client_ref');
+
+    if ($owner === '') {
+        eplakJsonError('شماره موبایل معتبر الزامی است', 400);
+    }
+    if ($reportId <= 0 && !$staging) {
         eplakJsonError('شناسه‌ی گزارش و شماره‌ی مالک الزامی است', 400);
     }
     try {
-        $stmt = $pdo->prepare('SELECT id FROM reports WHERE id = :id AND user_phone = :phone');
-        $stmt->execute([':id' => $reportId, ':phone' => $owner]);
-        if (!$stmt->fetch()) {
-            eplakJson(['success' => false, 'error' => 'گزارش یافت نشد'], 404);
+        if (!$staging) {
+            $stmt = $pdo->prepare('SELECT id FROM reports WHERE id = :id AND user_phone = :phone');
+            $stmt->execute([':id' => $reportId, ':phone' => $owner]);
+            if (!$stmt->fetch()) {
+                eplakJson(['success' => false, 'error' => 'گزارش یافت نشد'], 404);
+            }
         }
-        $existing = eplakMediaForReport($pdo, $reportId);
+        $existing = $staging
+            ? array_fill(0, eplakMediaStagedCount($pdo, $clientRef), null)
+            : eplakMediaForReport($pdo, $reportId);
         if (count($existing) >= EPLAK_MEDIA_MAX_PER_REPORT) {
             eplakJson(['success' => false, 'error' => 'حداکثر ' . EPLAK_MEDIA_MAX_PER_REPORT . ' فایل برای هر گزارش پذیرفته می‌شود.'], 400);
         }
@@ -166,16 +183,21 @@ if ((($input['action'] ?? ($query['action'] ?? '')) === 'add_media')) {
             eplakJsonError('محتوای فایل قابل خواندن نبود.', 400);
         }
 
-        $result = eplakMediaStoreBinary($pdo, $reportId, $binary, (string) ($input['name'] ?? 'file'), $declaredMime);
+        $result = eplakMediaStoreBinary($pdo, $reportId, $binary, (string) ($input['name'] ?? 'file'), $declaredMime, $staging ? $clientRef : '');
         if (!$result['ok']) {
             eplakJson(['success' => false, 'error' => $result['error']], 400);
         }
-        eplakReportEventAdd($pdo, $reportId, 'media', 'پیوست تازه', 'فایل «' . eplakStr($input['name'] ?? 'پیوست', 120) . '» به گزارش افزوده شد.', 'شهروند');
-        $files = eplakMediaForReport($pdo, $reportId);
+        if (!$staging) {
+            eplakReportEventAdd($pdo, $reportId, 'media', 'پیوست تازه', 'فایل «' . eplakStr($input['name'] ?? 'پیوست', 120) . '» به گزارش افزوده شد.', 'شهروند');
+        }
+        $count = $staging
+            ? eplakMediaStagedCount($pdo, $clientRef)
+            : count(eplakMediaForReport($pdo, $reportId));
         eplakJson([
             'success'     => true,
             'media'       => $result['media'],
-            'media_count' => count($files),
+            'media_count' => $count,
+            'staged'      => $staging,
         ]);
     } catch (Throwable $e) {
         eplakServerError($e, 'reports.add_media');

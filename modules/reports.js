@@ -984,36 +984,28 @@
     return Math.max(1, Math.round(n / 1024)) + ' کیلوبایت';
   }
 
-  async function addReportPhotos(input) {
-    const files = Array.from(input.files || []);
-    const remaining = 3 - reportDraft.photos.length;
-    if (remaining <= 0) {
-      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
-      input.value = '';
-      return;
-    }
-
-    const chosen = files.slice(0, remaining);
-    if (files.length > remaining) {
-      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
-    }
-
-    /* حجم‌های غیرمجاز همان‌جا رد می‌شوند تا کاربر بعد از ثبت گزارش غافلگیر نشود */
+  /* ── آماده‌سازی فایل (دوربین یا گالری) برای ارسال ─────────────────────
+     یک مسیر مشترک برای همه‌ی منابع: عکسِ گرفته‌شده با دوربینِ داخل اپ، عکس/فیلم
+     دوربینِ خود گوشی، و فایل‌های گالری. حجم غیرمجاز رد می‌شود، عکس‌ها فشرده
+     می‌شوند و خروجی، فهرست { file, kind, name, size } است. */
+  async function prepareCapturedFiles(files) {
+    const list = Array.from(files || []).filter(Boolean);
+    const out = [];
+    if (!list.length) return out;
     let rejected = 0;
     let unreadable = 0;
     const accepted = [];
-    chosen.forEach(file => {
+    list.forEach(file => {
       const kind = detectMediaKind(file);
       const maxMb = kind === 'video' ? REPORT_MEDIA_MAX_VIDEO_MB : REPORT_MEDIA_MAX_IMAGE_MB;
       if (!file.size) {
-        /* فایل با حجم صفر یعنی سیستم دسترسی خواندن آن را به اپ نداده است
-           (همان چیزی که در نسخه‌های قبلی اپ رخ می‌داد). */
+        /* حجم صفر یعنی سیستم، دسترسی خواندن فایل را به اپ نداده است */
         unreadable++;
         return;
       }
       if (file.size > maxMb * 1024 * 1024) {
         rejected++;
-        showToast('حجم ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' «' + file.name + '» بیش از ' + maxMb + ' مگابایت است؛ فایل سبک‌تری انتخاب کنید');
+        showToast('حجم ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' «' + (file.name || '—') + '» بیش از ' + maxMb + ' مگابایت است؛ فایل سبک‌تری انتخاب کنید');
         return;
       }
       accepted.push({ file: file, kind: kind });
@@ -1022,10 +1014,10 @@
     if (unreadable > 0) {
       saveUploadLog({
         time: (new Date()).toLocaleString('fa-IR'),
-        text: 'انتخاب فایل — ' + toPersianDigits(unreadable) + ' فایل با حجم صفر (ناخوانا) دریافت شد؛ '
+        text: 'دریافت فایل — ' + toPersianDigits(unreadable) + ' فایل با حجم صفر (ناخوانا)؛ '
           + 'دسترسی خواندن فایل به اپ داده نشده است.'
       });
-      showToast('فایل انتخاب‌شده خوانده نشد؛ اپ را به نسخه‌ی تازه (۲.۰.۲۴) به‌روز کنید یا فایل را از گالری انتخاب کنید');
+      showToast('فایل انتخاب‌شده خوانده نشد؛ دوباره با دوربین بگیرید یا از گالری انتخاب کنید');
     }
 
     if (accepted.some(item => item.kind === 'image')) {
@@ -1041,25 +1033,128 @@
           file = item.file;   /* اگر فشرده‌سازی نشد، همان فایل اصلی ارسال می‌شود */
         }
       }
-      reportDraft.photos.push({
+      out.push({
         file: file,
-        name: file.name || item.file.name,
         kind: item.kind,
-        size: file.size,
-        previewUrl: URL.createObjectURL(file)
+        name: file.name || item.file.name || (item.kind === 'video' ? 'film.mp4' : 'photo.jpg'),
+        size: Number(file.size) || 0
       });
     }
 
-    const videos = accepted.filter(item => item.kind === 'video');
+    const videos = out.filter(item => item.kind === 'video');
     if (videos.length && rejected === 0) {
-      const biggest = videos.reduce((a, b) => (a.file.size > b.file.size ? a : b));
-      if (biggest.file.size > 20 * 1024 * 1024) {
-        showToast('فیلم ' + formatFileSize(biggest.file.size) + ' است؛ ارسالش کمی طول می‌کشد');
+      const biggest = videos.reduce((a, b) => (a.size > b.size ? a : b));
+      if (biggest.size > 20 * 1024 * 1024) {
+        showToast('فیلم ' + formatFileSize(biggest.size) + ' است؛ ارسالش کمی طول می‌کشد');
       }
     }
+    return out;
+  }
+
+  async function addReportPhotos(input) {
+    const files = Array.from(input.files || []);
+    const remaining = 3 - reportDraft.photos.length;
+    if (remaining <= 0) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+      input.value = '';
+      return;
+    }
+
+    const chosen = files.slice(0, remaining);
+    if (files.length > remaining) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+    }
+
+    const accepted = await prepareCapturedFiles(chosen);
+
+    accepted.forEach(item => {
+      reportDraft.photos.push({
+        file: item.file,
+        name: item.name,
+        kind: item.kind,
+        size: item.size,
+        previewUrl: URL.createObjectURL(item.file)
+      });
+    });
 
     renderReportPhotosPreview();
     input.value = '';
+  }
+
+  /* ── گرفتن عکس/فیلم با دوربین گوشی و بارگذاری آن ──────────────────────
+     دو مسیر، تا روی هر گوشی کار کند:
+       ۱) دوربینِ داخل اپ (assets/js/ep-camera.js) — کاربر از اپ بیرون نمی‌رود؛
+          عکس با دوربین عقب/جلو گرفته می‌شود و فیلم تا ۶۰ ثانیه ضبط می‌شود.
+       ۲) اگر اجازه‌ی دوربین به اپ داده نشد یا ضبط فیلم پشتیبانی نشد،
+          دوربینِ خود گوشی باز می‌شود (input با capture) و نتیجه برمی‌گردد.
+     خروجی هر دو مسیر، «فایل» است و دقیقاً مثل فایل گالری در همان مسیر
+     بارگذاری (تکه‌تکه + مسیر پشتیبان + صف تلاش دوباره) ارسال می‌شود. */
+  async function openReportCamera(mode) {
+    const remaining = 3 - reportDraft.photos.length;
+    if (remaining <= 0) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+      return;
+    }
+    const kind = (mode === 'video') ? 'video' : 'photo';
+    saveUploadLog({
+      time: (new Date()).toLocaleString('fa-IR'),
+      text: 'دوربین — درخواست گرفتن ' + (kind === 'video' ? 'فیلم' : 'عکس') + ' از داخل اپ'
+    });
+    if (window.EplakCamera && typeof window.EplakCamera.open === 'function') {
+      let shot = null;
+      try {
+        shot = await window.EplakCamera.open({ mode: kind });
+      } catch (e) {
+        shot = null;
+      }
+      if (shot && shot.file) {
+        await addCapturedFiles([shot.file]);
+        return;
+      }
+      /* کاربر خودش دوربین را بست → چیزی باز نمی‌کنیم */
+      if (shot && shot.reason === 'cancelled') return;
+      /* دوربین داخل اپ نشد (اجازه/پشتیبانی) → دوربین خود گوشی */
+      showToast('دوربین گوشی باز می‌شود…');
+    }
+    const native = document.getElementById(kind === 'video' ? 'reportCameraVideoInput' : 'reportCameraPhotoInput');
+    if (native) {
+      native.value = '';
+      native.click();
+    } else {
+      showToast('دوربین روی این گوشی در دسترس نیست؛ از گالری انتخاب کنید');
+    }
+  }
+
+  /* افزودن فایلِ گرفته‌شده (دوربین اپ یا دوربین گوشی) به پیوست‌ها */
+  async function addCapturedFiles(fileList) {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    const remaining = 3 - reportDraft.photos.length;
+    if (remaining <= 0) {
+      showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+      return;
+    }
+    const chosen = files.slice(0, remaining);
+    if (files.length > remaining) showToast('حداکثر ۳ فایل می‌توانید پیوست کنید');
+
+    const prepared = await prepareCapturedFiles(chosen);
+    prepared.forEach(item => {
+      reportDraft.photos.push({
+        file: item.file,
+        name: item.name,
+        kind: item.kind,
+        size: item.size,
+        previewUrl: URL.createObjectURL(item.file)
+      });
+    });
+    renderReportPhotosPreview();
+    if (prepared.length) {
+      saveUploadLog({
+        time: (new Date()).toLocaleString('fa-IR'),
+        text: 'دوربین — ' + toPersianDigits(prepared.length) + ' فایل آماده‌ی ارسال اضافه شد'
+      });
+      showToast('✅ به پیوست‌ها اضافه شد — هنگام ثبت، با گزارش ارسال می‌شود');
+    }
   }
 
   function renderReportPhotosPreview() {
@@ -1199,25 +1294,105 @@
     if (btn) btn.style.display = 'none';
   }
 
-  /* تلاش دوباره‌ی کامل: بارگذاری پیوست‌ها → ساخت گزارش → کد پیگیری */
+  /* تلاش دوباره‌ی کامل: بارگذاری پیوست‌ها → ساخت گزارش → کد پیگیری
+     فایل‌ها از سه منبع پیدا می‌شوند تا «تلاش دوباره» هیچ‌وقت بی‌فایل نماند:
+       ۱) همان فایل‌هایی که در همین صفحه انتخاب شده بودند
+       ۲) حافظه‌ی درون‌برنامه‌ای آخرین تلاش (lastMediaAttempt)
+       ۳) صف پایدار IndexedDB (پس از بستن و باز کردن اپ) */
+  let lastMediaAttempt = null;    /* { ref, files, phone } */
+
   async function retryReportWithMedia(report, files, phone) {
     if (!report) return false;
-    const list = (files || []).filter(Boolean);
+    const ref = String(report.clientRef || '');
+    let list = (files || []).filter(Boolean);
+    if (!list.length && ref && lastMediaAttempt && lastMediaAttempt.ref === ref) {
+      list = (lastMediaAttempt.files || []).filter(Boolean);
+    }
     report.uploadState = 'uploading';
     setSuccessCodeState('loading');
+
     if (list.length) {
       const mediaRes = await uploadStagedMedia(report, list, phone);
       if (!mediaRes.ok) {
         showReportUploadFailed(report, list, phone, mediaRes.note || (mediaRes.errors[0] || ''));
         return false;
       }
+    } else if (ref && typeof window.eplakFlushPendingMediaRef === 'function') {
+      /* فایل‌ها در صف پایدار گوشی هستند؛ از همان‌جا دوباره فرستاده می‌شوند */
+      setSuccessNote('در حال ارسال دوباره‌ی عکس/فیلم‌های ذخیره‌شده در گوشی…');
+      let ready = false;
+      try { ready = await window.eplakFlushPendingMediaRef(ref, phone, 0); } catch (e) { ready = false; }
+      if (!ready) {
+        const state = (typeof window.eplakPendingMediaRefState === 'function')
+          ? await window.eplakPendingMediaRefState(ref, phone).catch(function () { return { queued: 0, readable: 0 }; })
+          : { queued: 0, readable: 0 };
+        const note = (state && state.queued && !state.readable)
+          ? 'عکس/فیلم‌ها در حافظه‌ی اپ نمانده‌اند؛ دوباره از دوربین یا گالری پیوست کنید'
+          : 'ارسال عکس/فیلم کامل نشد';
+        showReportUploadFailed(report, [], phone, note);
+        if (state && state.queued && !state.readable) offerMediaReattach(report, phone);
+        return false;
+      }
     }
+
     if (!report.pendingSync && report.backendId) {
       clearMediaRetry();
       setSuccessCodeState('done', report.code || '');
       return true;
     }
     return await finalizePendingReport(report, phone);
+  }
+
+  /* وقتی فایل‌ها از حافظه‌ی اپ رفته‌اند: کاربر همان عکس/فیلم را دوباره
+     انتخاب (یا با دوربین ضبط) می‌کند و با «همان شناسه‌ی درخواست» فرستاده
+     می‌شود؛ پس گزارش تکراری یا کد پیگیری دوم ساخته نمی‌شود. */
+  function offerMediaReattach(report, phone) {
+    const host = document.getElementById('reportUploadStatus');
+    if (!host || !host.parentNode) return;
+    let btn = document.getElementById('reportUploadReattach');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'reportUploadReattach';
+      btn.type = 'button';
+      btn.textContent = 'انتخاب دوباره‌ی عکس/فیلم از گوشی';
+      btn.style.cssText = 'margin:8px 6px 0 0; padding:9px 14px; border:0; border-radius:10px; ' +
+        'background:var(--teal); color:#fff; font-family:inherit; font-size:13px; font-weight:700; cursor:pointer;';
+      host.parentNode.insertBefore(btn, host.nextSibling);
+    }
+    btn.style.display = 'inline-block';
+    btn.onclick = function () {
+      reattachInputTarget = { report: report, phone: phone };
+      const input = getReattachInput();
+      if (input) input.click();
+    };
+  }
+
+  let reattachInputTarget = null;
+  function getReattachInput() {
+    let input = document.getElementById('reportReattachInput');
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'file';
+      input.id = 'reportReattachInput';
+      input.accept = 'image/*,video/*';
+      input.multiple = true;
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      input.addEventListener('change', async function () {
+        const target = reattachInputTarget;
+        const files = Array.from(input.files || []);
+        input.value = '';
+        if (!target || !target.report || !files.length) return;
+        const prepared = (await prepareCapturedFiles(files)).map(item => item.file);
+        if (!prepared.length) {
+          showToast('فایل انتخاب‌شده خوانده نشد');
+          return;
+        }
+        lastMediaAttempt = { ref: String(target.report.clientRef || ''), files: prepared, phone: target.phone };
+        await retryReportWithMedia(target.report, prepared, target.phone);
+      });
+    }
+    return input;
   }
 
   /* ── ساخت گزارش روی سرور و گرفتن «یک» کد پیگیری ─────────────────────
@@ -1459,6 +1634,8 @@
       }
 
       const filesToUpload = (draftPhotos || []).map(item => item.file).filter(Boolean);
+      /* همان فایل‌ها در حافظه نگه داشته می‌شوند تا «تلاش دوباره» بدون فایل نماند */
+      if (filesToUpload.length) lastMediaAttempt = { ref: clientRef, files: filesToUpload, phone: currentPhone };
 
       /* ══ مرحله ۱: بارگذاری کامل عکس و فیلم (بدون کد پیگیری) ══════════ */
       if (filesToUpload.length) {
@@ -1566,15 +1743,19 @@
     if (document.visibilityState === 'hidden') return;
     pendingFlushBusy = true;
     try {
-      const result = await window.eplakFlushPendingMedia(function (reportId, count) {
+      const result = await window.eplakFlushPendingMedia(function (reportId, clientRef, count) {
         saveUploadLog({
           time: (new Date()).toLocaleString('fa-IR'),
-          text: 'ارسال خودکار پیوست‌های جامانده — ' + toPersianDigits(count)
-            + ' فایل برای گزارش شماره ' + toPersianDigits(reportId)
+          text: 'ارسال خودکار پیوست‌های جامانده — ' + toPersianDigits(count) + ' فایل'
+            + (reportId ? (' برای گزارش شماره ' + toPersianDigits(reportId))
+                        : (' برای درخواست ' + String(clientRef || '—')))
         });
       });
       if (result && result.sent > 0) {
         showToast('✅ ' + toPersianDigits(result.sent) + ' پیوست جامانده خودکار ارسال شد');
+        /* فایل‌ها که رسیدند، گزارشِ در انتظار ساخته می‌شود و «یک» کد پیگیری
+           صادر می‌گردد؛ وگرنه پیوست‌ها روی سرور می‌ماندند و کدی دیده نمی‌شد. */
+        try { await flushPendingCreates(phone); } catch (e) { /* دفعه‌ی بعد */ }
         if (typeof loadReportsFromBackend === 'function') {
           loadReportsFromBackend(phone, { silent: true }).catch(function () {});
         }
@@ -2985,4 +3166,16 @@
   window.renderHomeTrackingQuick = renderHomeTrackingQuick;
   window.renderTrackRecent = renderTrackRecent;
   window.searchByTrackCode = searchByTrackCode;
+
+  /* دوربین داخل اپ + تلاش دوباره‌ی پیوست‌ها (دور ۲۵) */
+  window.openReportCamera = openReportCamera;
+  window.addCapturedFiles = addCapturedFiles;
+  window.prepareCapturedFiles = prepareCapturedFiles;
+  window.retryReportWithMedia = retryReportWithMedia;
+  window.offerMediaReattach = offerMediaReattach;
+  window.eplakCameraLog = function (text) {
+    try {
+      saveUploadLog({ time: (new Date()).toLocaleString('fa-IR'), text: 'دوربین — ' + String(text || '') });
+    } catch (e) { /* بی‌اهمیت */ }
+  };
 

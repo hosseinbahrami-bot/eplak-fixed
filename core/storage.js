@@ -297,6 +297,18 @@
     return (isFinite(custom) && custom >= MEDIA_CHUNK_MIN) ? custom : MEDIA_CHUNK_DEFAULT;
   }
 
+  /* ── کدام خطا «قطعی» است؟ ────────────────────────────────────────────────
+     تنها خطاهای حجم/نوع/سقف فایل با تکه‌ی کوچک‌تر یا مسیر پشتیبان حل نمی‌شوند.
+     هر خطای دیگر (مثلاً پاسخ غیرمنتظره‌ی سرور یا دروازه‌ی بسته) باید شانس
+     دوباره بگیرد: هم تکه‌ی کوچک‌تر، هم مسیر پشتیبان api/reports.php.
+     پیش‌تر هر پاسخ سروری «قطعی» شمرده می‌شد و فایل بی‌صدا کنار گذاشته می‌شد؛
+     نتیجه‌اش این بود که عکس/فیلم دیگر هرگز ارسال نمی‌شد. */
+  function isHardMediaError(message) {
+    const text = String(message || '');
+    if (!text) return false;
+    return /حجم|بزرگ|مجاز نیست|نوع فایل|فرمت|حداکثر|خالی است|post_max_size|upload_max_filesize|413|too large|size/i.test(text);
+  }
+
   async function sendMediaChunk(payload, urlOverride) {
     const url = urlOverride || (BACKEND_BASE_URL + '/media.php?action=chunk');
     let last = null;
@@ -377,6 +389,9 @@
         total: total,
         name: fileName,
         mime: file.type || '',
+        /* شناسه‌ی یکتای درخواست: بدون آن، سرور فایلِ «پیش از ثبت گزارش»
+           (reportId = 0) را رد می‌کند و عکس/فیلم هرگز بارگذاری نمی‌شود. */
+        client_ref: clientRef || '',
         data: data
       }, chunkUrl);
 
@@ -452,6 +467,7 @@
     for (let stage = 0; stage < sizes.length && remaining.length; stage++) {
       const size = sizes[stage];
       const stillFailed = [];
+      let goGateway = false;      /* پاسخ سروری منطقی → مستقیم به دروازه‌ی پشتیبان */
       /* چند فایل هم‌زمان فرستاده می‌شوند تا عکس و فیلم با هم بالا بروند */
       const results = await runMediaPool(remaining, (file) => {
         return uploadSingleMediaFile(file, size, reportId, phone, () => {}, false, clientRef);
@@ -466,16 +482,19 @@
           lastStatus = (res && res.status) || lastStatus;
           if (res && res.unsupported) unsupported = true;
           if (res && res.blocked) blocked = true;
-          /* خطای منطقی (مثلاً حجم زیاد یا نوع نامجاز) با کوچک‌تر کردن تکه حل
-             نمی‌شود؛ آن فایل کنار گذاشته می‌شود تا وقت کاربر تلف نشود. */
-          if (res && !res.blocked && !res.unsupported && res.status === 0) {
+          /* فقط خطای حجم/نوع/سقف «قطعی» است؛ بقیه شانس دوباره می‌گیرند. */
+          if (isHardMediaError((res && res.error) || '')) {
             hardFailed.push(file);
           } else {
             stillFailed.push(file);
+            if (res && res.status === 0 && !res.blocked && !res.unsupported) goGateway = true;
           }
         }
       });
       remaining = stillFailed;
+      /* تکه‌ی کوچک‌تر، پاسخ منطقی سرور را تغییر نمی‌دهد؛ زودتر به مسیر
+         پشتیبان (api/reports.php?action=add_media) می‌رویم. */
+      if (goGateway) break;
     }
 
     /* مرحله‌ی پشتیبان: دروازه‌ی گزارش‌ها (بدون تکه‌تکه) */
@@ -550,6 +569,50 @@
     return db.transaction(PENDING_STORE, mode).objectStore(PENDING_STORE);
   }
 
+  /* خواندن همه‌ی ردیف‌های صف (یک‌جا و با مدیریت خطا) */
+  function pendingDbAll(db) {
+    return new Promise(resolve => {
+      try {
+        const req = pendingTx(db, 'readonly').getAll();
+        req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
+        req.onerror = function () { resolve([]); };
+      } catch (e) { resolve([]); }
+    });
+  }
+
+  /* حذف ردیف‌های مشخص از صف.
+     نکته‌ی مهم (ریشه‌ی باگ «عکس و فیلم مجدد بارگذاری نمی‌شود»): پیش‌تر اینجا
+     به‌جای store از transaction استفاده می‌شد و delete روی «فروشگاه فایل»
+     صدا زده می‌شد که وجود ندارد؛ پس هیچ ردیفی پاک نمی‌شد و تابع حتی پس از
+     ارسال موفق، «نرسید» برمی‌گرداند. در نتیجه هر تلاش دوباره از اول شروع
+     می‌شد و گزارش هیچ‌وقت ساخته نمی‌شد. */
+  function pendingDbDelete(db, keys) {
+    const list = Array.from(keys || []).filter(Boolean);
+    if (!list.length) return Promise.resolve(true);
+    return new Promise(resolve => {
+      try {
+        const store = pendingTx(db, 'readwrite');
+        list.forEach(key => { try { store.delete(key); } catch (e) {} });
+        store.transaction.oncomplete = function () { resolve(true); };
+        store.transaction.onerror = function () { resolve(false); };
+        store.transaction.onabort = function () { resolve(false); };
+      } catch (e) { resolve(false); }
+    });
+  }
+
+  /* وضعیت صف یک درخواست: چند فایل مانده و چندتایش قابل خواندن است */
+  async function pendingMediaRefState(clientRef, phone) {
+    const ref = clientRef ? String(clientRef) : '';
+    const empty = { queued: 0, readable: 0 };
+    if (!ref || !phone) return empty;
+    const db = await openPendingDb();
+    if (!db) return empty;
+    const rows = await pendingDbAll(db);
+    const mine = rows.filter(r => String(r.clientRef || '') === ref && String(r.phone) === String(phone));
+    const readable = mine.filter(r => r && r.blob && typeof r.blob === 'object' && (Number(r.blob.size) || 0) > 0);
+    return { queued: mine.length, readable: readable.length };
+  }
+
   /* افزودن فایل‌های ناموفق به صف (برای ارسال خودکار در فرصت بعدی) */
   async function queuePendingMedia(reportId, phone, files, clientRef) {
     const list = Array.from(files || []).filter(f => f && typeof f === 'object' && (f.size || 0) > 0);
@@ -604,28 +667,20 @@
     if (!ref || !phone) return false;
     const db = await openPendingDb();
     if (!db) return false;
-    const rows = await new Promise(resolve => {
-      try {
-        const req = pendingTx(db, 'readonly').getAll();
-        req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
-        req.onerror = function () { resolve([]); };
-      } catch (e) { resolve([]); }
-    });
+    const rows = await pendingDbAll(db);
     const mine = rows.filter(r => String(r.clientRef || '') === ref && String(r.phone) === String(phone));
     if (!mine.length) return true;    /* چیزی برای این درخواست در صف نمانده است */
     mine.sort((a, b) => String(a.addedAt).localeCompare(String(b.addedAt)));
-    const res = await uploadReportMediaChunked(Number(reportId) || 0, String(phone), mine.map(i => i.blob), null, { clientRef: ref });
+    /* فایل‌هایی که بایتشان در حافظه نمانده است (باز شدن دوباره‌ی اپ روی بعضی
+       وب‌ویوها) ارسال‌شدنی نیستند؛ گزارش در انتظار می‌ماند تا کاربر دوباره
+       همان عکس/فیلم را پیوست کند (با همان شناسه، پس کد پیگیری تکراری نمی‌شود). */
+    const usable = mine.filter(r => r && r.blob && typeof r.blob === 'object' && (Number(r.blob.size) || 0) > 0);
+    if (!usable.length) return false;
+    const res = await uploadReportMediaChunked(Number(reportId) || 0, String(phone), usable.map(i => i.blob), null, { clientRef: ref });
     const okCount = (res && Array.isArray(res.media)) ? res.media.length : 0;
     if (res && res.ok && okCount > 0) {
-      await new Promise(resolve => {
-        try {
-          const tx = pendingTx(db, 'readwrite');
-          mine.forEach(item => { try { tx.objectStore('files').delete(item.key); } catch (e) {} });
-          tx.oncomplete = function () { resolve(true); };
-          tx.onerror = function () { resolve(false); };
-          tx.onabort = function () { resolve(false); };
-        } catch (e) { resolve(false); }
-      });
+      /* فقط ردیف‌هایی پاک می‌شوند که واقعاً به سرور رسیده‌اند */
+      await pendingDbDelete(db, usable.map(item => item.key));
       return true;   /* فایل‌های همین درخواست رسیدند */
     }
     return false;
@@ -634,13 +689,7 @@
   async function flushPendingMedia(onReportDone) {
     const db = await openPendingDb();
     if (!db) return { sent: 0, left: 0 };
-    const rows = await new Promise(resolve => {
-      try {
-        const req = pendingTx(db, 'readonly').getAll();
-        req.onsuccess = function () { resolve(Array.isArray(req.result) ? req.result : []); };
-        req.onerror = function () { resolve([]); };
-      } catch (e) { resolve([]); }
-    });
+    const rows = await pendingDbAll(db);
     if (!rows.length) return { sent: 0, left: 0 };
 
     /* گروه‌بندی بر اساس گزارش؛ ترتیب تکه‌ها بر اساس زمان افزوده‌شدن است */
@@ -692,6 +741,7 @@
   window.eplakQueuePendingMedia = queuePendingMedia;
   window.eplakFlushPendingMedia = flushPendingMedia;
   window.eplakFlushPendingMediaRef = flushPendingMediaRef;
+  window.eplakPendingMediaRefState = pendingMediaRefState;
   window.eplakCountPendingMedia = countPendingMedia;
 
   /* وضعیت پیوست‌های یک گزارش روی سرور (برای تأیید نهایی که فایل‌ها ذخیره شدند) */
@@ -1280,6 +1330,7 @@
   window.eplakQueuePendingMedia           = queuePendingMedia;
   window.eplakFlushPendingMedia           = flushPendingMedia;
   window.eplakFlushPendingMediaRef        = flushPendingMediaRef;
+  window.eplakPendingMediaRefState        = pendingMediaRefState;
   window.eplakCountPendingMedia           = countPendingMedia;
   window.eplakTransportMessage            = transportMessage;
   window.eplakIsTransportFailure          = isTransportFailure;

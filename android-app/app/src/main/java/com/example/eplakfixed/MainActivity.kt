@@ -10,9 +10,11 @@ import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -23,7 +25,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import org.json.JSONObject
+import java.io.File
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -44,6 +48,18 @@ class MainActivity : AppCompatActivity() {
        هیچ کاری نمی‌کرد (اندروید فایل‌چوزر را خودش باز نمی‌کند و باید با
        onShowFileChooser از طرف صفحه‌ی وب باز شود). */
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    /* ── گرفتن عکس و فیلم با دوربین گوشی ─────────────────────────────────
+       کاربر باید بتواند داخل اپ عکس بگیرد و فیلم ضبط کند و همان را با گزارش
+       بارگذاری کند. دو مسیر پشتیبانی می‌شود:
+         ۱) دوربین داخل اپ (getUserMedia در لایه‌ی وب — assets/js/ep-camera.js)
+            که با onPermissionRequest اجازه‌ی دوربین/میکروفون را به WebView می‌دهیم.
+         ۲) دوربین خود گوشی: وقتی صفحه input با capture باز کند، در کنار گالری
+            یک گزینه‌ی «دوربین» به پنجره‌ی انتخاب اضافه می‌کنیم و نتیجه (فایل
+            عکس/فیلم) را مثل فایل گالری داخل کش اپ کپی و به WebView می‌دهیم. */
+    private var pendingCameraFile: File? = null
+    private var pendingChooserIntent: Intent? = null
+    private var pendingWebPermissionRequest: PermissionRequest? = null
 
     /* ── موقعیت مکانی (GPS) ───────────────────────────────────────────────
        callback مربوط به درخواست موقعیت از داخل WebView تا زمان پاسخ کاربر
@@ -68,6 +84,55 @@ class MainActivity : AppCompatActivity() {
             val callback = filePathCallback ?: return@registerForActivityResult
             filePathCallback = null
             callback.onReceiveValue(collectChosenUris(result.resultCode, result.data))
+        }
+
+    /* نتیجه‌ی اجازه‌ی دوربین/میکروفون:
+       الف) اگر پنجره‌ی انتخاب فایل در انتظار باشد، همان باز می‌شود.
+       ب) اگر درخواست از خود WebView آمده باشد (دوربین داخل اپ)، اجازه به
+          WebView برگردانده می‌شود تا getUserMedia کار کند. */
+    private val cameraPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val cameraGranted = grants[Manifest.permission.CAMERA] == true
+            val micGranted = grants[Manifest.permission.RECORD_AUDIO] == true
+
+            val webRequest = pendingWebPermissionRequest
+            pendingWebPermissionRequest = null
+            if (webRequest != null) {
+                val ok = mutableListOf<String>()
+                webRequest.resources.forEach { res ->
+                    if (res == PermissionRequest.RESOURCE_VIDEO_CAPTURE && cameraGranted) ok.add(res)
+                    if (res == PermissionRequest.RESOURCE_AUDIO_CAPTURE && micGranted) ok.add(res)
+                }
+                try {
+                    if (ok.isNotEmpty()) webRequest.grant(ok.toTypedArray()) else webRequest.deny()
+                } catch (e: Throwable) {
+                }
+                webView.evaluateJavascript(
+                    "window.eplakCameraPermissionResult && window.eplakCameraPermissionResult($cameraGranted);",
+                    null
+                )
+            }
+
+            val chooser = pendingChooserIntent
+            pendingChooserIntent = null
+            if (chooser != null) {
+                if (cameraGranted) {
+                    try {
+                        fileChooserLauncher.launch(chooser)
+                        return@registerForActivityResult
+                    } catch (e: Throwable) {
+                        /* اگر دوربین باز نشد، همان گالری امتحان می‌شود */
+                    }
+                }
+                /* بدون اجازه‌ی دوربین، فقط گالری می‌ماند */
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = null
+                Toast.makeText(
+                    this,
+                    "اجازه‌ی دوربین داده نشد؛ می‌توانید عکس/فیلم را از گالری انتخاب کنید",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
 
     /* نتیجه‌ی اجازه‌ی موقعیت مکانی */
@@ -190,7 +255,26 @@ class MainActivity : AppCompatActivity() {
        فایل همان لحظه (که مجوز خواندن فعال است) داخل پوشه‌ی کشِ خود اپ نوشته
        می‌شود و آدرس file:// تحویل WebView می‌گردد؛ این آدرس همیشه خواناست. */
     private fun collectChosenUris(resultCode: Int, data: Intent?): Array<Uri>? {
-        if (resultCode != android.app.Activity.RESULT_OK || data == null) return null
+        if (resultCode != android.app.Activity.RESULT_OK) {
+            pendingCameraFile = null
+            return null
+        }
+
+        /* ── عکسی که با دوربین گوشی گرفته شده ─────────────────────────────
+           در این حالت Intent نتیجه خالی است (چون آدرس خروجی را خودمان داده‌ایم)
+           و فایل در پوشه‌ی کش اپ نوشته شده است. */
+        val shot = pendingCameraFile
+        pendingCameraFile = null
+        if (data == null || (data.data == null && data.clipData == null)) {
+            if (shot != null && shot.exists() && shot.length() > 0L) {
+                val local = copyExistingFileToPicked(shot, "jpg")
+                if (local != null) {
+                    notifyWebFilePick(1, 1)
+                    return arrayOf(local)
+                }
+            }
+            return null
+        }
 
         val raw = ArrayList<Uri>()
 
@@ -256,6 +340,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /* کپی یک فایل موجود (مثلاً عکس گرفته‌شده با دوربین) در پوشه‌ی کش اپ و
+       برگرداندن آدرس file:// آن — همان مسیری که WebView همیشه می‌خواندش. */
+    private fun copyExistingFileToPicked(src: File, fallbackExt: String): Uri? {
+        return try {
+            val dir = File(cacheDir, "picked").apply { mkdirs() }
+            val ext = src.name.substringAfterLast('.', fallbackExt).take(8).ifEmpty { fallbackExt }
+            val dest = File(dir, "shot-" + System.currentTimeMillis() + "-" + (0..9999).random() + "." + ext)
+            if (!src.copyTo(dest, true).exists() || dest.length() <= 0L) {
+                dest.delete()
+                return null
+            }
+            cleanOldPickedFiles(dir, dest)
+            Uri.fromFile(dest)
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
     /* نام نمایشی فایل از سرویس‌دهنده (برای پسوند درست) */
     private fun queryDisplayName(uri: Uri): String? {
         return try {
@@ -312,10 +414,57 @@ class MainActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple)
         }
 
-        return Intent.createChooser(pickIntent, "انتخاب عکس یا فیلم").apply {
-            /* روی برخی گوشی‌ها، پنجره‌ی انتخاب باید از ترد اصلی باز شود */
+        val wantsVideo = mimeTypes.any { it.startsWith("video") }
+        val wantsImage = mimeTypes.any { it.startsWith("image") }
+
+        val chooser = Intent.createChooser(pickIntent, "انتخاب عکس یا فیلم").apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+
+        /* صفحه input با capture باز کرده (دکمه‌های «گرفتن عکس» و «گرفتن فیلم»)
+           یا نوع فایل فقط عکس/فیلم است → گزینه‌ی «دوربین» هم اضافه می‌شود تا
+           کاربر بتواند همان‌جا با گوشی عکس بگیرد یا فیلم ضبط کند. */
+        val capture = params.isCaptureEnabled || (mimeTypes.size == 1)
+        val cameraIntent = if (capture) buildCameraIntent(wantsVideo, wantsImage) else null
+        if (cameraIntent != null) {
+            chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
+        }
+        return chooser
+    }
+
+    /* ساخت Intent دوربین: فیلم با ACTION_VIDEO_CAPTURE و عکس با
+       ACTION_IMAGE_CAPTURE که نتیجه‌اش داخل پوشه‌ی کش اپ نوشته می‌شود. */
+    private fun buildCameraIntent(wantsVideo: Boolean, wantsImage: Boolean): Intent? {
+        return try {
+            if (wantsVideo && !wantsImage) {
+                Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1)
+                    putExtra(MediaStore.EXTRA_DURATION_LIMIT, 60)
+                }
+            } else {
+                val dir = File(cacheDir, "camera").apply { mkdirs() }
+                val shot = File(dir, "shot-" + System.currentTimeMillis() + ".jpg")
+                pendingCameraFile = shot
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", shot)
+                Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                    addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+        } catch (e: Throwable) {
+            pendingCameraFile = null
+            null
+        }
+    }
+
+    /* اجازه‌ی دوربین/میکروفون داریم؟ (برای باز کردن دوربین خود گوشی) */
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestCameraPermission(needMic: Boolean) {
+        val wanted = mutableListOf(Manifest.permission.CAMERA)
+        if (needMic) wanted.add(Manifest.permission.RECORD_AUDIO)
+        cameraPermissionLauncher.launch(wanted.toTypedArray())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -399,7 +548,16 @@ class MainActivity : AppCompatActivity() {
                 this@MainActivity.filePathCallback = filePathCallback
 
                 return try {
-                    fileChooserLauncher.launch(buildFileChooserIntent(fileChooserParams))
+                    val chooserIntent = buildFileChooserIntent(fileChooserParams)
+                    /* اگر گزینه‌ی «دوربین» اضافه شده و اجازه‌اش را نداریم، اول
+                       اجازه را می‌گیریم و بعد همان پنجره را باز می‌کنیم؛ وگرنه
+                       اندروید با SecurityException جلوی دوربین را می‌گیرد. */
+                    if (chooserIntent.hasExtra(Intent.EXTRA_INITIAL_INTENTS) && !hasCameraPermission()) {
+                        pendingChooserIntent = chooserIntent
+                        requestCameraPermission(false)
+                        return true
+                    }
+                    fileChooserLauncher.launch(chooserIntent)
                     true
                 } catch (e: ActivityNotFoundException) {
                     this@MainActivity.filePathCallback = null
@@ -415,6 +573,32 @@ class MainActivity : AppCompatActivity() {
                     filePathCallback.onReceiveValue(null)
                     false
                 }
+            }
+
+            /* ── دوربینِ داخل اپ ───────────────────────────────────────────
+               وقتی لایه‌ی وب (assets/js/ep-camera.js) با getUserMedia دوربین
+               را باز می‌کند، WebView اجازه را از اینجا می‌پرسد. بدون این بخش،
+               دوربین داخل اپ بی‌صدا کار نمی‌کرد و اپ به دوربین خود گوشی
+               برمی‌گشت. */
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val wantsCamera = request.resources.any { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }
+                val wantsMic = request.resources.any { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
+                val needed = mutableListOf<String>()
+                if (wantsCamera && !hasCameraPermission()) needed.add(Manifest.permission.CAMERA)
+                if (wantsMic && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.RECORD_AUDIO)
+
+                if (needed.isEmpty()) {
+                    try {
+                        request.grant(request.resources)
+                    } catch (e: Throwable) {
+                        try { request.deny() } catch (e2: Throwable) { }
+                    }
+                    return
+                }
+                try { pendingWebPermissionRequest?.deny() } catch (e: Throwable) { }
+                pendingWebPermissionRequest = request
+                cameraPermissionLauncher.launch(needed.toTypedArray())
             }
 
             override fun onGeolocationPermissionsShowPrompt(

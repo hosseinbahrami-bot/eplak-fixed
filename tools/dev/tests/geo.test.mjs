@@ -246,6 +246,26 @@ ok('پل اندروید، توابع موقعیت را به وب می‌دهد',
 ok('بازگشت بی‌نهایت در متدهای مجوز وجود ندارد (this@MainActivity)',
   /this@MainActivity\.hasLocationPermission\(\)/.test(main) && /this@MainActivity\.requestLocationPermission\(\)/.test(main));
 ok('لینک «مشاهده در نقشه» در اپ هم باز می‌شود', /fun openUrl\(url: String\)/.test(main));
+
+/* ── دور ۲۶: عکس و فیلم گرفتن با دوربین گوشی داخل اپ ───────────────── */
+ok('اپ اندروید: گزینه‌ی «دوربین» کنار گالری در پنجره‌ی انتخاب فایل اضافه می‌شود',
+  /MediaStore\.ACTION_IMAGE_CAPTURE/.test(main) && /MediaStore\.ACTION_VIDEO_CAPTURE/.test(main)
+  && /Intent\.EXTRA_INITIAL_INTENTS/.test(main));
+ok('اپ اندروید: وقتی صفحه input با capture باز کند، دوربین پیشنهاد می‌شود',
+  /params\.isCaptureEnabled/.test(main));
+ok('اپ اندروید: اجازه‌ی دوربین پیش از باز شدن دوربین از کاربر گرفته می‌شود',
+  /hasCameraPermission\(\)/.test(main) && /cameraPermissionLauncher/.test(main)
+  && /pendingChooserIntent/.test(main));
+ok('اپ اندروید: دوربین داخل اپ (getUserMedia) از WebView اجازه می‌گیرد',
+  /override fun onPermissionRequest/.test(main) && /RESOURCE_VIDEO_CAPTURE/.test(main)
+  && /RESOURCE_AUDIO_CAPTURE/.test(main));
+ok('اپ اندروید: عکسِ گرفته‌شده با دوربین داخل کش اپ کپی و به صفحه داده می‌شود',
+  /pendingCameraFile/.test(main) && /copyExistingFileToPicked/.test(main)
+  && /FileProvider\.getUriForFile/.test(main));
+ok('اپ: دوربین داخل اپ، عکس و فیلم را به «فایل» برای همان مسیر بارگذاری تبدیل می‌کند',
+  /assets\/js\/ep-camera\.js/.test(indexHtml) && /openReportCamera/.test(reportsJs)
+  && /addCapturedFiles/.test(reportsJs));
+
 ok('صفحه‌ی تنظیمات اپ برای روشن کردن دسترسی باز می‌شود', /ACTION_APPLICATION_DETAILS_SETTINGS/.test(main));
 
 const manifest = read('android-app/app/src/main/AndroidManifest.xml');
@@ -372,7 +392,8 @@ ok('apk اجازه‌ی درخواست شبکه از صفحه‌ی داخلی ر
 ok('سرور، بدنه‌ی JSON را با هر نوع محتوایی می‌خواند و پیام post_max_size می‌دهد',
   /text\/plain/.test(apiReports) && /post_max_size/.test(apiReports) && /413/.test(apiReports));
 ok('کش‌باستر فایل‌های تغییر‌یافته به‌روز شده است',
-  /core\/storage\.js\?v=19/.test(indexHtml) && /modules\/reports\.js\?v=25/.test(indexHtml)
+  /core\/storage\.js\?v=20/.test(indexHtml) && /modules\/reports\.js\?v=26/.test(indexHtml)
+  && /assets\/js\/ep-camera\.js\?v=1/.test(indexHtml)
   && /ep-map\.js\?v=2/.test(indexHtml) && /core\/router\.js\?v=13/.test(indexHtml)
   && /assets\/css\/style\.css\?v=89/.test(indexHtml)
   && /assets\/js\/icons\.js\?v=13/.test(indexHtml)

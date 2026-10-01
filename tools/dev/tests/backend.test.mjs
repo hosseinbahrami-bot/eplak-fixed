@@ -886,6 +886,102 @@ echo json_encode(['n' => (int) $st->fetchColumn()]);`));
 ok('روی سرور فقط یک ردیف برای آن درخواست قدیمی وجود دارد', Number(legacyCount?.n) === 1, String(legacyCount?.n));
 
 /* ═══════════════════════════════════════════════════════════════════
+   دور ۲۶: «عکس و فیلم مجدد بارگذاری نمی‌شود» — ریشه‌ی مشکل
+   ۱) مسیر تکه‌تکه باید شناسه‌ی یکتا را بفرستد (وگرنه سرور رد می‌کند)
+   ۲) دروازه‌ی پشتیبان add_media هم باید حالت «در انتظار اتصال» را بپذیرد
+   ۳) تلاش دوباره، پیوست تکراری نسازد
+   ═══════════════════════════════════════════════════════════════════ */
+console.log('\n=== دور ۲۶: ارسال مجدد عکس/فیلم (تکه‌تکه + دروازه‌ی پشتیبان) ===');
+
+const R26_REF = 'EPL-CHUNK' + Date.now().toString(36).toUpperCase();
+const R26_UPLOAD_ID = (Date.now().toString(16) + 'abcdef1234567890').slice(0, 32);
+const R26_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/* تکه‌ی کامل (index=0, total=1) — دقیقاً همان چیزی که اپ می‌فرستد */
+const r26ChunkUpload = (ref, uploadId, name) => run(`
+$_GET = ['action' => 'chunk'];
+$_POST = [
+  'phone' => '09121112233', 'reportId' => 0, 'client_ref' => '${ref}',
+  'uploadId' => '${uploadId}', 'index' => 0, 'total' => 1,
+  'name' => '${name}', 'mime' => 'image/png', 'data' => '${R26_PNG}',
+];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/media.php';`);
+
+const r26Chunked = pickJson(await r26ChunkUpload(R26_REF, R26_UPLOAD_ID, 'chunk-a.png'));
+ok('عکس از مسیر تکه‌تکه، پیش از ساخته شدن گزارش روی سرور ذخیره می‌شود (شناسه‌ی یکتا)',
+  r26Chunked?.success === true && r26Chunked?.done === true && r26Chunked?.staged === true,
+  JSON.stringify(r26Chunked).slice(0, 200));
+
+const r26NoRefChunk = pickJson(await r26ChunkUpload('', R26_UPLOAD_ID + '0f', 'chunk-noref.png'));
+ok('بدون شناسه‌ی یکتا، سرور فایلِ reportId=0 را رد می‌کند (ریشه‌ی باگ پیشین)',
+  r26NoRefChunk?.success === false, JSON.stringify(r26NoRefChunk).slice(0, 140));
+
+/* دروازه‌ی پشتیبان: api/reports.php?action=add_media در حالت «در انتظار اتصال» */
+const r26GatewayUpload = (ref, name) => run(`
+$_POST = [
+  'action' => 'add_media', 'phone' => '09121112233', 'reportId' => 0,
+  'client_ref' => '${ref}', 'name' => '${name}', 'mime' => 'image/png',
+  'data' => 'data:image/png;base64,${R26_PNG}',
+];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`);
+
+const r26Gateway = pickJson(await r26GatewayUpload(R26_REF, 'r26Gateway-b.png'));
+ok('اگر مسیر تکه‌تکه بسته باشد، دروازه‌ی پشتیبان گزارش‌ها فایل «در انتظار اتصال» را می‌پذیرد',
+  r26Gateway?.success === true && r26Gateway?.staged === true && Number(r26Gateway?.media_count) === 2,
+  JSON.stringify(r26Gateway).slice(0, 200));
+
+const r26GatewayNoRef = pickJson(await r26GatewayUpload('', 'r26Gateway-noref.png'));
+ok('دروازه‌ی پشتیبان بدون شناسه‌ی یکتا و بدون گزارش، فایل سرگردان نمی‌سازد',
+  r26GatewayNoRef?.success !== true, JSON.stringify(r26GatewayNoRef).slice(0, 140));
+
+/* تلاش دوباره: همان فایل با همان شناسه، پیوست دوم نمی‌سازد */
+const r26RetrySame = pickJson(await r26GatewayUpload(R26_REF, 'r26Gateway-b.png'));
+const r26RetryRows = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+$st = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :r AND report_id = 0');
+$st->execute([':r' => '${R26_REF}']);
+echo json_encode(['staged' => (int) $st->fetchColumn()]);`));
+ok('تلاش دوباره‌ی همان فایل، پیوست تکراری در حالت «در انتظار اتصال» نمی‌سازد',
+  r26RetrySame?.success === true && Number(r26RetryRows?.staged) === 2, JSON.stringify(r26RetryRows));
+
+/* ساخت گزارش: هر دو مسیر (تکه‌تکه و پشتیبان) به «یک» گزارش وصل می‌شوند */
+const r26Report = pickJson(await run(`
+$_POST = [
+  'phone' => '09121112233', 'title' => 'گزارش مسیر تکه‌تکه', 'description' => 'دور ۲۶',
+  'category' => 'سایر', 'client_ref' => '${R26_REF}',
+];
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_SERVER['CONTENT_TYPE'] = 'multipart/form-data; boundary=x';
+require '${APP}/api/reports.php';`));
+ok('گزارشِ فایل‌های تکه‌تکه، با هر دو پیوست و یک کد پیگیری ساخته می‌شود',
+  r26Report?.success === true && !!r26Report?.tracking_code
+  && Array.isArray(r26Report?.media) && r26Report.media.length === 2,
+  `media=${r26Report?.media?.length} code=${r26Report?.tracking_code}`);
+
+const r26Attached = pickJson(await run(`
+require_once '${APP}/admin/includes/db.php';
+$st = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :r AND report_id = :id');
+$st->execute([':r' => '${R26_REF}', ':id' => ${Number(r26Report?.id) || 0}]);
+$left = $pdo->prepare('SELECT COUNT(*) FROM report_media WHERE client_ref = :r AND report_id = 0');
+$left->execute([':r' => '${R26_REF}']);
+echo json_encode(['attached' => (int) $st->fetchColumn(), 'left' => (int) $left->fetchColumn()]);`));
+ok('فایل‌های هر دو مسیر به همان یک گزارش وصل شدند و چیزی در انتظار نماند',
+  Number(r26Attached?.attached) === 2 && Number(r26Attached?.left) === 0, JSON.stringify(r26Attached));
+
+const r26List = pickJson(await run(`
+$_GET = ['phone' => '09121112233'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+require '${APP}/api/reports.php';`));
+const r26Rows = (Array.isArray(r26List?.reports) ? r26List.reports : [])
+  .filter(r => String(r.client_ref || '') === R26_REF);
+ok('در فهرست/جزئیات گزارش هم فقط یک ردیف با یک کد پیگیری دیده می‌شود',
+  r26Rows.length === 1, `rows=${r26Rows.length}`);
+
+/* ═══════════════════════════════════════════════════════════════════
    پاسخ‌دادن به تیکت از پنل ادمین باید برای کاربر اعلان بسازد
    (باگ گزارش‌شده: پاسخ مدیر هیچ اعلانی نمی‌ساخت)
    ═══════════════════════════════════════════════════════════════════ */

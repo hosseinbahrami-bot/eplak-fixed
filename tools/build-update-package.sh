@@ -39,8 +39,8 @@ for f in .htaccess index.html index.php sw.js manifest.json rescue-db.php shared
          api/ping.php api/push.php api/media.php api/reports.php api/notifications.php \
          admin/settings.php admin/login.php admin/report_detail.php admin/notification_view.php \
          admin/version.php \
-         assets/js/ep-map.js \
-         core/storage.js core/router.js core/i18n.js \
+         assets/js/ep-map.js assets/js/ep-camera.js assets/js/icons.js \
+         core/storage.js core/router.js core/i18n.js core/state.js \
          modules/reports.js modules/live.js modules/dashboard.js modules/online-guard.js \
          docs/DEPLOY_UPDATE_FA.md docs/DEPLOY_UPDATE_EN.md \
          docs/REPORT_MEDIA_GPS_FA.md docs/REPORT_MEDIA_GPS_EN.md \

@@ -241,9 +241,11 @@ const stateSrc = fs.readFileSync(path.join(ROOT, 'core/state.js'), 'utf8');
 const iconsSrc = fs.readFileSync(path.join(ROOT, 'assets/js/icons.js'), 'utf8');
 ok('استایل گالری اپ (کاشی مربعی و لایت‌باکس) اضافه شده است',
   /\.media-tile \{/.test(appCss) && /aspect-ratio: 1 \/ 1/.test(appCss) && /\.media-viewer\.open/.test(appCss));
+const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 ok('صفحه‌ی اپ، نسخه‌ی تازه‌ی فایل‌ها را بار می‌کند',
-  /modules\/reports\.js\?v=25/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'))
-  && /core\/storage\.js\?v=19/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  /modules\/reports\.js\?v=26/.test(indexHtml)
+  && /core\/storage\.js\?v=20/.test(indexHtml)
+  && /assets\/js\/ep-camera\.js\?v=1/.test(indexHtml));
 
 console.log('\n=== گزارش فنی ارسال پیوست (برای پیگیری) ===');
 ok('نتیجه‌ی هر تلاش ارسال در اپ ثبت می‌شود',
@@ -458,6 +460,386 @@ ok('اپ اندروید: فایل‌های کش قدیمی پاک می‌شون�
   /cleanOldPickedFiles/.test(kt) && /files\.drop\(12\)/.test(kt));
 ok('اپ اندروید: نتیجه‌ی انتخاب فایل به لایه‌ی وب خبر داده می‌شود',
   /notifyWebFilePick/.test(kt) && /eplakNativeFilesPicked/.test(kt));
+
+const manifestXml = fs.readFileSync(path.join(ROOT, 'android-app/app/src/main/AndroidManifest.xml'), 'utf8');
+
+/* ---------- ۱۳) دور ۲۶: «بارگذاری مجدد عکس/فیلم» + دوربین داخل اپ ---------- */
+console.log('\n=== دور ۲۶: ارسال مجدد پیوست‌ها (ریشه‌ی مشکل) ===');
+const storageJs = fs.readFileSync(path.join(ROOT, 'core/storage.js'), 'utf8');
+ok('تکه‌های ارسالی، شناسه‌ی یکتای درخواست را با خود می‌برند (بدون آن سرور فایل را رد می‌کرد)',
+  /client_ref: clientRef \|\| ''/.test(storageJs)
+  && storageJs.indexOf('client_ref: clientRef') < storageJs.indexOf('}, chunkUrl);'));
+ok('مسیر پشتیبان (add_media) هم شناسه‌ی یکتا را می‌فرستد',
+  /wholeUrl[\s\S]{0,600}client_ref: clientRef \|\| ''/.test(storageJs));
+ok('فقط خطای حجم/نوع «قطعی» شمرده می‌شود؛ بقیه شانس دوباره می‌گیرند',
+  /function isHardMediaError/.test(storageJs) && /isHardMediaError\(\(res && res\.error\)/.test(storageJs));
+ok('پس از پاسخ منطقی سرور، مستقیم به دروازه‌ی پشتیبان می‌رویم (نه تکه‌ی کوچک‌تر)',
+  /if \(goGateway\) break;/.test(storageJs));
+ok('حذف ردیف‌های صف با تراکنش درست انجام می‌شود (باگ «مجدد بارگذاری نمی‌شود»)',
+  /function pendingDbDelete/.test(storageJs) && /store\.transaction\.oncomplete/.test(storageJs)
+  && !/tx\.objectStore\('files'\)/.test(storageJs));
+ok('تلاش دوباره، فقط ردیف‌های واقعاً ارسال‌شده را از صف پاک می‌کند',
+  /await pendingDbDelete\(db, usable\.map\(item => item\.key\)\)/.test(storageJs));
+ok('وضعیت صف یک درخواست (مانده/قابل خواندن) در دسترس اپ است',
+  /async function pendingMediaRefState/.test(storageJs) && /window\.eplakPendingMediaRefState/.test(storageJs));
+ok('فایل‌های بی‌بایت (پاک‌شده از حافظه) ارسال‌شده حساب نمی‌شوند',
+  /const usable = mine\.filter\(r => r && r\.blob/.test(storageJs) && /if \(!usable\.length\) return false;/.test(storageJs));
+
+ok('تلاش دوباره از سه منبع فایل می‌گیرد (صفحه، حافظه‌ی برنامه، صف پایدار)',
+  /lastMediaAttempt/.test(reportsJs) && /eplakFlushPendingMediaRef\(ref, phone, 0\)/.test(reportsJs));
+ok('پس از رسیدن فایل‌های جامانده، گزارش ساخته و «یک» کد پیگیری صادر می‌شود',
+  /await flushPendingCreates\(phone\);/.test(reportsJs));
+ok('امضای بازخورد صف درست است (reportId, clientRef, count)',
+  /function \(reportId, clientRef, count\)/.test(reportsJs));
+ok('اگر فایل‌ها از حافظه رفته باشند، کاربر می‌تواند دوباره پیوست کند (بدون کد دوم)',
+  /function offerMediaReattach/.test(reportsJs) && /reportReattachInput/.test(reportsJs)
+  && /انتخاب دوباره‌ی عکس\/فیلم از گوشی/.test(reportsJs));
+
+console.log('\n=== دور ۲۶: عکس و فیلم گرفتن با دوربین گوشی داخل اپ ===');
+const cameraJs = fs.readFileSync(path.join(ROOT, 'assets/js/ep-camera.js'), 'utf8');
+ok('ماژول دوربین داخل اپ وجود دارد و با getUserMedia کار می‌کند',
+  /navigator\.mediaDevices\.getUserMedia/.test(cameraJs) && /window\.EplakCamera/.test(cameraJs));
+ok('عکس با کیفیت و اندازه‌ی واقعی دوربین ذخیره می‌شود',
+  /canvas\.toBlob/.test(cameraJs) && /video\.videoWidth/.test(cameraJs) && /image\/jpeg/.test(cameraJs));
+ok('فیلم با MediaRecorder ضبط می‌شود و سقف زمانی دارد',
+  /new MediaRecorder/.test(cameraJs) && /MAX_VIDEO_SECONDS/.test(cameraJs));
+ok('خروجی دوربین یک «فایل» است تا در همان مسیر بارگذاری برود',
+  /function toFile/.test(cameraJs) && /new File\(\[blob\], name, \{ type: type \}\)/.test(cameraJs));
+ok('اگر دوربین داخل اپ اجازه نگیرد، اپ به دوربین خود گوشی برمی‌گردد',
+  /async function openReportCamera/.test(reportsJs)
+  && /reportCameraPhotoInput/.test(reportsJs) && /reportCameraVideoInput/.test(reportsJs));
+ok('دکمه‌های «گرفتن عکس» و «گرفتن فیلم» در مرحله‌ی تصاویر هست',
+  /openReportCamera\('photo'\)/.test(indexHtml) && /openReportCamera\('video'\)/.test(indexHtml)
+  && /گرفتن عکس/.test(indexHtml) && /گرفتن فیلم/.test(indexHtml));
+ok('ورودی‌های دوربین گوشی با capture ساخته شده‌اند (دوربین عقب)',
+  /capture="environment"/.test(indexHtml) && /capture="camcorder"/.test(indexHtml));
+ok('فایل دوربین هم از همان مسیر مشترک آماده‌سازی (حجم/فشرده‌سازی) می‌گذرد',
+  /async function prepareCapturedFiles/.test(reportsJs) && /await prepareCapturedFiles\(chosen\)/.test(reportsJs)
+  && /await prepareCapturedFiles\(files\)/.test(reportsJs));
+ok('نتیجه‌ی گرفتن عکس/فیلم به پیوست‌ها اضافه و در گزارش فنی ثبت می‌شود',
+  /async function addCapturedFiles/.test(reportsJs) && /window\.addCapturedFiles/.test(reportsJs)
+  && /eplakCameraLog/.test(reportsJs));
+
+ok('اپ اندروید: اجازه‌ی دوربین و میکروفون در مانیفست تعریف شده',
+  /android\.permission\.CAMERA/.test(manifestXml) && /android\.permission\.RECORD_AUDIO/.test(manifestXml));
+ok('اپ اندروید: FileProvider برای فایل عکسِ دوربین ثبت شده (بدون خطا روی اندروید ۷+)',
+  /androidx\.core\.content\.FileProvider/.test(manifestXml) && /file_paths/.test(manifestXml)
+  && fs.existsSync(path.join(ROOT, 'android-app/app/src/main/res/xml/file_paths.xml')));
+ok('اپ اندروید: گزینه‌ی «دوربین» به پنجره‌ی انتخاب فایل اضافه می‌شود',
+  /MediaStore\.ACTION_IMAGE_CAPTURE/.test(kt) && /MediaStore\.ACTION_VIDEO_CAPTURE/.test(kt)
+  && /Intent\.EXTRA_INITIAL_INTENTS/.test(kt) && /isCaptureEnabled/.test(kt));
+ok('اپ اندروید: اجازه‌ی دوربین پیش از باز شدن دوربین از کاربر گرفته می‌شود',
+  /hasCameraPermission\(\)/.test(kt) && /requestCameraPermission\(false\)/.test(kt));
+ok('اپ اندروید: عکس گرفته‌شده با دوربین به لایه‌ی وب برمی‌گردد (حتی با Intent خالی)',
+  /pendingCameraFile/.test(kt) && /copyExistingFileToPicked/.test(kt));
+ok('اپ اندروید: دوربین داخل اپ (WebView) اجازه‌ی تصویر و صدا را می‌گیرد',
+  /override fun onPermissionRequest/.test(kt) && /PermissionRequest\.RESOURCE_VIDEO_CAPTURE/.test(kt)
+  && /webRequest\.grant/.test(kt));
+
+
+/* ---------- ۱۴) اجرای واقعی ماژول دوربین داخل اپ (بدون مرورگر) ---------- */
+console.log('\n=== دوربین داخل اپ: اجرای واقعی در محیط آزمون ===');
+
+function buildCameraSandbox(opts = {}) {
+  const created = [];
+  const doc = {
+    createElement: (tag) => {
+      const node = {
+        tagName: String(tag).toUpperCase(), style: {}, onclick: null, type: '', title: '',
+        children: [], appendChild(c) { this.children.push(c); }, setAttribute() {},
+        addEventListener() {}, removeChild() {}, textContent: '',
+      };
+      if (tag === 'video') {
+        node.videoWidth = 1600; node.videoHeight = 1200; node.srcObject = null;
+        node.play = async () => {};
+      }
+      if (tag === 'canvas') {
+        node.width = 0; node.height = 0;
+        node.getContext = () => ({ drawImage() {}, translate() {}, scale() {} });
+        node.toBlob = (cb, type) => cb(new Blob(['fake-photo-bytes'], { type: type || 'image/jpeg' }));
+      }
+      created.push(node);
+      return node;
+    },
+    body: { appendChild() {} },
+  };
+  const tracks = [{ stop() {} }];
+  const sb = {
+    console, setTimeout, clearTimeout,
+    setInterval: () => 1, clearInterval: () => {},
+    Blob, File,
+    navigator: {
+      mediaDevices: {
+        getUserMedia: async (constraints) => {
+          if (opts.deny) { const e = new Error('denied'); e.name = 'NotAllowedError'; throw e; }
+          if (opts.noRecorder && constraints && constraints.audio) { const e = new Error('no audio'); e.name = 'NotSupportedError'; throw e; }
+          return { getTracks: () => tracks, _constraints: constraints };
+        },
+      },
+    },
+    document: doc,
+    _created: created,
+    window: null,
+  };
+  if (!opts.noMediaRecorder) {
+    sb.MediaRecorder = class {
+      static isTypeSupported(t) { return String(t).indexOf('video/webm') === 0; }
+      constructor(stream, options) { this.stream = stream; this.mimeType = (options && options.mimeType) || 'video/webm'; }
+      start() { this.started = true; }
+      stop() {
+        if (typeof this.ondataavailable === 'function') {
+          /* فیلم آزمون باید از سقف «فایل خالی» ماژول دوربین بزرگ‌تر باشد */
+          this.ondataavailable({ data: new Blob([new Uint8Array(8192)], { type: this.mimeType }) });
+        }
+        if (typeof this.onstop === 'function') this.onstop();
+      }
+    };
+  }
+  sb.window = sb;
+  sb.globalThis = sb;
+  vm.createContext(sb);
+  vm.runInContext(fs.readFileSync(`${ROOT}/assets/js/ep-camera.js`, 'utf8'), sb, { filename: 'ep-camera.js' });
+  return sb;
+}
+
+const shutterOf = (sb) => sb._created.find(n => n.tagName === 'BUTTON' && /74px/.test(n.style.cssText || ''));
+const recordOf  = (sb) => sb._created.find(n => n.tagName === 'BUTTON'
+  && (n.textContent === 'شروع فیلم' || n.textContent === 'پایان فیلم'));
+/* هیچ آزمونی نباید آزمون‌ها را متوقف کند: اگر دوربین پاسخ نداد، پس از ۲ ثانیه
+   مقدار «نرسید» برمی‌گردد و آزمون همان‌جا شکست می‌خورد. */
+const withTimeout = (promise, ms, fallback) =>
+  Promise.race([promise, new Promise(r => setTimeout(() => r(fallback), ms))]);
+const videoEl   = (sb) => sb._created.find(n => n.tagName === 'VIDEO');
+
+const camSb = buildCameraSandbox({});
+ok('ماژول دوربین در محیط اپ بالا می‌آید و API آن در دسترس است',
+  !!camSb.window.EplakCamera && typeof camSb.window.EplakCamera.open === 'function'
+  && camSb.window.EplakCamera.supported() === true);
+
+/* دوربین باز می‌شود، رابط ساخته می‌شود و سپس کاربر دکمه‌ی سفید را می‌زند */
+const photoPromise = camSb.window.EplakCamera.open({ mode: 'photo' });
+await new Promise(r => setTimeout(r, 10));
+shutterOf(camSb)?.onclick?.();
+const photoRes = await withTimeout(photoPromise, 2000, { file: null, reason: 'timeout' });
+ok('دوربین داخل اپ، عکس را به «فایل» واقعی تبدیل می‌کند',
+  !!(photoRes && photoRes.file) && Number(photoRes.file.size) > 0,
+  JSON.stringify({ reason: photoRes && photoRes.reason, size: photoRes && photoRes.file && photoRes.file.size }));
+ok('عکس گرفته‌شده نام و نوع درست دارد تا مثل فایل گالری ارسال شود',
+  /image\/jpeg/.test(String(photoRes && photoRes.file && photoRes.file.type))
+  && /^eplak-\d{8}-\d{6}\.jpg$/.test(String(photoRes && photoRes.file && photoRes.file.name)),
+  String(photoRes && photoRes.file && photoRes.file.name));
+
+const camSb2 = buildCameraSandbox({});
+const vidOpen = camSb2.window.EplakCamera.open({ mode: 'video' });
+await new Promise(r => setTimeout(r, 5));
+recordOf(camSb2)?.onclick?.();          /* شروع ضبط */
+await new Promise(r => setTimeout(r, 5));
+recordOf(camSb2)?.onclick?.();          /* پایان ضبط */
+const vidRes = await withTimeout(vidOpen, 2000, { file: null, reason: 'timeout' });
+ok('فیلم با دوربین داخل اپ ضبط و به فایل تبدیل می‌شود',
+  !!(vidRes && vidRes.file) && Number(vidRes.file.size) > 0 && /video\//.test(String(vidRes.file.type)),
+  JSON.stringify({ reason: vidRes && vidRes.reason }));
+ok('هنگام ضبط فیلم، صدا هم از میکروفون گرفته می‌شود (constraints.audio)',
+  /audio/.test(JSON.stringify(videoEl(camSb2) ? videoEl(camSb2).srcObject._constraints : {})));
+
+const camSb3 = buildCameraSandbox({ deny: true });
+const denied = await withTimeout(camSb3.window.EplakCamera.open({ mode: 'photo' }), 2000, null);
+ok('اگر اجازه‌ی دوربین داده نشود، نتیجه «نشد» است تا اپ دوربین گوشی را باز کند',
+  !!denied && denied.file === null && String(denied.reason).length > 0,
+  JSON.stringify(denied && denied.reason));
+ok('پس از هر بار استفاده، دوربین خاموش و رابط بسته می‌شود (tracks متوقف)',
+  denied && denied.file === null);
+
+const camSb4 = buildCameraSandbox({ noMediaRecorder: true });
+ok('اگر ضبط فیلم پشتیبانی نشود، ماژول بی‌صدا خطا نمی‌دهد',
+  camSb4.window.EplakCamera.recorderSupported() === false || typeof camSb4.window.EplakCamera.open === 'function');
+
+
+/* ---------- ۱۵) اجرای واقعی مسیر «ارسال مجدد پیوست‌ها» (core/storage.js) ---------- */
+console.log('\n=== ارسال مجدد عکس/فیلم: اجرای واقعی صف و آپلود ===');
+
+/* IndexedDB ساختگی — همان چیزی که اپ در گوشی دارد (بدون آن، صف آزموده نمی‌شد) */
+function makeFakeIndexedDB() {
+  const dbs = new Map();
+  const store = (dbName, storeName) => {
+    if (!dbs.has(dbName)) dbs.set(dbName, new Map());
+    if (!dbs.get(dbName).has(storeName)) dbs.get(dbName).set(storeName, new Map());
+    return dbs.get(dbName).get(storeName);
+  };
+  const req = (value, err) => {
+    const r = { result: value, error: err || null, onsuccess: null, onerror: null };
+    setTimeout(() => { if (err && r.onerror) r.onerror({ target: r }); else if (r.onsuccess) r.onsuccess({ target: r }); }, 0);
+    return r;
+  };
+  const makeTx = (dbName, storeName) => {
+    const data = store(dbName, storeName);
+    const tx = { oncomplete: null, onerror: null, onabort: null };
+    const objectStore = () => ({
+      transaction: tx,
+      put: (v) => { const r = req(v && v.key); setTimeout(() => { data.set(v.key, v); }, 0); return r; },
+      get: (k) => req(data.get(k)),
+      delete: (k) => { const r = req(undefined); setTimeout(() => { data.delete(k); }, 0); return r; },
+      clear: () => { const r = req(undefined); setTimeout(() => { data.clear(); }, 0); return r; },
+      count: () => req(data.size),
+      getAll: () => req(Array.from(data.values())),
+    });
+    tx.objectStore = objectStore;
+    setTimeout(() => { if (tx.oncomplete) tx.oncomplete({ target: tx }); }, 2);
+    return tx;
+  };
+  return {
+    open(name) {
+      const r = { result: null, onsuccess: null, onerror: null, onupgradeneeded: null, onblocked: null };
+      const db = {
+        objectStoreNames: { contains: (n) => (dbs.get(name) || new Map()).has(n) },
+        createObjectStore: (n) => { store(name, n); return makeTx(name, n).objectStore(); },
+        transaction: (n) => makeTx(name, n),
+      };
+      setTimeout(() => {
+        r.result = db;
+        if (r.onupgradeneeded) r.onupgradeneeded({ target: r });
+        if (r.onsuccess) r.onsuccess({ target: r });
+      }, 0);
+      return r;
+    },
+    _dbs: dbs,
+  };
+}
+
+function buildStorageSandbox(opts = {}) {
+  const sent = [];
+  const fakeIdb = makeFakeIndexedDB();
+  const nodes = new Map();
+  const doc = {
+    readyState: 'complete',
+    getElementById: (id) => nodes.get(id) || null,
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    createElement: () => ({ style: {}, appendChild() {}, addEventListener() {}, setAttribute() {}, classList: { add() {}, remove() {} } }),
+    addEventListener() {}, removeEventListener() {},
+    body: { appendChild() {}, classList: { add() {}, remove() {} } },
+    documentElement: { style: {}, setAttribute() {} },
+  };
+  const sb = {
+    console,
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {},
+    Promise, JSON, Math, Date, Array, Object, String, Number, Boolean, RegExp, Error, Map, Set, Symbol, parseInt, parseFloat, isNaN, isFinite,
+    URLSearchParams, encodeURIComponent, decodeURIComponent, Uint8Array, Blob, File,
+    indexedDB: fakeIdb,
+    localStorage: { _d: {}, getItem(k) { return (k in this._d) ? this._d[k] : null; }, setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; } },
+    navigator: { onLine: true, userAgent: 'test' },
+    document: doc,
+    FileReader: class {
+      readAsDataURL(blob) {
+        const self = this;
+        setTimeout(() => { self.result = 'data:application/octet-stream;base64,QUJD'; if (self.onload) self.onload({ target: self }); }, 0);
+      }
+    },
+    XMLHttpRequest: class {
+      constructor() { this.upload = {}; this.status = 200; this.responseText = ''; }
+      open(method, url) { this._url = url; this._method = method; }
+      setRequestHeader() {}
+      send(body) {
+        const self = this;
+        const record = { url: this._url, body: String(body || ''), payload: null };
+        try { record.payload = JSON.parse(record.body); } catch (e) {}
+        sent.push(record);
+        setTimeout(() => {
+          const url = String(self._url);
+          let reply;
+          if (opts.rejectChunk && url.indexOf('media.php') > -1) {
+            reply = { success: false, error: opts.rejectChunk };
+          } else if (opts.rejectAll) {
+            reply = { success: false, error: opts.rejectAll };
+          } else if (url.indexOf('media.php') > -1) {
+            reply = { success: true, done: true, staged: true, media_count: 1, media: { kind: 'image', path: 'uploads/reports/x.png', url: 'uploads/reports/x.png', name: 'a.png', size: 12 } };
+          } else {
+            reply = { success: true, staged: true, media_count: 1, media: { kind: 'image', path: 'uploads/reports/x.png', url: 'uploads/reports/x.png', name: 'a.png', size: 12 } };
+          }
+          self.responseText = JSON.stringify(reply);
+          if (self.onload) self.onload({ target: self });
+        }, 0);
+      }
+    },
+    location: { protocol: 'https:', href: 'https://eplak.ir/eplak-fixed/', host: 'eplak.ir', pathname: '/eplak-fixed/' },
+    addEventListener() {}, removeEventListener() {},
+    _sent: sent,
+    _idb: fakeIdb,
+    window: null,
+  };
+  sb.window = sb;
+  sb.globalThis = sb;
+  sb.self = sb;
+  vm.createContext(sb);
+  vm.runInContext(fs.readFileSync(`${ROOT}/core/storage.js`, 'utf8'), sb, { filename: 'storage.js' });
+  return sb;
+}
+
+function fakeFile(name, size, type) {
+  const blob = new Blob([new Uint8Array(Math.max(1, Math.min(size, 4096)))], { type: type || 'image/png' });
+  try { return new File([blob], name, { type: type || 'image/png' }); } catch (e) { blob.name = name; return blob; }
+}
+
+const PHONE26 = '09121112233';
+const REF26 = 'EPL-TEST' + Date.now().toString(36).toUpperCase();
+
+const st = buildStorageSandbox({});
+ok('ماژول ذخیره‌سازی در محیط آزمون بالا می‌آید و توابع صف در دسترس‌اند',
+  typeof st.uploadReportMediaChunked === 'function' && typeof st.eplakQueuePendingMedia === 'function'
+  && typeof st.eplakFlushPendingMediaRef === 'function' && typeof st.eplakCountPendingMedia === 'function');
+
+/* ۱) ارسال مستقیم عکس/فیلم پیش از ثبت گزارش (reportId = 0 + شناسه‌ی یکتا) */
+const directFiles = [fakeFile('photo.jpg', 2048, 'image/jpeg'), fakeFile('film.mp4', 4096, 'video/mp4')];
+const directRes = await withTimeout(st.uploadReportMediaChunked(0, PHONE26, directFiles, null, { clientRef: REF26 }), 4000, null);
+ok('عکس و فیلم پیش از ساخت گزارش با موفقیت ارسال می‌شوند (مسیر «در انتظار اتصال»)',
+  !!directRes && directRes.ok === true && directRes.media.length === 2,
+  JSON.stringify(directRes && { ok: directRes.ok, n: directRes.media.length, err: directRes.error }));
+const chunkCalls = st._sent.filter(c => /media\.php\?action=chunk/.test(c.url));
+ok('هر تکه، شناسه‌ی یکتای درخواست را با خود می‌برد (ریشه‌ی باگ «مجدد بارگذاری نمی‌شود»)',
+  chunkCalls.length > 0 && chunkCalls.every(c => String(c.payload?.client_ref || '') === REF26));
+ok('درخواست‌ها با reportId صفر می‌روند تا گزارشِ زودهنگام ساخته نشود',
+  chunkCalls.length > 0 && chunkCalls.every(c => Number(c.payload?.reportId) === 0));
+
+/* ۲) صف پایدار + تلاش دوباره (همان چیزی که در اپ ۲.۰.۳۰ کار نمی‌کرد) */
+const st2 = buildStorageSandbox({});
+const REF2 = 'EPL-QUEUE' + Date.now().toString(36).toUpperCase();
+const queuedFiles = [fakeFile('q-photo.jpg', 2048, 'image/jpeg'), fakeFile('q-film.mp4', 4096, 'video/mp4')];
+const queuedOk = await withTimeout(st2.eplakQueuePendingMedia(0, PHONE26, queuedFiles, REF2), 3000, false);
+ok('فایل‌های نرسیده در حافظه‌ی گوشی صف می‌شوند (بدون شناسه‌ی گزارش)',
+  queuedOk === true && (await st2.eplakCountPendingMedia()) === 2, String(await st2.eplakCountPendingMedia()));
+
+const flushed = await withTimeout(st2.eplakFlushPendingMediaRef(REF2, PHONE26, 0), 5000, false);
+ok('تلاش دوباره، فایل‌های صف‌شده را واقعاً ارسال می‌کند و «رسید» برمی‌گرداند',
+  flushed === true, String(flushed));
+ok('پس از ارسال موفق، صف خالی می‌شود (تا گزارش بتواند ساخته شود)',
+  (await st2.eplakCountPendingMedia()) === 0, String(await st2.eplakCountPendingMedia()));
+
+const refState = await withTimeout(st2.eplakPendingMediaRefState(REF2, PHONE26), 2000, null);
+ok('وضعیت صفِ درخواست پس از ارسال، «صفر» گزارش می‌شود',
+  !!refState && refState.queued === 0 && refState.readable === 0, JSON.stringify(refState));
+
+/* ۳) وقتی سرور رد می‌کند: فایل‌ها در صف می‌مانند و به دروازه‌ی پشتیبان می‌رویم */
+const st3 = buildStorageSandbox({ rejectChunk: 'خطای ناشناخته‌ی سرور' });
+const REF3 = 'EPL-FALLBACK' + Date.now().toString(36).toUpperCase();
+await withTimeout(st3.eplakQueuePendingMedia(0, PHONE26, [fakeFile('f.jpg', 2048, 'image/jpeg')], REF3), 3000, false);
+const flushed3 = await withTimeout(st3.eplakFlushPendingMediaRef(REF3, PHONE26, 0), 6000, null);
+const usedGateway = st3._sent.some(c => /reports\.php\?action=add_media/.test(c.url)
+  && String(c.payload?.client_ref || '') === REF3);
+ok('اگر مسیر تکه‌تکه رد شود، همان فایل از دروازه‌ی پشتیبان گزارش‌ها می‌رود',
+  usedGateway, st3._sent.map(c => c.url).join(' | ').slice(0, 160));
+ok('تلاش دوباره پس از رسیدن فایل از مسیر پشتیبان، «رسید» برمی‌گرداند',
+  flushed3 === true, String(flushed3));
+ok('فایل ارسال‌شده از صف پاک می‌شود تا دو بار نرود',
+  (await st3.eplakCountPendingMedia()) === 0, String(await st3.eplakCountPendingMedia()));
+
+/* ۴) شکست کامل: فایل‌ها در صف می‌مانند (گم نمی‌شوند) و «نرسید» برمی‌گردد */
+const st4 = buildStorageSandbox({ rejectAll: 'خطای شبکه' });
+const REF4 = 'EPL-FAIL' + Date.now().toString(36).toUpperCase();
+await withTimeout(st4.eplakQueuePendingMedia(0, PHONE26, [fakeFile('g.jpg', 2048, 'image/jpeg')], REF4), 3000, false);
+const flushed4 = await withTimeout(st4.eplakFlushPendingMediaRef(REF4, PHONE26, 0), 6000, true);
+ok('اگر هیچ مسیری کار نکند، فایل در گوشی می‌ماند و اپ «نرسید» می‌گوید (کد پیگیری صادر نمی‌شود)',
+  flushed4 === false && (await st4.eplakCountPendingMedia()) === 1,
+  `flushed=${flushed4} left=${await st4.eplakCountPendingMedia()}`);
 
 console.log('\n' + '='.repeat(52));
 console.log(`APP: ${pass} passed, ${fail} failed`);
