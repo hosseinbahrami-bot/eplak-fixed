@@ -10,9 +10,9 @@ changes **appear on the real site**.
 Download the update package (one file):
 
 - **Direct link:**
-  `https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/eplak-fixed-update.zip`
+  `https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip`
 - or open the file page and click **Download**:
-  `https://github.com/hosseinbahrami-bot/eplak-fixed/blob/arena/01a0db08-eplak-fixed/eplak-fixed-update.zip`
+  `https://github.com/hosseinbahrami-bot/eplak-fixed/blob/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip`
 - Release page with the same link and notes:
   `https://github.com/hosseinbahrami-bot/eplak-fixed/releases/tag/v2.0-eplak-update`
 
@@ -29,6 +29,7 @@ videos), `shared/config.php` (your server settings).
 - `api/media.php` — safe serving of attachment files
 - `.htaccess` — caching + security rules (explained in section 5)
 - `shared/notification_reads.php` — records who read each notification (per-user read state)
+- `core/places-data.js` · `core/places.js` · `modules/city-map.js` — “City Map & Places” (128 Varamin places + routing with Neshan; web files only, no database change; guide: `docs/CITY_MAP_EN.md`)
 
 **Changed files:**
 - `shared/bootstrap.php` — automatic database-schema repair (fixes `send_id`)
@@ -242,6 +243,7 @@ asks for the phone number and the verification code again. (Browser sessions are
 - [ ] If it did not arrive: **Settings → “Check the notification chain”** (step-by-step cause) and the section “I set a report to in progress / done but the citizen got no notification” in `docs/FIREBASE_SETUP_EN.md`
 - [ ] **Read status:** open a notification in the app → panel → Notifications → eye icon
       (view recipients) → it should show “خوانده شده / Read”
+- [ ] **City Map & Places**: Home → “City Map” → colored markers and category chips are visible; “My location” drops a blue dot; “Dr. Mofatteh Hospital” → “Route with Neshan” → the Neshan app opens with a route from your position (needs the new APK; in a browser the Neshan web version opens)
 - [ ] If anything errors: `admin → تنظیمات → Server technical status` and the
       **Database structure** section
 

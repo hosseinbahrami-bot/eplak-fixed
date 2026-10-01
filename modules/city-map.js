@@ -513,8 +513,11 @@
     var rect = el.canvas.getBoundingClientRect();
     var sheetH = (el.sheet.offsetHeight || 0) + 10;
     var visibleH = Math.max(90, rect.height - sheetH);
-    var shift = rect.height / 2 - visibleH / 2;       /* نقطه باید این‌قدر بالاتر از مرکز بیفتد */
-    if (shift > 1) {
+    /* سنجاقِ مکان (نوک آن) در ~۶۲٪ ارتفاعِ بخش دیده‌شده بنشیند؛ سنجاق ۴۱px بالاتر از نوکش است
+       و نباید زیر لبه‌ی بالای نقشه برود */
+    var targetY = Math.max(52, visibleH * 0.62);
+    var shift = rect.height / 2 - targetY;            /* نقطه باید این‌قدر بالاتر از مرکز بیفتد */
+    if (Math.abs(shift) > 1) {
       var ll = st.map.pxToLatLng(rect.width / 2, rect.height / 2 + shift);
       st.map.panTo(ll.lat, ll.lng);
     }
@@ -569,6 +572,7 @@
       '<div class="cm-sh-head" style="--c:' + esc(c.color) + ';--ink:' + esc(c.ink) + '">'
       + '<span class="cm-sh-badge">' + Places.glyphSvg(p.cat) + '</span>'
       + '<span class="cm-sh-title"><b>' + esc(Places.placeName(p, lg)) + '</b><span>' + sub.join(' · ') + '</span></span>'
+      + (p.tel ? '<button type="button" class="cm-sh-x cm-sh-call" data-tel="' + esc(p.tel) + '" aria-label="' + esc(tr('call')) + '" title="' + esc(tr('call')) + '">' + ICON.phone + '</button>' : '')
       + '<button type="button" class="cm-sh-x" data-close="1" aria-label="' + esc(tr('close')) + '">' + ICON.close + '</button>'
       + '</div>'
       + (details.length ? '<div class="cm-sh-note">' + esc(details.join(' · ')) + '</div>' : '')
@@ -578,7 +582,6 @@
       + '<button type="button" class="cm-veh-btn' + (st.vehicle === 'd' ? ' on' : '') + '" data-vehicle="d" aria-label="' + esc(tr('car')) + '" title="' + esc(tr('car')) + '">' + ICON.car + '</button>'
       + '<button type="button" class="cm-veh-btn' + (st.vehicle === 'm' ? ' on' : '') + '" data-vehicle="m" aria-label="' + esc(tr('moto')) + '" title="' + esc(tr('moto')) + '">' + ICON.moto + '</button>'
       + '</div>'
-      + (p.tel ? '<button type="button" class="cm-call" data-tel="' + esc(p.tel) + '" aria-label="' + esc(tr('call')) + '" title="' + esc(tr('call')) + '">' + ICON.phone + '</button>' : '')
       + '</div>'
       + hint;
     el.sheet.hidden = false;

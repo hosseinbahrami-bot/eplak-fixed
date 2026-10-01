@@ -90,7 +90,7 @@ PYEOF
   say ""
   say "اگر این فایل روی هاست نیست، از بسته‌ی آپلود (\`eplak-fixed-update.zip\`) آن را Extract کنید"
   say "یا از این آدرس دانلود و در همین پوشه بگذارید:"
-  say "\`https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/rescue-db.php\`"
+  say "\`https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/rescue-db.php\`"
   say ""
   say "اطلاعات دیتابیس در cPanel → **MySQL® Databases** است (ستون Databases و Users)."
   say ""
@@ -316,7 +316,7 @@ fi
 
 # ── ۶) لینک‌های دانلود روی گیت‌هاب ────────────────────────────────────────
 hdr "۶) لینک‌های دانلود (گیت‌هاب)"
-ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0db08-eplak-fixed/eplak-fixed-update.zip"
+ZIP_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/raw/arena/01a0f647-eplak-fixed/eplak-fixed-update.zip"
 APK_URL="https://github.com/hosseinbahrami-bot/eplak-fixed/releases/download/v2.0-eplak-update/eplak-app.apk"
 say "| فایل | کد پاسخ | حجم | وضعیت |"
 say "|---|---|---|---|"

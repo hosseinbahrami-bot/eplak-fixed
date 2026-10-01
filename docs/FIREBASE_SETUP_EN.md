@@ -91,7 +91,7 @@ The file must live at **`android-app/app/google-services.json`**.
 **Easiest way (no tools needed):**
 
 1. Open
-   <https://github.com/hosseinbahrami-bot/eplak-fixed/tree/arena/01a0db08-eplak-fixed/android-app/app>
+   <https://github.com/hosseinbahrami-bot/eplak-fixed/tree/arena/01a0f647-eplak-fixed/android-app/app>
 2. Click **Add file → Upload files**, drag `google-services.json` in.
 3. Write a short message, e.g. `add firebase google-services.json`, and click **Commit changes**.
 

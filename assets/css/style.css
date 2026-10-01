@@ -7360,16 +7360,12 @@ html.day .cm-sheet { background: rgba(255,255,255,0.97); border-color: rgba(0,15
   .cm-route-btn { font-size: 13px; gap: 6px; padding: 0 8px; }
   .cm-route-btn svg { width: 17px; height: 17px; }
   .cm-veh-btn { width: 38px; }
-  .cm-call { width: 40px; height: 46px; }
   .cm-actions { gap: 5px; }
 }
 .cm-route-btn.busy { opacity: 0.88; }
 .cm-route-btn.busy svg { animation: cmPulse 0.9s ease-in-out infinite; }
-.cm-call {
-  flex: none; width: 46px; height: 46px; padding: 0; border-radius: 14px; border: 1px solid var(--card-border);
-  background: var(--card-bg); color: var(--teal); display: grid; place-items: center; cursor: pointer;
-}
-.cm-call svg { width: 21px; height: 21px; }
+.cm-sh-call { margin-inline-end: 6px; background: rgba(0,201,167,0.16); color: var(--teal); }
+.cm-sh-call svg { width: 17px; height: 17px; }
 .cm-sh-hint { margin-top: 8px; font-size: 11px; line-height: 1.8; color: var(--text-muted); }
 .cm-link { background: none; border: 0; padding: 0; color: var(--teal); font-family: inherit; font-size: inherit; font-weight: 700; cursor: pointer; }
 

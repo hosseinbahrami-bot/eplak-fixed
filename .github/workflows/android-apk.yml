@@ -332,6 +332,9 @@ jobs:
             echo "APK_NET_KOTLIN=$NET_KOTLIN"
             echo "APK_FILE_ACCESS=$FILE_ACCESS"
             echo "APK_PICKED_CACHE=$PICKED_CACHE"
+            echo "APK_PLACES_CODE=$PLACES_CODE"
+            echo "APK_CITYMAP_CODE=$CITYMAP_CODE"
+            echo "APK_NESHAN_KOTLIN=$NESHAN_KOTLIN"
           } >> "$GITHUB_ENV"
           echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
 
@@ -390,6 +393,9 @@ jobs:
             echo "| خواندن فایل انتخاب‌شده از گالری | $APK_FILE_ACCESS |"
             echo "| کپی فایل انتخابی در حافظه‌ی اپ | $APK_PICKED_CACHE |"
             echo "| مجوز موقعیت مکانی در مانیفست | $APK_LOC_PERM |"
+            echo "| نقشه و اماکن شهری: فهرست اماکن ورامین | $APK_PLACES_CODE |"
+            echo "| نقشه و اماکن شهری: صفحه و مسیریابی | $APK_CITYMAP_CODE |"
+            echo "| مسیریابی با نشان: پل اندروید (openNeshan) | $APK_NESHAN_KOTLIN |"
             echo ""
             echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
             if [ -f android-app/app/google-services.json ]; then
