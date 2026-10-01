@@ -129,6 +129,7 @@ sign and publish it with their enterprise/Ad-Hoc certificate. I have not tested 
   the simulator's location reaches the page through CoreLocation and distances are computed, “Route with Neshan” hands `neshan://?origin=user location&destination=Mofatteh hospital` to the native shell, with screenshots (`ios-app/ci/simulator-smoke.sh`).
 - The PWA in **Chrome** on a separate origin against the real server: CORS, service worker, installability (`Page.getInstallabilityErrors` is empty), manifest, the map (`tools/pwa-smoke.mjs`).
   Once Pages is on, the same test also runs against the real published address.
+- The static PWA opens in **iPhone-simulator Safari** (iOS 26.2) and the Eplak sign-in screen renders correctly (screenshot in the CI report; the “PWA in simulator Safari” step).
 - On the host: `manifest.json`, `sw.js` and the icons answer from the site address (automatic live check).
 
 **Not done / not tried yet:**
