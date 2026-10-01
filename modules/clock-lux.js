@@ -291,7 +291,8 @@
         /* هر مناسبت یک آیتم؛ flex-wrap همه را بدون بریدن جا می‌دهد */
         if (list.length) {
           occEl.innerHTML = list.map(function (o) {
-            return '<span class="lux-occ-item">✦ ' + o + '</span>';
+            var occIcon = (window.EplakIcons ? window.EplakIcons.get('sparkle', { size: 13 }) : '✦ ');
+            return '<span class="lux-occ-item">' + occIcon + ' ' + o + '</span>';
           }).join('');
           occEl.hidden = false;
         } else { occEl.innerHTML = ''; occEl.hidden = true; }

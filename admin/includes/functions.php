@@ -1,4 +1,10 @@
 <?php
+/* توابع داده‌ای مشترک پنل مدیریت.
+   فایل‌های کمکی سراسری (فایل‌های پیوست و اعلان پس‌زمینه) هم از همین‌جا بارگذاری
+   می‌شوند تا همه‌ی صفحه‌های پنل به آن‌ها دسترسی داشته باشند. */
+require_once dirname(__DIR__, 2) . '/shared/media.php';
+require_once dirname(__DIR__, 2) . '/shared/webpush.php';
+
 function getDashboardStats(PDO $pdo): array {
     $reportsCount = $pdo->query('SELECT COUNT(*) as count FROM reports')->fetch();
     $usersCount = $pdo->query('SELECT COUNT(*) as count FROM users')->fetch();
@@ -7,6 +13,21 @@ function getDashboardStats(PDO $pdo): array {
     $doneReportsCount = $pdo->query("SELECT COUNT(*) as count FROM reports WHERE status = 'done'")->fetch();
     $pendingTicketsCount = $pdo->query("SELECT COUNT(*) as count FROM tickets WHERE status = 'pending'")->fetch();
 
+    $newsCount = 0;
+    try {
+        $newsCount = (int) $pdo->query('SELECT COUNT(*) FROM news')->fetchColumn();
+    } catch (Throwable $e) {
+        $newsCount = 0;
+    }
+
+    $reportsWithMedia = 0;
+    try {
+        /* فقط گزارش‌های واقعی — ردیف‌های «در انتظار اتصال» (report_id صفر) شمرده نمی‌شوند */
+        $reportsWithMedia = (int) $pdo->query('SELECT COUNT(DISTINCT report_id) FROM report_media WHERE report_id > 0')->fetchColumn();
+    } catch (Throwable $e) {
+        $reportsWithMedia = 0;
+    }
+
     return [
         'reports_count' => (int)$reportsCount['count'],
         'users_count' => (int)$usersCount['count'],
@@ -14,6 +35,9 @@ function getDashboardStats(PDO $pdo): array {
         'pending_reports_count' => (int)$pendingReportsCount['count'],
         'done_reports_count' => (int)$doneReportsCount['count'],
         'pending_tickets_count' => (int)$pendingTicketsCount['count'],
+        'news_count' => $newsCount,
+        'reports_with_media' => $reportsWithMedia,
+        'push_subscribers' => eplakPushCount($pdo),
     ];
 }
 
@@ -160,8 +184,15 @@ function eplakStatusKeys(): array {
 }
 
 function eplakStatusRawValues(): array {
-    return ['pending', 'in_progress', 'review', 'done',
-            'در انتظار', 'در حال بررسی', 'انجام شده', 'انجام‌شده', 'انجام شده '];
+    /* مقادیر خامِ وضعیت که ممکن است در دیتابیس هاست باشند — هم کلیدهای
+       انگلیسی، هم برچسب‌های فارسیِ تازه، هم برچسب‌های قدیمی که از قبل
+       ذخیره شده‌اند (گزارش‌های قدیمی همیشه درست خوانده شوند). */
+    return [
+        'pending', 'in_progress', 'review', 'done',
+        'در انتظار', 'در انتظار بررسی', 'در حال انتظار',
+        'در حال بررسی', 'در حال پیگیری', 'در حال رسیدگی',
+        'انجام شده', 'انجام‌شده', 'انجام شد', 'تکمیل شده',
+    ];
 }
 
 /* تشخیص وضعیت یک ردیف گزارش.
@@ -248,14 +279,23 @@ function getReportsStatusStats(PDO $pdo): array {
 
 function normalizeStatusValue(string $status): string {
     $status = trim($status);
+    /* کلیدهای انگلیسی + همه‌ی برچسب‌های فارسی (تازه و قدیمی) تا داده‌های
+       ذخیره‌شده‌ی قبلی هم درست شناسایی شوند. */
     $map = [
         'pending' => 'pending',
         'در انتظار' => 'pending',
+        'در انتظار بررسی' => 'pending',
+        'در حال انتظار' => 'pending',
         'in_progress' => 'in_progress',
+        'review' => 'in_progress',
         'در حال بررسی' => 'in_progress',
+        'در حال پیگیری' => 'in_progress',
+        'در حال رسیدگی' => 'in_progress',
         'done' => 'done',
         'انجام شده' => 'done',
         'انجام‌شده' => 'done',
+        'انجام شد' => 'done',
+        'تکمیل شده' => 'done',
     ];
 
     return $map[$status] ?? 'pending';
@@ -263,13 +303,14 @@ function normalizeStatusValue(string $status): string {
 
 function statusLabel(string $status): string {
     $status = normalizeStatusValue($status);
+    /* همان چهار مرحله‌ای که شهروند در اپ می‌بیند */
     $labels = [
-        'pending' => 'در انتظار',
-        'in_progress' => 'در حال بررسی',
-        'done' => 'انجام‌شده',
+        'pending' => 'در حال انتظار',
+        'in_progress' => 'در حال رسیدگی',
+        'done' => 'انجام شد',
     ];
 
-    return $labels[$status] ?? 'در انتظار';
+    return $labels[$status] ?? 'در حال انتظار';
 }
 
 function statusClass(string $status): string {
@@ -342,7 +383,25 @@ function createReport(PDO $pdo, array $data): int {
     return (int)$pdo->lastInsertId();
 }
 
-function updateReport(PDO $pdo, int $id, array $data): void {
+/** کد پیگیری نمایشی گزارش (همان که شهروند در اپ می‌بیند) */
+function reportCodeFor(int $id): string {
+    return 'EP-1403-' . str_pad((string) ($id + 1000), 4, '0', STR_PAD_LEFT);
+}
+
+/**
+ * ویرایش کامل گزارش (صفحه‌ی «ویرایش»).
+ *
+ * اگر در این ویرایش «وضعیت» عوض شده باشد، دقیقاً مثل ثبت پاسخ:
+ *   ۱) یک گام «تغییر وضعیت» در روند رسیدگی ثبت می‌شود،
+ *   ۲) اعلان شخصی برای شهروند ساخته می‌شود (فهرست اعلان‌های اپ)،
+ *   ۳) اعلان سیستمی به گوشی‌های ثبت‌شده‌ی او فرستاده می‌شود.
+ * (پیش از این، تغییر وضعیت از صفحه‌ی ویرایش کاملاً بی‌صدا بود.)
+ *
+ * خروجی: نتیجه‌ی اعلان (eplakNotifyUser)؛ آرایه‌ی خالی یعنی اعلانی لازم نبود.
+ */
+function updateReport(PDO $pdo, int $id, array $data): array {
+    $before = getReportById($pdo, $id);
+    $newStatus = normalizeStatusValue((string)($data['status'] ?? 'pending'));
     $stmt = $pdo->prepare('UPDATE reports SET user_phone = :user_phone, title = :title, description = :description, category = :category, department = :department, sub_department = :sub_department, location = :location, status = :status WHERE id = :id');
     $stmt->execute([
         ':user_phone' => trim((string)($data['user_phone'] ?? '')),
@@ -352,9 +411,42 @@ function updateReport(PDO $pdo, int $id, array $data): void {
         ':department' => trim((string)($data['department'] ?? '')),
         ':sub_department' => trim((string)($data['sub_department'] ?? '')),
         ':location' => trim((string)($data['location'] ?? '')),
-        ':status' => normalizeStatusValue((string)($data['status'] ?? 'pending')),
+        ':status' => $newStatus,
         ':id' => $id,
     ]);
+
+    $previousStatus = is_array($before) ? normalizeStatusValue((string) ($before['status'] ?? '')) : '';
+    $statusChanged  = is_array($before) && $previousStatus !== $newStatus;
+
+    /* روند رسیدگی: تغییرات مهم ویرایش، به زبان شهروند ثبت می‌شود */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/media.php';
+        eplakReportTimelineBootstrap($pdo, $id, is_array($before) ? $before : []);
+        if (is_array($before)) {
+            eplakReportEventEdit($pdo, $id, $before, $data);
+        }
+        if ($statusChanged) {
+            eplakReportEventStatus($pdo, $id, $newStatus, '');
+        }
+    } catch (Throwable $e) {
+        /* بی‌اهمیت */
+    }
+
+    /* اعلان به شهروند: فقط وقتی وضعیت واقعاً عوض شده باشد */
+    $notify = [];
+    if ($statusChanged) {
+        try {
+            $rep   = getReportById($pdo, $id);
+            $phone = trim((string) ($rep['user_phone'] ?? ''));
+            if ($phone !== '') {
+                require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+                $notify = eplakNotifyReply($pdo, $phone, 'گزارش', reportCodeFor($id), $newStatus, '', true);
+            }
+        } catch (Throwable $e) {
+            error_log('[eplak-admin:report.edit-notify] ' . $e->getMessage());
+        }
+    }
+    return $notify;
 }
 
 function getReportById(PDO $pdo, int $id): ?array {
@@ -365,41 +457,73 @@ function getReportById(PDO $pdo, int $id): ?array {
     return $report ?: null;
 }
 
-function saveReportReply(PDO $pdo, int $id, string $reply, string $status): void {
+/**
+ * ثبت پاسخ/وضعیت گزارش و خبر دادن به شهروند.
+ *
+ * «تغییر» یعنی یکی از این دو:
+ *   • وضعیت با وضعیت ذخیره‌شده فرق دارد،
+ *   • متن پاسخ، غیرخالی و با پاسخ ذخیره‌شده فرق دارد.
+ * (فهرست گزارش‌ها هنگام تغییر سریع وضعیت، «پاسخ ذخیره‌شده» را بدون تغییر می‌فرستد؛
+ *  آن را پاسخ تازه حساب نمی‌کنیم تا در اعلان و روند رسیدگی تکرار نشود.)
+ *
+ * خروجی: نتیجه‌ی اعلان (eplakNotifyUser: ok/id/pushed/push[...]) برای نمایش به
+ * مدیر؛ آرایه‌ی خالی یعنی تغییری نبود و اعلانی ساخته نشد.
+ */
+function saveReportReply(PDO $pdo, int $id, string $reply, string $status): array {
     $normStatus = normalizeStatusValue($status);
+
+    /* وضعیت و پاسخ پیشین برای تشخیص «تغییر واقعی» */
+    $previous = getReportById($pdo, $id);
+    $previousStatus = $previous ? normalizeStatusValue((string) ($previous['status'] ?? '')) : '';
+    /* مقایسه‌ی پاسخ بدون حساسیت به نوع خط جدید (مرورگر CRLF می‌فرستد، ذخیره‌شده‌ی قدیمی
+       ممکن است LF باشد؛ نباید این تفاوت، پاسخ قدیمی را «تازه» نشان دهد) */
+    $normText = static fn($t): string => trim(str_replace(["\r\n", "\r"], "\n", (string) $t));
+    $previousReply = $previous ? $normText($previous['reply'] ?? '') : '';
+
+    $statusChanged = $previousStatus !== $normStatus;
+    $replyIsNew    = $normText($reply) !== '' && $normText($reply) !== $previousReply;
+
     $stmt = $pdo->prepare('UPDATE reports SET reply = :reply, status = :status WHERE id = :id');
     $stmt->bindValue(':reply', $reply);
     $stmt->bindValue(':status', $normStatus);
     $stmt->bindValue(':id', $id, PDO::PARAM_INT);
     $stmt->execute();
 
-    // ارسال خودکار اعلان به شهروند ثبت‌کننده در صورت پاسخ یا تغییر وضعیت
+    /* ── روند رسیدگی: همان گام‌هایی که شهروند در اپ می‌بیند ─────────────
+       گام شروع برای گزارش‌های قدیمی هم ساخته می‌شود و گام تغییر وضعیت
+       تنها وقتی ثبت می‌شود که وضعیت واقعاً عوض شده یا پاسخ تازه‌ای آمده
+       باشد؛ پس با هر بار ذخیره، روند شلوغ نمی‌شود. */
     try {
-        $rep = getReportById($pdo, $id);
-        if ($rep && !empty($rep['user_phone'])) {
-            $statusLabels = [
-                'pending'     => 'در انتظار بررسی',
-                'in_progress' => 'در حال پیگیری و اقدام',
-                'done'        => 'تکمیل و خاتمه یافته',
-                'rejected'    => 'رد شده'
-            ];
-            $statusFa = $statusLabels[$normStatus] ?? $normStatus;
-            $code = 'EP-1403-' . str_pad((string)((int)$id + 1000), 4, '0', STR_PAD_LEFT);
-            $notifTitle = 'به‌روزرسانی گزارش ' . $code;
-            $notifBody = 'وضعیت گزارش «' . ($rep['title'] ?? 'شما') . '» به «' . $statusFa . '» تغییر یافت.';
-            if ($reply !== '') {
-                $notifBody .= ' پاسخ شهرداری: ' . mb_substr($reply, 0, 120);
-            }
-            $ins = $pdo->prepare('INSERT INTO notifications (user_phone, title, body, read_flag) VALUES (:phone, :title, :body, 0)');
-            $ins->execute([
-                ':phone' => $rep['user_phone'],
-                ':title' => $notifTitle,
-                ':body'  => $notifBody
-            ]);
+        require_once dirname(__DIR__, 2) . '/shared/media.php';
+        eplakReportTimelineBootstrap($pdo, $id, is_array($previous) ? $previous : []);
+        if ($statusChanged || $replyIsNew) {
+            eplakReportEventStatus($pdo, $id, $normStatus, $replyIsNew ? $reply : '');
         }
     } catch (Throwable $e) {
-        // بدون توقف عملیات اصلی
+        /* روند رسیدگی هرگز نباید ذخیره‌ی وضعیت را متوقف کند */
     }
+
+    /* ── ارسال خودکار اعلان به شهروند (اگر پاسخ یا وضعیت تازه‌ای آمده) ────
+       از همان تابع مشترک تیکت‌ها استفاده می‌کنیم تا اعلان گزارش و تیکت یک
+       شکل باشند و هم در فهرست اعلان‌های اپ ثبت شوند و هم (اگر اپ بسته باشد)
+       از مسیر فایربیس به گوشی برسند. */
+    $notify = [];
+    try {
+        $rep = getReportById($pdo, $id);
+        $phone = trim((string) ($rep['user_phone'] ?? ''));
+        if ($phone !== '' && ($statusChanged || $replyIsNew)) {
+            require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+            $notify = eplakNotifyReply(
+                $pdo, $phone, 'گزارش', reportCodeFor($id), $normStatus,
+                $replyIsNew ? $reply : '',
+                $statusChanged
+            );
+        }
+    } catch (Throwable $e) {
+        /* بدون توقف عملیات اصلی؛ ولی علت در لاگ هاست می‌ماند */
+        error_log('[eplak-admin:report.notify] ' . $e->getMessage());
+    }
+    return $notify;
 }
 
 function deleteReportReply(PDO $pdo, int $id): void {
@@ -489,11 +613,30 @@ function getTicketById(PDO $pdo, int $id): ?array {
 }
 
 function saveTicketReply(PDO $pdo, int $id, string $reply, string $status): void {
+    $normStatus = normalizeStatusValue($status);
+    $before = getTicketById($pdo, $id);
+    $beforeStatus = $before ? normalizeStatusValue((string) ($before['status'] ?? '')) : '';
+
     $stmt = $pdo->prepare('UPDATE tickets SET reply = :reply, status = :status WHERE id = :id');
     $stmt->bindValue(':reply', $reply);
-    $stmt->bindValue(':status', normalizeStatusValue($status));
+    $stmt->bindValue(':status', $normStatus);
     $stmt->bindValue(':id', $id, PDO::PARAM_INT);
     $stmt->execute();
+
+    /* ── اعلان به کاربر ─────────────────────────────────────────────────
+       پیش از این، پاسخ‌دادن به تیکت در پنل هیچ اعلانی نمی‌ساخت (نه در فهرست
+       اعلان‌های اپ، نه روی گوشی)؛ کاربر بی‌خبر می‌ماند. حالا مثل گزارش‌ها،
+       اعلان ساخته و به گوشی فرستاده می‌شود. */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+        $phone = (string) ($before['user_phone'] ?? '');
+        if ($phone !== '' && ($beforeStatus !== $normStatus || trim($reply) !== '')) {
+            $code = 'TK-' . str_pad((string) $id, 4, '0', STR_PAD_LEFT);
+            eplakNotifyReply($pdo, $phone, 'تیکت', $code, $normStatus, $reply);
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-admin:ticket.notify] ' . $e->getMessage());
+    }
 }
 
 function deleteTicketReply(PDO $pdo, int $id): void {
@@ -504,6 +647,11 @@ function deleteTicketReply(PDO $pdo, int $id): void {
 }
 
 function saveTicketDetails(PDO $pdo, int $id, string $title, string $description, string $userPhone, string $reply, string $status, string $category = '', string $department = '', string $priority = 'medium'): void {
+    /* وضعیت/پاسخ قبلی برای تشخیص «تغییر واقعی» و ساخت اعلان */
+    $before = getTicketById($pdo, $id);
+    $beforeStatus = $before ? normalizeStatusValue((string) ($before['status'] ?? '')) : '';
+    $beforeReply = $before ? trim((string) ($before['reply'] ?? '')) : '';
+
     updateTicket($pdo, $id, [
         'title' => $title,
         'description' => $description,
@@ -514,6 +662,21 @@ function saveTicketDetails(PDO $pdo, int $id, string $title, string $description
         'department' => $department,
         'priority' => $priority,
     ]);
+
+    /* اعلان به کاربر (همان قاعده‌ی saveTicketReply) — این تابع از صفحه‌ی
+       جزئیات و صفحه‌ی ویرایش تیکت صدا زده می‌شود. */
+    try {
+        require_once dirname(__DIR__, 2) . '/shared/notify_events.php';
+        $normStatus = normalizeStatusValue($status);
+        $phone = trim($userPhone) !== '' ? trim($userPhone) : (string) ($before['user_phone'] ?? '');
+        $changed = ($beforeStatus !== $normStatus) || (trim($reply) !== $beforeReply);
+        if ($phone !== '' && $changed && (trim($reply) !== '' || $beforeStatus !== $normStatus)) {
+            $code = 'TK-' . str_pad((string) $id, 4, '0', STR_PAD_LEFT);
+            eplakNotifyReply($pdo, $phone, 'تیکت', $code, $normStatus, $reply);
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-admin:ticket.notify-details] ' . $e->getMessage());
+    }
 }
 
 function deleteReport(PDO $pdo, int $id): void {
@@ -557,8 +720,8 @@ function getNewsById(PDO $pdo, int $id): ?array {
 
 function createNews(PDO $pdo, array $data): int {
     $stmt = $pdo->prepare(
-        'INSERT INTO news (type, title, summary, body, icon, image_url, published, sort_order)
-         VALUES (:type, :title, :summary, :body, :icon, :image_url, :published, :sort_order)'
+        'INSERT INTO news (type, title, summary, body, icon, badge, image_url, published, sort_order)
+         VALUES (:type, :title, :summary, :body, :icon, :badge, :image_url, :published, :sort_order)'
     );
     $stmt->execute([
         ':type'      => $data['type'] ?? 'news',
@@ -566,6 +729,7 @@ function createNews(PDO $pdo, array $data): int {
         ':summary'   => $data['summary'] ?? null,
         ':body'      => $data['body'] ?? '',
         ':icon'      => $data['icon'] ?? null,
+        ':badge'     => ($data['badge'] ?? '') !== '' ? $data['badge'] : null,
         ':image_url' => $data['image_url'] ?? null,
         ':published' => !empty($data['published']) ? 1 : 0,
         ':sort_order' => (int)($data['sort_order'] ?? 0),
@@ -581,6 +745,7 @@ function updateNews(PDO $pdo, int $id, array $data): void {
             summary = :summary,
             body = :body,
             icon = :icon,
+            badge = :badge,
             image_url = :image_url,
             published = :published,
             sort_order = :sort_order
@@ -592,6 +757,7 @@ function updateNews(PDO $pdo, int $id, array $data): void {
         ':summary'   => $data['summary'] ?? null,
         ':body'      => $data['body'] ?? '',
         ':icon'      => $data['icon'] ?? null,
+        ':badge'     => ($data['badge'] ?? '') !== '' ? $data['badge'] : null,
         ':image_url' => $data['image_url'] ?? null,
         ':published' => !empty($data['published']) ? 1 : 0,
         ':sort_order' => (int)($data['sort_order'] ?? 0),
@@ -606,7 +772,18 @@ function deleteNews(PDO $pdo, int $id): void {
 }
 
 function toggleNewsPublished(PDO $pdo, int $id): void {
-    $stmt = $pdo->prepare('UPDATE news SET published = IF(published = 1, 0, 1) WHERE id = :id');
+    /* پیاده‌سازی سازگار با هر دو درایور (MySQL و SQLite) — تابع IF() در SQLite
+       وجود ندارد و قبلاً این عملیات در حالت توسعه خطا می‌داد. */
+    $select = $pdo->prepare('SELECT published FROM news WHERE id = :id');
+    $select->bindValue(':id', $id, PDO::PARAM_INT);
+    $select->execute();
+    $current = $select->fetchColumn();
+    if ($current === false) {
+        return;
+    }
+    $newValue = ((int) $current) === 1 ? 0 : 1;
+    $stmt = $pdo->prepare('UPDATE news SET published = :published WHERE id = :id');
+    $stmt->bindValue(':published', $newValue, PDO::PARAM_INT);
     $stmt->bindValue(':id', $id, PDO::PARAM_INT);
     $stmt->execute();
 }
@@ -621,6 +798,10 @@ function toggleNewsPublished(PDO $pdo, int $id): void {
  * returns: تعداد گیرندگان
  */
 function sendNotification(PDO $pdo, string $title, string $body, string $targetType, array $phones, ?string $createdBy = null): int {
+    /* موتور اعلان پس‌زمینه (مرورگر) و اعلان اپ اندروید (فایربیس) */
+    require_once __DIR__ . '/../../shared/webpush.php';
+    require_once __DIR__ . '/../../shared/fcm.php';
+
     if ($targetType === 'all') {
         $stmt = $pdo->query('SELECT phone FROM users');
         $phones = array_column($stmt->fetchAll(), 'phone');
@@ -661,11 +842,76 @@ function sendNotification(PDO $pdo, string $title, string $body, string $targetT
             ]);
         }
         $pdo->commit();
-        return count($phones);
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
     }
+
+    /* ── اعلان پس‌زمینه (Web Push) ────────────────────────────────────────
+       اعلان‌های بالا فقط داخل برنامه دیده می‌شوند؛ این بخش همان پیام را به‌صورت
+       نوتیفیکیشن سیستمی گوشی می‌فرستد تا در حالت «قفل بودن صفحه» و «بسته بودن
+       برنامه» هم به شهروند برسد. هر خطایی این‌جا فقط ثبت می‌شود و ارسال اعلان
+       داخل‌برنامه‌ای را خراب نمی‌کند. */
+    try {
+        $subscriptions = $targetType === 'all'
+            ? eplakPushSubscriptions($pdo, [], true)
+            : eplakPushSubscriptions($pdo, $phones, false);
+
+        $pushSummary = eplakWebPushSend(
+            $pdo,
+            $subscriptions,
+            $title,
+            $body,
+            ['url' => 'index.html', 'tag' => 'eplak-send-' . $sendId, 'id' => $sendId]
+        );
+
+        try {
+            $upd = $pdo->prepare('UPDATE notification_sends SET push_sent = :sent, push_failed = :failed WHERE id = :id');
+            $upd->execute([
+                ':sent'   => (int) $pushSummary['sent'],
+                ':failed' => (int) $pushSummary['failed'],
+                ':id'     => $sendId,
+            ]);
+        } catch (Throwable $e) {
+            /* ستون‌های شمارش پوش در نسخه‌های قدیمی دیتابیس ممکن است نباشند */
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-push] dispatch failed: ' . $e->getMessage());
+    }
+
+    /* ── اعلان گوشی برای اپ اندروید (فایربیس/FCM) ──────────────────────────
+       اندروید در WebView اجازه‌ی Web Push نمی‌دهد؛ این مسیر اعلان را در حالت
+       «بسته بودن کامل اپ» هم به گوشی می‌رساند. */
+    try {
+        $devices = $targetType === 'all'
+            ? eplakFcmTokens($pdo, [], true)
+            : eplakFcmTokens($pdo, $phones, false);
+
+        if ($devices) {
+            $fcmSummary = eplakFcmSend(
+                $pdo,
+                $devices,
+                $title,
+                $body,
+                ['url' => 'index.html', 'tag' => 'eplak-send-' . $sendId, 'id' => $sendId]
+            );
+
+            try {
+                $upd = $pdo->prepare('UPDATE notification_sends SET fcm_sent = :sent, fcm_failed = :failed WHERE id = :id');
+                $upd->execute([
+                    ':sent'   => (int) $fcmSummary['sent'],
+                    ':failed' => (int) $fcmSummary['failed'],
+                    ':id'     => $sendId,
+                ]);
+            } catch (Throwable $e) {
+                /* ستون‌های شمارش فایربیس در دیتابیس‌های قدیمی ممکن است نباشند */
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[eplak-fcm] dispatch failed: ' . $e->getMessage());
+    }
+
+    return count($phones);
 }
 
 function getNotificationSends(PDO $pdo, int $limit = 50): array {
@@ -685,4 +931,174 @@ function getNotificationRecipients(PDO $pdo, int $sendId): array {
     $stmt = $pdo->prepare('SELECT * FROM notifications WHERE send_id = :id ORDER BY id ASC');
     $stmt->execute([':id' => $sendId]);
     return $stmt->fetchAll();
+}
+
+/* ============================================================
+   فایل‌های پیوست گزارش‌ها (عکس و فیلم) — نمایش در پنل مدیریت
+   ============================================================ */
+
+/** فهرست فایل‌های یک گزارش */
+function getReportMedia(PDO $pdo, int $reportId): array {
+    return eplakMediaForReport($pdo, $reportId);
+}
+
+/** تعداد فایل‌های هر گزارش: [report_id => ['image'=>n,'video'=>n,'total'=>n]] */
+function getReportMediaCounts(PDO $pdo, array $reportIds = []): array {
+    return eplakMediaCounts($pdo, $reportIds);
+}
+
+/** آدرس نمایش فایل از داخل صفحه‌های پوشه‌ی admin (یک پله بالاتر از ریشه‌ی اپ) */
+function adminMediaUrl(string $path): string {
+    $path = trim($path);
+    if ($path === '') {
+        return '';
+    }
+    if (preg_match('#^(https?:)?//#i', $path) || strpos($path, '../') === 0) {
+        return $path;
+    }
+    return '../' . ltrim($path, '/');
+}
+
+/** حجم خوانا برای نمایش در پنل */
+function formatBytesFa(int $bytes): string {
+    if ($bytes <= 0) {
+        return '—';
+    }
+    $units = ['بایت', 'کیلوبایت', 'مگابایت', 'گیگابایت'];
+    $index = 0;
+    $value = (float) $bytes;
+    while ($value >= 1024 && $index < count($units) - 1) {
+        $value /= 1024;
+        $index++;
+    }
+    $text = $index === 0 ? (string) (int) $value : number_format($value, 1, '.', '');
+    return $text . ' ' . $units[$index];
+}
+
+/* ============================================================
+   حساب مدیر: تغییر نام کاربری و رمز عبور
+   ============================================================ */
+
+function getAdminById(PDO $pdo, int $id): ?array {
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM admin_users WHERE id = :id LIMIT 1');
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        $admin = $stmt->fetch();
+        return $admin ?: null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function getAdminByUsername(PDO $pdo, string $username): ?array {
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM admin_users WHERE username = :username LIMIT 1');
+        $stmt->execute([':username' => $username]);
+        $admin = $stmt->fetch();
+        return $admin ?: null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/** آیا نام کاربری برای مدیر دیگری رزرو شده است؟ */
+function adminUsernameTaken(PDO $pdo, string $username, int $exceptId = 0): bool {
+    $stmt = $pdo->prepare('SELECT id FROM admin_users WHERE username = :username AND id <> :id LIMIT 1');
+    $stmt->bindValue(':username', $username);
+    $stmt->bindValue(':id', $exceptId, PDO::PARAM_INT);
+    $stmt->execute();
+    return (bool) $stmt->fetchColumn();
+}
+
+/** تغییر نام کاربری مدیر (خروجی: پیام خطا یا رشته‌ی خالی در صورت موفقیت) */
+function updateAdminUsername(PDO $pdo, int $id, string $username): string {
+    $username = trim($username);
+    if ($username === '') {
+        return 'نام کاربری نمی‌تواند خالی باشد.';
+    }
+    if (mb_strlen($username) < 3) {
+        return 'نام کاربری باید حداقل ۳ کاراکتر باشد.';
+    }
+    if (mb_strlen($username) > 60) {
+        return 'نام کاربری بیش از حد بلند است (حداکثر ۶۰ کاراکتر).';
+    }
+    if (!preg_match('/^[A-Za-z0-9._\-@\x{0600}-\x{06FF}]+$/u', $username)) {
+        return 'نام کاربری فقط می‌تواند شامل حروف فارسی/انگلیسی، عدد و علامت‌های . _ - @ باشد.';
+    }
+    if (adminUsernameTaken($pdo, $username, $id)) {
+        return 'این نام کاربری قبلاً استفاده شده است.';
+    }
+
+    $stmt = $pdo->prepare('UPDATE admin_users SET username = :username WHERE id = :id');
+    $stmt->execute([':username' => $username, ':id' => $id]);
+    return '';
+}
+
+/** تغییر رمز عبور مدیر — بررسی رمز فعلی، سنجش قدرت و ذخیره‌ی هش امن */
+function updateAdminPassword(PDO $pdo, int $id, string $currentPassword, string $newPassword, string $confirmPassword): string {
+    if ($currentPassword === '' || $newPassword === '') {
+        return 'رمز عبور فعلی و رمز جدید الزامی هستند.';
+    }
+    if ($newPassword !== $confirmPassword) {
+        return 'رمز جدید و تکرار آن یکسان نیستند.';
+    }
+    if (mb_strlen($newPassword) < 8) {
+        return 'رمز جدید باید حداقل ۸ کاراکتر باشد.';
+    }
+    if (!preg_match('/[A-Za-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
+        return 'رمز جدید باید ترکیبی از حرف و عدد باشد.';
+    }
+
+    $admin = getAdminById($pdo, $id);
+    if (!$admin) {
+        return 'حساب مدیر یافت نشد.';
+    }
+    if (!password_verify($currentPassword, (string) $admin['password_hash'])) {
+        return 'رمز عبور فعلی صحیح نیست.';
+    }
+    if (password_verify($newPassword, (string) $admin['password_hash'])) {
+        return 'رمز جدید باید با رمز قبلی متفاوت باشد.';
+    }
+
+    $stmt = $pdo->prepare('UPDATE admin_users SET password_hash = :hash WHERE id = :id');
+    $stmt->execute([':hash' => password_hash($newPassword, PASSWORD_DEFAULT), ':id' => $id]);
+    return '';
+}
+
+/** تعداد اعلان‌های ارسال‌شده و آمار پوش برای صفحه‌ی تنظیمات */
+function getPushStats(PDO $pdo): array {
+    $stats = [
+        'subscribers'  => eplakPushCount($pdo),
+        'subscribers_all' => eplakPushCount($pdo, false),
+        'last_sent'    => 0,
+        'last_failed'  => 0,
+        'last_send_title' => '',
+        'last_send_at' => '',
+    ];
+    try {
+        $row = $pdo->query('SELECT title, push_sent, push_failed, created_at FROM notification_sends ORDER BY id DESC LIMIT 1')->fetch();
+        if ($row) {
+            $stats['last_sent']       = (int) ($row['push_sent'] ?? 0);
+            $stats['last_failed']     = (int) ($row['push_failed'] ?? 0);
+            $stats['last_send_title'] = (string) ($row['title'] ?? '');
+            $stats['last_send_at']    = (string) ($row['created_at'] ?? '');
+        }
+    } catch (Throwable $e) {
+    }
+    return $stats;
+}
+
+/** آخرین خطای ثبت‌شده‌ی اشتراک‌ها (برای عیب‌یابی در پنل) */
+function getPushLastErrors(PDO $pdo, int $limit = 5): array {
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT user_phone, last_error, fail_count, updated_at FROM push_subscriptions
+             WHERE last_error <> "" ORDER BY updated_at DESC LIMIT ' . (int) $limit
+        );
+        $stmt->execute();
+        return $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
 }

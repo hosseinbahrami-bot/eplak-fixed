@@ -54,7 +54,7 @@ $reportsCount = count(getReportsByUser($pdo, $user['phone']));
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ویرایش کاربر</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -73,9 +73,11 @@ $reportsCount = count(getReportsByUser($pdo, $user['phone']));
         <a class="active" href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
         <a href="departments.php"><i class="fas fa-sitemap"></i> <span>واحدها</span></a>
                 <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+                <a href="places.php"><i class="fas fa-map-location-dot"></i> <span>اماکن شهری</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
 <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
 <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+<a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
       </nav>
     </aside>
     <main class="main">

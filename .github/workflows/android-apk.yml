@@ -1,0 +1,415 @@
+# ============================================================================
+#  ساخت خودکار فایل APK اپ اندروید (در سرورهای گیت‌هاب — نیازی به Android Studio نیست)
+#
+#  چرا این‌جا؟ فایل‌های سایت (index.html و پوشه‌های core/ و modules/) هنگام ساخت
+#  APK داخل خودش بسته‌بندی می‌شوند؛ پس برای دیدن تغییرات در اپ، باید APK تازه
+#  ساخته و نصب شود. این ورک‌فلو همان کار را انجام می‌دهد.
+#
+#  نتیجه کجاست؟ Actions → آخرین اجرا → بخش Artifacts → فایل
+#  «eplak-apk» (یا در صفحه‌ی Releases به‌عنوان پیوست).
+# ============================================================================
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+    paths:
+      - 'android-app/**'
+      - 'index.html'
+      - 'app.js'
+      - 'core/**'
+      - 'modules/**'
+      - 'views/**'
+      - 'assets/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v5
+
+      - name: نصب Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: کش کلید امضای اپ (تا نسخه‌ی تازه روی نسخه‌ی نصب‌شده نصب شود)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android
+          key: eplak-android-signing-v1
+
+      - name: بررسی Android SDK موجود در سرور
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platforms" 2>/dev/null || true
+          ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" 2>/dev/null || true
+          ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}/licenses" 2>/dev/null || true
+
+      - name: بررسی وجود کلید فایربیس
+        id: firebase
+        run: |
+          if [ -f android-app/app/google-services.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=فایربیس::فایل google-services.json موجود است — اعلان گوشی (FCM) فعال ساخته می‌شود."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=فایربیس تنظیم نشده::فایل android-app/app/google-services.json وجود ندارد؛ APK ساخته می‌شود ولی اعلان در حالت بسته بودن اپ کار نمی‌کند (راهنما: docs/DEPLOY_UPDATE_FA.md بخش ۶)."
+          fi
+
+      - name: درج شماره‌ی ساخت در نسخه‌ی اپ
+        run: |
+          RUN="${{ github.run_number }}"
+          sed -i "s/versionCode [0-9]\+/versionCode $RUN/" android-app/app/build.gradle
+          sed -i "s/versionName '[^']*'/versionName '2.0.$RUN'/" android-app/app/build.gradle
+          echo "نسخه‌ی این ساخت:"
+          grep -nE "versionCode|versionName" android-app/app/build.gradle
+
+      - name: ساخت APK
+        working-directory: android-app
+        run: |
+          set -o pipefail
+          # مسیر SDKای که خود سرور گیت‌هاب فراهم می‌کند
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK" > local.properties
+          echo "استفاده از SDK: $SDK"
+          chmod +x ./gradlew
+          ./gradlew --version 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee -a "$RUNNER_TEMP/gradle.log"
+
+      - name: انتشار خلاصه‌ی خطا (برای پیگیری)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOG="$RUNNER_TEMP/gradle.log"
+          {
+            echo "## ❌ ساخت APK ناموفق بود — ۸۰ خط آخر لاگ"
+            echo ''
+            echo '```'
+            tail -n 80 "$LOG" 2>/dev/null || echo '(لاگی ثبت نشد)'
+            echo '```'
+          } > /tmp/fail-comment.md
+          gh pr comment 2 --body-file /tmp/fail-comment.md 2>/dev/null || true
+
+      - name: نام‌گذاری فایل خروجی
+        id: apk
+        run: |
+          SRC=$(find android-app/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          # نام ثابت و خوانا: لینک دانلود همیشه یکی می‌ماند
+          cp "$SRC" eplak-app.apk
+          echo "path=eplak-app.apk" >> "$GITHUB_OUTPUT"
+          ls -la eplak-app.apk
+
+      - name: بازرسی فایل APK (تأیید محتوا و امضا)
+        run: |
+          set -e
+          APK=eplak-app.apk
+          SIZE=$(stat -c%s "$APK")
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          COMMIT="${GITHUB_SHA:0:7}"
+          VERSION=$(grep -m1 -oP "versionName\s+'\K[^']+" android-app/app/build.gradle || echo "?")
+          BUILDCODE=$(grep -m1 -oP "versionCode\s+\K[0-9]+" android-app/app/build.gradle || echo "?")
+          DATE_UTC=$(date -u '+%Y-%m-%d %H:%M UTC')
+          if [ -f android-app/app/google-services.json ]; then
+            FCM_STATE="✅ کد و تنظیمات فایربیس داخل بیلد گنجانده شد (google-services.json موجود است) — رسیدن اعلان در حالت بسته بودن اپ باید روی گوشی تأیید شود"
+          else
+            FCM_STATE="⏳ غیرفعال — فایل android-app/app/google-services.json افزوده نشده است"
+          fi
+
+          # آیا خودِ کد گیرنده‌ی اعلان فایربیس داخل اپ کامپایل شده است؟
+          if unzip -p "$APK" classes.dex | strings | grep -q "EplakMessagingService"; then
+            FCM_CODE="✅"
+          else
+            FCM_CODE="❌ (کد گیرنده‌ی اعلان کامپایل نشده)"
+            MISMATCH=1
+          fi
+
+          # آیا شناسه‌ی پروژه‌ی فایربیس داخل منابع اپ نشسته است؟
+          PROJ=""
+          if [ -f android-app/app/google-services.json ]; then
+            PROJ=$(grep -oP '"project_number"\s*:\s*"?\K[0-9]+' android-app/app/google-services.json | head -1)
+            if [ -n "$PROJ" ] && unzip -p "$APK" resources.arsc | strings | grep -q "$PROJ"; then
+              FCM_WIRED="✅ متصل به پروژه‌ی $PROJ"
+            else
+              FCM_WIRED="❌ اتصال برقرار نشد"
+              MISMATCH=1
+            fi
+          else
+            FCM_WIRED="— (بدون فایل فایربیس)"
+          fi
+
+          # تأیید اینکه اپ دقیقاً کد سایت همین کامیت را در خود دارد
+          MISMATCH=0
+          DEX_BAD=0
+          ROWS=""
+          for f in index.html app.js modules/live.js modules/reports.js core/storage.js assets/css/style.css; do
+            REPO_SUM=$(sha256sum "$f" | awk '{print $1}')
+            APK_SUM=$(unzip -p "$APK" "assets/$f" | sha256sum | awk '{print $1}')
+            if [ "$REPO_SUM" = "$APK_SUM" ]; then
+              ROWS="${ROWS}| \`$f\` | ✅ یکسان |\n"
+            else
+              ROWS="${ROWS}| \`$f\` | ❌ ناهم‌خوان |\n"
+              MISMATCH=1
+            fi
+          done
+          # بررسی وجود کد اعلان‌ها و شناسه‌ی نسخه در اپ
+          if unzip -p "$APK" assets/modules/live.js | grep -q "registerAppDevice"; then FCM_CODE="✅"; else FCM_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/modules/reports.js | grep -q "reportMedia\|media"; then MEDIA_CODE="✅"; else MEDIA_CODE="❌"; fi
+          # نشانه‌های چهار خواسته‌ی تازه داخل خود APK
+          if unzip -p "$APK" assets/modules/online-guard.js | grep -q "eplakOfflineGate"; then ONLINE_CODE="✅"; else ONLINE_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/index.html | grep -q "eplakOfflineGate"; then OFFLINE_UI="✅"; else OFFLINE_UI="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/modules/live.js | grep -q "deleteNotifications"; then DELETE_CODE="✅"; else DELETE_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/core/storage.js | grep -q "prepareAppExit"; then SESSION_CODE="✅"; else SESSION_CODE="❌"; DEX_BAD=$((DEX_BAD+1)); fi
+
+          # ── نشانه‌های دو خواسته‌ی تازه: انتخاب عکس/فیلم از گالری و موقعیت GPS ──
+          if unzip -p "$APK" assets/assets/js/ep-map.js 2>/dev/null | grep -q "tile.openstreetmap.org"; then MAP_CODE="✅"; else MAP_CODE="❌ (فایل نقشه داخل APK نیست)"; fi
+          if unzip -p "$APK" assets/index.html | grep -q "reportMapPicker"; then MAP_UI="✅"; else MAP_UI="❌"; fi
+          if unzip -p "$APK" assets/modules/reports.js | grep -q "getCurrentPosition"; then GPS_CODE="✅"; else GPS_CODE="❌"; fi
+          if unzip -p "$APK" assets/modules/reports.js | grep -q "compressReportImage"; then PHOTO_COMPRESS="✅"; else PHOTO_COMPRESS="❌"; fi
+          # کد جاوا: انتخاب فایل (onShowFileChooser) و موقعیت (GeolocationPermissions)
+          # باید داخل فایل‌های dex کامپایل شده باشند؛ جست‌وجو مستقیم داخل zip انجام
+          # می‌شود (نه با strings) تا نتیجه قابل‌اعتماد باشد.
+          DEX_REPORT="$(python3 - "$APK" <<'PYEOF'
+          import sys, zipfile
+          probes = {
+              'onShowFileChooser': ['onShowFileChooser'],
+              'onGeolocationPermissionsShowPrompt': ['onGeolocationPermissionsShowPrompt'],
+              'ACCESS_FINE_LOCATION': ['ACCESS_FINE_LOCATION'],
+              'addressBridge': ['getAddress'],
+              'geocoder': ['Geocoder'],
+              'webviewNetwork': ['allowUniversalAccessFromFileURLs', 'UniversalAccessFromFileURLs',
+                                 'UniversalAccess', 'FileURLs'],
+              'fileAccessOn': ['setAllowFileAccess', 'allowFileAccess'],
+              'pickedFileCache': ['copyPickedFileToCache', 'picked'],
+              'neshanBridge': ['openNeshan'],
+              'neshanPackage': ['org.rajman.neshan.traffic.tehran.navigator'],
+          }
+          try:
+              with zipfile.ZipFile(sys.argv[1]) as z:
+                  names = z.namelist()
+                  dex = [n for n in names if n.endswith('.dex')]
+                  blob = b''.join(z.read(n) for n in dex)
+                  manifest = z.read('AndroidManifest.xml') if 'AndroidManifest.xml' in names else b''
+          except Exception as e:
+              print('ERR ' + str(e))
+              sys.exit(0)
+          print('DEXFILES=' + ','.join(dex), end=' ')
+          for label, options in probes.items():
+              hit = ''
+              for needle in options:
+                  if needle.encode() in blob:
+                      hit = needle
+                      break
+              if not hit and label == 'ACCESS_FINE_LOCATION':
+                  if (b'ACCESS_FINE_LOCATION' in manifest) or (b'ACCESS_FINE_LOCATION'.decode().encode('utf-16-le') in manifest):
+                      hit = 'ACCESS_FINE_LOCATION'
+              print(('YES|' + label + ':' + hit) if hit else ('NO|' + label + ':?'),
+                    end=' ')
+          print('')
+          PYEOF
+          )"
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|onShowFileChooser'; then FILEPICK_KOTLIN="✅"; else FILEPICK_KOTLIN="❌ (کد انتخاب فایل داخل اپ کامپایل نشده)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|onGeolocationPermissionsShowPrompt'; then GEO_KOTLIN="✅"; else GEO_KOTLIN="⚠️ (در dex دیده نشد)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|ACCESS_FINE_LOCATION'; then LOC_PERM="✅"; else LOC_PERM="⚠️ (در مانیفست دیده نشد)"; fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|addressBridge' && printf '%s\n' "$DEX_REPORT" | grep -q 'YES|geocoder'; then ADDR_KOTLIN="✅"; else ADDR_KOTLIN="❌ (پل آدرس‌یاب گوشی داخل اپ کامپایل نشده)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|webviewNetwork'; then NET_KOTLIN="✅"; else NET_KOTLIN="❌ (اجازه‌ی درخواست شبکه از صفحه‌ی اپ دیده نشد)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|fileAccessOn'; then FILE_ACCESS="✅"; else FILE_ACCESS="❌ (دسترسی خواندن فایل انتخابی روشن نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|pickedFileCache'; then PICKED_CACHE="✅"; else PICKED_CACHE="⚠️ (در dex دیده نشد)"; fi
+          # «نقشه و اماکن شهری»: فهرست اماکن، صفحه‌ی نقشه و پل اندروید «نشان»
+          if unzip -p "$APK" assets/core/places-data.js 2>/dev/null | grep -q "mofatteh-hospital"; then PLACES_CODE="✅"; else PLACES_CODE="❌ (فهرست اماکن داخل APK نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/modules/city-map.js 2>/dev/null | grep -q "openNeshan"; then CITYMAP_CODE="✅"; else CITYMAP_CODE="❌ (صفحه‌ی نقشه داخل APK نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if unzip -p "$APK" assets/modules/city-map.js 2>/dev/null | grep -q "eplak_places_remote_v1" && unzip -p "$APK" assets/core/places.js 2>/dev/null | grep -q "applyRemote"; then PLACES_SYNC_CODE="✅"; else PLACES_SYNC_CODE="❌ (همگام‌سازی اماکنِ پنل با اپ داخل APK نیست)"; DEX_BAD=$((DEX_BAD+1)); fi
+          if printf '%s\n' "$DEX_REPORT" | grep -q 'YES|neshanBridge' && printf '%s\n' "$DEX_REPORT" | grep -q 'YES|neshanPackage'; then NESHAN_KOTLIN="✅"; else NESHAN_KOTLIN="❌ (پل مسیریابی نشان داخل اپ کامپایل نشده)"; DEX_BAD=$((DEX_BAD+1)); fi
+          DEX_FILES="$(printf '%s\n' "$DEX_REPORT" | sed -n 's/^DEXFILES=\([^ ]*\).*/\1/p')"
+          echo "بررسی کد داخل APK: $(printf '%s\n' "$DEX_REPORT" | tr '\n' ' ')"
+
+          {
+            echo "## 🤖 گزارش ساخت فایل APK"
+            echo ""
+            echo "| مورد | مقدار |"
+            echo "|---|---|"
+            echo "| نسخه‌ی اپ | \`$VERSION\` (کد ساخت $BUILDCODE) |"
+            echo "| کامیت | \`$COMMIT\` |"
+            echo "| زمان ساخت | $DATE_UTC |"
+            echo "| حجم فایل | \`$SIZE\` بایت |"
+            echo "| اثرانگشت SHA-256 | \`$SHA\` |"
+            echo "| وضعیت فایربیس در بیلد | $FCM_STATE |"
+            echo "| کد اعلان‌ها داخل اپ | $FCM_CODE |"
+            echo "| اتصال به پروژه‌ی فایربیس | $FCM_WIRED |"
+            echo "| کد پیوست عکس/فیلم | $MEDIA_CODE |"
+            echo "| سپر «بدون اینترنت» در اپ | $ONLINE_CODE |"
+            echo "| پرده‌ی «بدون اینترنت» در صفحه | $OFFLINE_UI |"
+            echo "| کد حذف اعلان | $DELETE_CODE |"
+            echo "| پاک‌سازی حساب پس از خروج | $SESSION_CODE |"
+            echo "| نقشه‌ی موقعیت داخل اپ (OpenStreetMap) | $MAP_CODE |"
+            echo "| نقشه در صفحه‌ی «موقعیت» | $MAP_UI |"
+            echo "| GPS گوشی (getCurrentPosition) | $GPS_CODE |"
+            echo "| فشرده‌سازی عکس پیش از ارسال | $PHOTO_COMPRESS |"
+            echo "| کد موقعیت‌یابی در اپ اندروید | $GEO_KOTLIN |"
+            echo "| کد انتخاب عکس/فیلم در اندروید (onShowFileChooser) | $FILEPICK_KOTLIN |"
+            echo "| آدرس‌یاب گوشی برای آدرس دقیق (Geocoder) | $ADDR_KOTLIN |"
+            echo "| اجازه‌ی ارسال شبکه از صفحه‌ی اپ (file://) | $NET_KOTLIN |"
+            echo "| مجوز موقعیت مکانی در مانیفست | $LOC_PERM |"
+            echo "| نقشه و اماکن شهری: فهرست اماکن ورامین | $PLACES_CODE |"
+            echo "| نقشه و اماکن شهری: صفحه و مسیریابی | $CITYMAP_CODE |"
+            echo "| نقشه و اماکن شهری: اماکنِ افزوده‌شده در پنل ادمین (همگام‌سازی) | $PLACES_SYNC_CODE |"
+            echo "| مسیریابی با نشان: پل اندروید (openNeshan) | $NESHAN_KOTLIN |"
+            echo ""
+            echo "### تأیید کد سایت داخل اپ (مقایسه‌ی هش با مخزن)"
+            echo ""
+            echo "| فایل | نتیجه |"
+            echo "|---|---|"
+            echo -e "$ROWS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat > eplak-apk-info.txt <<INFO
+          ============================================================
+           اپلک — مشخصات فایل نصب اندروید (APK)
+          ============================================================
+
+          نسخه‌ی اپ        : $VERSION  (کد ساخت $BUILDCODE)
+          کامیت کد       : $COMMIT
+          زمان ساخت       : $DATE_UTC
+          حجم فایل        : $SIZE بایت (حدود $(echo "scale=1; $SIZE/1048576" | bc 2>/dev/null || echo "?") مگابایت)
+          اثرانگشت فایل   : $SHA
+          (این خط را می‌توانید با دستور sha256sum روی فایل دانلودشده مقایسه کنید)
+
+          وضعیت اعلان فایربیس : $FCM_STATE
+
+          نصب: فایل eplak-app.apk را روی گوشی دانلود کنید، اجازه‌ی
+          «نصب از منابع نامشخص» را بدهید و نصب کنید. نسخه‌ی تازه روی نسخه‌ی
+          نصب‌شده به‌روزرسانی می‌شود.
+          INFO
+
+          if [ "$MISMATCH" = "1" ]; then
+            echo "::warning::برخی فایل‌های سایت داخل APK با مخزن یکسان نیستند"
+            VERIFY_SUMMARY="⚠️ برخی فایل‌ها ناهم‌خوان"
+          else
+            VERIFY_SUMMARY="✅ همه‌ی ۶ فایل سایت داخل اپ با مخزن یکسان‌اند"
+          fi
+          if [ "$DEX_BAD" = "0" ]; then
+            DEX_SUMMARY="✅ همه‌ی نشانه‌های کد در اپ دیده می‌شوند"
+          else
+            DEX_SUMMARY="⚠️ $DEX_BAD نشانه‌ی کد در اپ دیده نشد"
+            echo "::warning::برخی نشانه‌های کد در APK دیده نشدند — گزارش dex: $DEX_REPORT"
+          fi
+          echo "بازرسی نشانه‌های کد: $DEX_SUMMARY — $DEX_REPORT"
+
+          {
+            echo "APK_SHA=$SHA"
+            echo "APK_SIZE=$SIZE"
+            echo "APK_VERSION=$VERSION"
+            echo "APK_BUILDCODE=$BUILDCODE"
+            echo "APK_FCM_STATE=$FCM_STATE"
+            echo "APK_FCM_CODE=$FCM_CODE"
+            echo "APK_FCM_WIRED=$FCM_WIRED"
+            echo "APK_VERIFY=$VERIFY_SUMMARY"
+            echo "APK_DEX_SUMMARY=$DEX_SUMMARY"
+            echo "APK_ONLINE_CODE=$ONLINE_CODE"
+            echo "APK_OFFLINE_UI=$OFFLINE_UI"
+            echo "APK_DELETE_CODE=$DELETE_CODE"
+            echo "APK_SESSION_CODE=$SESSION_CODE"
+            echo "APK_MAP_CODE=$MAP_CODE"
+            echo "APK_MAP_UI=$MAP_UI"
+            echo "APK_GPS_CODE=$GPS_CODE"
+            echo "APK_PHOTO_COMPRESS=$PHOTO_COMPRESS"
+            echo "APK_FILEPICK_KOTLIN=$FILEPICK_KOTLIN"
+            echo "APK_GEO_KOTLIN=$GEO_KOTLIN"
+            echo "APK_DEX_FILES=$DEX_FILES"
+            echo "APK_LOC_PERM=$LOC_PERM"
+            echo "APK_ADDR_KOTLIN=$ADDR_KOTLIN"
+            echo "APK_NET_KOTLIN=$NET_KOTLIN"
+            echo "APK_FILE_ACCESS=$FILE_ACCESS"
+            echo "APK_PICKED_CACHE=$PICKED_CACHE"
+            echo "APK_PLACES_CODE=$PLACES_CODE"
+            echo "APK_CITYMAP_CODE=$CITYMAP_CODE"
+            echo "APK_PLACES_SYNC_CODE=$PLACES_SYNC_CODE"
+            echo "APK_NESHAN_KOTLIN=$NESHAN_KOTLIN"
+          } >> "$GITHUB_ENV"
+          echo "APK بازرسی شد — حجم: $SIZE بایت • SHA-256: $SHA"
+
+      - name: بارگذاری فایل APK (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: eplak-apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: پیوست کردن APK به Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0-eplak-update
+          name: بسته‌ی به‌روزرسانی سایت و پنل ادمین (v2.0)
+          files: |
+            eplak-app.apk
+            eplak-apk-info.txt
+          fail_on_unmatched_files: false
+
+      - name: ثبت مشخصات ساخت در توضیحات Releases
+        run: |
+          TAG=v2.0-eplak-update
+          # متن توضیحات فعلی را می‌گیریم و فقط بلوک «مشخصات ساخت» را به‌روز می‌کنیم
+          BODY="$(gh release view "$TAG" --json body --jq .body 2>/dev/null || echo '')"
+          CLEAN="$(printf '%s\n' "$BODY" | awk '/<!-- APK-INFO:START -->/{skip=1} !skip{print} /<!-- APK-INFO:END -->/{skip=0}')"
+          {
+            printf '%s\n\n' "$CLEAN"
+            echo "<!-- APK-INFO:START -->"
+            echo ""
+            echo "### 🤖 مشخصات آخرین فایل APK (خودکار)"
+            echo ""
+            echo "| مورد | مقدار |"
+            echo "|---|---|"
+            echo "| نسخه‌ی اپ | \`$APK_VERSION\` (کد ساخت $APK_BUILDCODE) |"
+            echo "| کامیت | \`${GITHUB_SHA:0:7}\` |"
+            echo "| زمان ساخت | $(date -u '+%Y-%m-%d %H:%M UTC') |"
+            echo "| حجم فایل | \`$APK_SIZE\` بایت |"
+            echo "| اثرانگشت SHA-256 | \`$APK_SHA\` |"
+            echo "| تأیید محتوا | $APK_VERIFY |"
+            echo "| نشانه‌های کد در اپ | $APK_DEX_SUMMARY |"
+            echo "| فایربیس در بیلد | $APK_FCM_STATE |"
+            echo "| اتصال به پروژه‌ی فایربیس | $APK_FCM_WIRED |"
+            echo "| سپر «بدون اینترنت اتصال ممکن نیست» | $APK_ONLINE_CODE |"
+            echo "| پرده‌ی «بدون اینترنت» در صفحه‌ی اپ | $APK_OFFLINE_UI |"
+            echo "| حذف اعلان در اپ | $APK_DELETE_CODE |"
+            echo "| ورود دوباره با کد تایید پس از خروج | $APK_SESSION_CODE |"
+            echo "| نقشه‌ی موقعیت (OpenStreetMap) در اپ | $APK_MAP_CODE |"
+            echo "| GPS گوشی در فرم ثبت درخواست | $APK_GPS_CODE |"
+            echo "| فشرده‌سازی عکس پیش از ارسال | $APK_PHOTO_COMPRESS |"
+            echo "| کد موقعیت‌یابی اندروید | $APK_GEO_KOTLIN |"
+            echo "| کد انتخاب عکس/فیلم در اندروید | $APK_FILEPICK_KOTLIN |"
+            echo "| آدرس‌یاب گوشی (آدرس نوشتاری دقیق) | $APK_ADDR_KOTLIN |"
+            echo "| ارسال پیوست از داخل اپ (اجازه‌ی شبکه‌ی file://) | $APK_NET_KOTLIN |"
+            echo "| خواندن فایل انتخاب‌شده از گالری | $APK_FILE_ACCESS |"
+            echo "| کپی فایل انتخابی در حافظه‌ی اپ | $APK_PICKED_CACHE |"
+            echo "| مجوز موقعیت مکانی در مانیفست | $APK_LOC_PERM |"
+            echo "| نقشه و اماکن شهری: فهرست اماکن ورامین | $APK_PLACES_CODE |"
+            echo "| نقشه و اماکن شهری: صفحه و مسیریابی | $APK_CITYMAP_CODE |"
+            echo "| نقشه و اماکن شهری: اماکنِ افزوده‌شده در پنل ادمین (همگام‌سازی) | $APK_PLACES_SYNC_CODE |"
+            echo "| مسیریابی با نشان: پل اندروید (openNeshan) | $APK_NESHAN_KOTLIN |"
+            echo ""
+            echo "> این APK با هر تغییر در فایل‌های اپ/سایت خودکار ساخته می‌شود."
+            if [ -f android-app/app/google-services.json ]; then
+              echo "> اپ با کد و تنظیمات فایربیس ساخته شده و کلید سرویس هم در پنل ادمین ثبت شده است. رسیدن اعلان در حالت «بسته بودن کامل اپ» باید روی گوشی کاربر تأیید شود؛ تا آن زمان هیچ‌جا «اعلان فعال است» نوشته نمی‌شود."
+            else
+              echo "> برای فعال شدن اعلان در حالت «اپ بسته»، فایل \`android-app/app/google-services.json\` را اضافه کنید."
+            fi
+            echo ""
+            echo "<!-- APK-INFO:END -->"
+          } > /tmp/release-notes.md
+          gh release edit "$TAG" --notes-file /tmp/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

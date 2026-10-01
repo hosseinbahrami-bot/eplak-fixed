@@ -114,6 +114,12 @@
     } catch (e) {}
 
     onScreenShow(id);
+
+    /* اطلاع به ماژول‌ها که کدام صفحه باز شد (مثلاً برای ساخت نقشه‌ی موقعیت
+       فقط وقتی همان صفحه دیده می‌شود، تا اینترنت/داده هدر نرود). */
+    try {
+      window.dispatchEvent(new CustomEvent('eplak-screen-shown', { detail: { id: id } }));
+    } catch (e) {}
   }
 
   function onScreenShow(id) {
@@ -196,6 +202,32 @@
      ۴. روی خانه با دو بار زدن سریع خارج می‌شود
   ========================================================= */
   function handleAppBack(fromPopState) {
+    // ۰. اگر گالری عکس/فیلم (نمایش تمام‌صفحه) باز است، همان بسته شود
+    const mediaViewer = document.getElementById('reportMediaViewer');
+    if (mediaViewer && mediaViewer.classList.contains('open')) {
+      if (typeof window.closeReportMedia === 'function') {
+        window.closeReportMedia();
+      } else {
+        mediaViewer.classList.remove('open');
+      }
+      if (fromPopState) {
+        try { window.history.pushState({ screenId: getCurrentActiveScreenId() }, '', '#' + getCurrentActiveScreenId()); } catch (e) {}
+      }
+      return true;
+    }
+
+    // ۰-ب. کارت «مکان انتخاب‌شده» در «نقشه و اماکن شهری» باز است → اول همان بسته شود
+    if (window.EplakCityMap && typeof window.EplakCityMap.handleBack === 'function') {
+      let closedByCityMap = false;
+      try { closedByCityMap = window.EplakCityMap.handleBack() === true; } catch (e) {}
+      if (closedByCityMap) {
+        if (fromPopState) {
+          try { window.history.pushState({ screenId: getCurrentActiveScreenId() }, '', '#' + getCurrentActiveScreenId()); } catch (e) {}
+        }
+        return true;
+      }
+    }
+
     // ۱. اگر منوی باز داریم، آن را ببند
     const homePanel = document.getElementById('homeProfileActionsPanel');
     if (homePanel && (homePanel.style.display === 'block' || homePanel.classList.contains('active'))) {
@@ -266,6 +298,11 @@
     if (now - lastBackPressTime < 2000) {
       // اجرای خروج از اپلیکیشن
       if (window.AndroidApp && typeof window.AndroidApp.exitApp === 'function') {
+        /* پیش از بسته شدن کامل، اطلاعات ورود از دستگاه پاک می‌شود تا دفعه‌ی
+           بعد که برنامه باز شد، کاربر دوباره کد تایید بگیرد. */
+        try {
+          if (typeof window.prepareAppExit === 'function') window.prepareAppExit();
+        } catch (e) {}
         window.AndroidApp.exitApp();
         return true;
       }

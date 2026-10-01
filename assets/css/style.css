@@ -6937,3 +6937,504 @@ html.day .svc-ad-slim { border-color: rgba(0, 150, 130, 0.28); box-shadow: 0 5px
 .haji-banner .home-ad-badge { bottom: 9px; left: 10px; }
 html.day .haji-banner { border-color: rgba(180, 120, 30, 0.4); box-shadow: 0 8px 20px -6px rgba(0,0,0,0.25); }
 @media (prefers-reduced-motion: reduce) { .haji-banner::before { animation: none !important; } }
+
+/* ============================================================
+   گالری تصاویر و فیلم‌های گزارش در اپ (modules/reports.js)
+   ------------------------------------------------------------
+   عکس‌ها به‌صورت کارت‌های مربعی کوچک و مرتب، فیلم‌ها با پیش‌نمایش و
+   آیکن پخش، و ضربه روی هر کدام = نمایش تمام‌صفحه (لایت‌باکس).
+   ============================================================ */
+.media-count-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(0, 201, 167, 0.14);
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.media-card { padding: 12px; }
+
+.media-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.media-tile {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.media-tile:active { transform: scale(0.97); }
+.media-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.media-tile-broken { display: none; }
+
+.media-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.media-video-card {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0b1220;
+  cursor: pointer;
+}
+.media-video-card video {
+  width: 100%;
+  height: 108px;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.media-play-badge {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.media-video-card .media-play-badge svg { margin-right: 3px; }
+.media-video-meta {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+}
+
+.media-hint,
+.media-note {
+  margin: 10px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.9;
+  color: var(--text-muted);
+}
+.media-note { color: #b45309; }
+
+/* ── نمایش تمام‌صفحه ─────────────────────────────────────── */
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 12, 20, 0.94);
+  backdrop-filter: blur(3px);
+}
+.media-viewer.open { display: flex; }
+body.media-viewer-locked { overflow: hidden; }
+
+.media-viewer-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 54px 12px 62px;
+}
+.media-viewer-stage img,
+.media-viewer-stage video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  background: #000;
+}
+
+.media-viewer-close,
+.media-viewer-nav {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+.media-viewer-close { top: 14px; left: 14px; }
+.media-viewer-nav { top: 50%; margin-top: -20px; }
+.media-viewer-nav.prev { right: 12px; }
+.media-viewer-nav.next { left: 12px; }
+
+.media-viewer-foot {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #e5e7eb;
+  font-size: 12.5px;
+}
+
+/* ============================================================
+   روند رسیدگی در جزئیات گزارش (هم‌خوان با پنل ادمین)
+   ------------------------------------------------------------
+   هر گام: آیکن، عنوان، سازنده (شهرداری/شهروند/سامانه)، توضیح و تاریخ.
+   گام در جریان با یک هاله‌ی متحرک نشان داده می‌شود.
+   ============================================================ */
+.status-summary-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+.status-summary-main { display: flex; align-items: center; gap: 10px; }
+.status-summary-icon { font-size: 22px; line-height: 1; }
+.status-summary-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+.status-summary-value { font-size: 13.5px; font-weight: 800; }
+.status-summary-side { text-align: left; }
+.status-summary-box.status-done { border-color: rgba(22, 163, 74, 0.35); }
+.status-summary-box.status-done .status-summary-value { color: #16a34a; }
+.status-summary-box.status-pending { border-color: rgba(217, 119, 6, 0.32); }
+.status-summary-box.status-pending .status-summary-value { color: #d97706; }
+.status-summary-box.status-progress { border-color: rgba(59, 130, 246, 0.32); }
+.status-summary-box.status-progress .status-summary-value { color: #3b82f6; }
+
+.timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.timeline-icon { font-size: 14px; line-height: 1; }
+.timeline-head h5 { font-size: 13px; font-weight: 700; }
+.timeline-actor {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.timeline-actor.actor-admin { background: rgba(0, 201, 167, 0.14); color: var(--teal); }
+.timeline-actor.actor-citizen { background: rgba(59, 130, 246, 0.14); color: #3b82f6; }
+.timeline-actor.actor-system { background: rgba(100, 116, 139, 0.14); color: #64748b; }
+.timeline-body {
+  margin-top: 5px;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--text-primary);
+  background: rgba(15, 23, 42, 0.035);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.timeline-date { margin-top: 5px; font-size: 11.5px; color: var(--text-muted); }
+.timeline-dot.current.pulse { animation: timelinePulse 1.6s ease-in-out infinite; }
+@keyframes timelinePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+  50% { box-shadow: 0 0 0 7px rgba(59, 130, 246, 0); }
+}
+.timeline-row.is-waiting .timeline-content h5 { color: var(--text-muted); }
+
+/* نشان «تعداد گام‌های رسیدگی» روی ردیف گزارش در فهرست */
+.report-steps-chip {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 201, 167, 0.12);
+  color: var(--teal);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* آیکون پیش‌نمایش فیلم در فرم ثبت گزارش (هم‌خوان با پک آیکون) */
+.picked-video-icon { display: flex; align-items: center; justify-content: center; color: var(--teal); }
+.media-note svg { vertical-align: -2px; margin-left: 4px; }
+
+/* ============================================================
+   روند رسیدگی چهارمرحله‌ای (ثبت گزارش → در حال انتظار →
+   در حال رسیدگی → انجام شد)
+   ============================================================ */
+.flow-step { display: flex; gap: 12px; }
+.flow-marker { display: flex; flex-direction: column; align-items: center; flex: 0 0 34px; }
+.flow-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card-bg); border: 1.5px solid var(--card-border);
+  color: var(--text-muted); transition: all .2s ease;
+}
+.flow-line { width: 2px; flex: 1; min-height: 16px; background: var(--card-border); border-radius: 2px; }
+.flow-line.done { background: var(--teal); opacity: .55; }
+
+.flow-step.is-done .flow-dot { background: rgba(0, 201, 167, 0.14); border-color: rgba(0, 201, 167, 0.5); color: var(--teal); }
+.flow-step.is-current .flow-dot {
+  background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.55); color: #3b82f6;
+  animation: flowPulse 1.8s ease-in-out infinite;
+}
+@keyframes flowPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45); }
+  50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+}
+.flow-step.is-waiting .flow-dot { opacity: .6; }
+
+.flow-body { flex: 1; padding-bottom: 16px; min-width: 0; }
+.flow-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.flow-head h5 { font-size: 13.5px; font-weight: 800; }
+.flow-step.is-waiting .flow-head h5 { color: var(--text-muted); font-weight: 700; }
+
+.flow-badge { font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 999px; }
+.flow-badge.done { background: rgba(0, 201, 167, 0.14); color: var(--teal); }
+.flow-badge.current { background: rgba(59, 130, 246, 0.16); color: #3b82f6; }
+.flow-badge.waiting { background: rgba(100, 116, 139, 0.14); color: #64748b; }
+
+.flow-note {
+  margin-top: 6px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(15, 23, 42, 0.035);
+  font-size: 12.5px; line-height: 1.9; color: var(--text-primary);
+}
+.flow-note-date { display: block; margin-top: 3px; font-size: 11px; color: var(--text-muted); }
+.flow-date { margin-top: 5px; font-size: 11.5px; color: var(--text-muted); }
+
+/* آیکون‌های پک در دکمه‌های فیلتر و پرده‌ی بدون اینترنت */
+.filter-tab-icon { display: inline-flex; vertical-align: -3px; margin-left: 4px; }
+.filter-tab-icon svg { display: block; }
+.eplak-offline-icon svg { width: 46px; height: 46px; display: block; margin: 0 auto; color: var(--teal); }
+.lux-occ-item svg { vertical-align: -2px; color: var(--teal); }
+
+/* آیکون برچسب‌های سریع خدمات (پک آیکون) */
+.svc-tag-icon { display: inline-flex; vertical-align: -2px; margin-left: 4px; }
+.svc-tag-icon svg { display: block; }
+.pcf-icon svg { vertical-align: -2px; }
+
+/* ============================================================
+   نمودار خطیِ درصدی بارگذاری «هر» عکس/فیلم
+   ------------------------------------------------------------
+   جا: جزئیات گزارش ← «روند رسیدگی» ← گام «ثبت گزارش»، و صفحه‌ی
+   «گزارش ثبت شد». در حال ارسال: نوار + درصد؛ پس از آپلود: نوار
+   می‌رود و فقط «فایل آپلود شد» می‌ماند (core/upload-progress.js).
+   ============================================================ */
+.flow-uploads { margin-top: 8px; }
+.up-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.up-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px; border-radius: 12px; text-align: start;
+  background: var(--card-bg); border: 1px solid var(--card-border);
+}
+.up-ico {
+  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 201, 167, 0.12); color: var(--teal);
+}
+.up-ico svg { display: block; }
+.up-ico.ok { background: rgba(22, 163, 74, 0.14); color: #16a34a; }
+.up-ico.bad { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+.up-main { flex: 1; min-width: 0; }
+.up-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.up-name {
+  font-size: 12px; font-weight: 700; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: ltr; unicode-bidi: plaintext; min-width: 0;
+}
+.up-pct { font-size: 12px; font-weight: 800; color: var(--teal); flex: none; }
+.up-bar {
+  height: 7px; margin-top: 7px; border-radius: 999px; overflow: hidden;
+  background: rgba(100, 116, 139, 0.22);   /* جهت از صفحه می‌آید: فارسی از راست، انگلیسی از چپ پر می‌شود */
+}
+.up-fill {
+  display: block; height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal), #3b82f6);
+  transition: width .25s ease;
+}
+.up-sub2 { margin-top: 5px; font-size: 11px; color: var(--text-muted); }
+.up-done { font-size: 13px; font-weight: 800; color: #16a34a; }
+.up-fail { font-size: 13px; font-weight: 800; color: #ef4444; }
+.up-sub { margin-top: 3px; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); min-width: 0; }
+.up-sub .up-name { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.up-kind svg { width: 13px; height: 13px; vertical-align: -2px; display: block; }
+.up-note { margin-top: 4px; font-size: 11.5px; line-height: 1.8; color: #ef4444; }
+.up-retry {
+  margin-top: 7px; padding: 6px 12px; border: 0; border-radius: 9px;
+  background: var(--teal); color: #fff; font-family: inherit;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.up-row[data-state="queued"] .up-pct { color: var(--text-muted); font-weight: 700; }
+.up-row[data-state="retrying"] .up-pct { color: #d97706; }
+.up-row[data-state="retrying"] .up-fill { background: #d97706; }
+.up-row.is-done { background: rgba(22, 163, 74, 0.08); border-color: rgba(22, 163, 74, 0.28); }
+.up-row.is-failed { background: rgba(239, 68, 68, 0.07); border-color: rgba(239, 68, 68, 0.28); }
+@media (prefers-reduced-motion: reduce) { .up-fill { transition: none; } }
+
+/* ============================================================================
+   نقشه و اماکن شهری (#screen-map) — modules/city-map.js
+   نقشه‌ی زنده + اماکن مهم ورامین به تفکیک دسته + مسیریابی با «نشان»
+   ============================================================================ */
+#screen-map .cm-card { position: relative; flex: none; border-radius: 22px; overflow: hidden; }
+#screen-map .cm-canvas { width: 100%; height: clamp(320px, 50vh, 480px); border-radius: 0; }
+#screen-map .cm-canvas.ep-map { border-radius: 0; }
+
+/* دکمه‌های شناور نقشه (زیر دکمه‌های زوم) */
+.cm-fab {
+  position: absolute; right: 8px; z-index: 6; width: 32px; height: 32px; padding: 0;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,0.28); background: rgba(13,21,39,0.72);
+  color: #fff; display: grid; place-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.cm-fab svg { width: 18px; height: 18px; display: block; }
+.cm-fab:active { transform: scale(0.94); }
+.cm-locate { top: 84px; }
+.cm-fit { top: 122px; }
+.cm-fab.busy { color: #00E5C3; animation: cmPulse 0.9s ease-in-out infinite; }
+@keyframes cmPulse { 50% { opacity: 0.4; } }
+
+/* کارت مکان انتخاب‌شده (پایین نقشه) */
+.cm-sheet {
+  position: absolute; z-index: 7; left: 8px; right: 8px; bottom: 8px; padding: 12px; border-radius: 18px;
+  background: rgba(9,20,36,0.95); border: 1px solid rgba(255,255,255,0.12); color: var(--text-primary);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  animation: cmSheetUp 0.22s ease-out;
+}
+.cm-sheet[hidden] { display: none; }
+html.day .cm-sheet { background: rgba(255,255,255,0.97); border-color: rgba(0,150,130,0.22); box-shadow: 0 12px 30px rgba(10,40,34,0.22); }
+@keyframes cmSheetUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+.cm-sh-head { display: flex; align-items: center; gap: 10px; }
+.cm-sh-badge { flex: none; width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center; background: var(--c, var(--teal)); color: var(--ink, #fff); }
+.cm-sh-badge svg { width: 23px; height: 23px; }
+.cm-sh-title { flex: 1; min-width: 0; }
+.cm-sh-title b { display: block; font-size: 14.5px; font-weight: 800; line-height: 1.55; }
+.cm-sh-title span { display: block; font-size: 11.5px; color: var(--text-muted); line-height: 1.6; }
+.cm-sh-x { flex: none; width: 30px; height: 30px; padding: 0; border-radius: 10px; border: 0; background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; }
+.cm-sh-x svg { width: 16px; height: 16px; }
+.cm-sh-note {
+  margin-top: 8px; font-size: 12px; line-height: 1.8; color: var(--text-light);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.cm-approx { color: #f59e0b; font-weight: 700; }
+.cm-veh { flex: none; display: flex; gap: 4px; }
+.cm-veh-btn {
+  flex: none; width: 42px; height: 46px; padding: 0; border-radius: 14px; border: 1px solid var(--card-border);
+  background: var(--card-bg); color: var(--text-light); cursor: pointer; display: grid; place-items: center;
+}
+.cm-veh-btn svg { width: 21px; height: 21px; }
+.cm-veh-btn.on { background: rgba(0,201,167,0.16); border-color: var(--teal); color: var(--teal); }
+.cm-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.cm-route-btn {
+  flex: 1; min-width: 0; min-height: 46px; padding: 0 10px; white-space: nowrap; border: 0; border-radius: 14px; cursor: pointer;
+  background: linear-gradient(135deg, var(--teal), var(--teal-dark)); color: #fff;
+  font-family: inherit; font-size: 14.5px; font-weight: 800; box-shadow: var(--shadow-teal);
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+}
+.cm-route-btn svg { width: 20px; height: 20px; flex: none; }
+.cm-route-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 380px) {
+  .cm-route-btn { font-size: 13px; gap: 6px; padding: 0 8px; }
+  .cm-route-btn svg { width: 17px; height: 17px; }
+  .cm-veh-btn { width: 38px; }
+  .cm-actions { gap: 5px; }
+}
+.cm-route-btn.busy { opacity: 0.88; }
+.cm-route-btn.busy svg { animation: cmPulse 0.9s ease-in-out infinite; }
+.cm-sh-call { margin-inline-end: 6px; background: rgba(0,201,167,0.16); color: var(--teal); }
+.cm-sh-call svg { width: 17px; height: 17px; }
+.cm-sh-hint { margin-top: 8px; font-size: 11px; line-height: 1.8; color: var(--text-muted); }
+.cm-link { background: none; border: 0; padding: 0; color: var(--teal); font-family: inherit; font-size: inherit; font-weight: 700; cursor: pointer; }
+
+/* جستجو */
+.cm-search {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 12px; border-radius: 15px;
+  background: var(--input-bg); border: 1px solid var(--input-border);
+}
+.cm-search > svg { width: 18px; height: 18px; flex: none; color: var(--teal); }
+.cm-search input {
+  flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text-primary);
+  font-family: inherit; font-size: 14px; -webkit-appearance: none; appearance: none;
+}
+.cm-search input::placeholder { color: var(--text-muted); }
+.cm-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.cm-clear { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; }
+.cm-clear[hidden] { display: none; }
+.cm-clear svg { width: 13px; height: 13px; }
+
+/* چیپ‌های دسته */
+.cm-chips {
+  flex: none; display: flex; gap: 8px; overflow-x: auto; margin: 0 -14px; padding: 2px 14px 6px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity;
+}
+.cm-chips::-webkit-scrollbar { display: none; }
+.cm-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; border-radius: 19px;
+  border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-light);
+  font-family: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; scroll-snap-align: center;
+  -webkit-tap-highlight-color: transparent; transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.cm-chip-i svg { width: 17px; height: 17px; display: block; color: var(--c, var(--teal)); }
+.cm-chip .cm-n { font-size: 11px; font-weight: 600; opacity: 0.7; }
+.cm-chip.active { background: var(--c, var(--teal)); border-color: var(--c, var(--teal)); color: var(--ink, #04201b); }
+.cm-chip.active .cm-chip-i svg { color: var(--ink, #04201b); }
+.cm-chip.zero { opacity: 0.45; }
+
+.cm-meta { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 4px; font-size: 12px; color: var(--text-muted); }
+.cm-count { font-weight: 700; color: var(--text-light); }
+.cm-sorted { color: var(--teal); font-weight: 700; }
+
+/* فهرست */
+.cm-list { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.cm-group-h { display: flex; align-items: center; gap: 8px; padding: 10px 4px 2px; font-size: 13.5px; font-weight: 800; color: var(--text-primary); }
+.cm-ic-sm { flex: none; width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; background: var(--c); color: var(--ink, #fff); }
+.cm-ic-sm svg { width: 16px; height: 16px; }
+.cm-group-h small { margin-inline-start: auto; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.cm-row {
+  display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 15px; cursor: pointer;
+  background: var(--card-bg); border: 1px solid var(--card-border); transition: background 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.cm-row:active { background: var(--card-hover); }
+.cm-row.sel { border-color: var(--c); box-shadow: 0 0 0 1px var(--c) inset; }
+.cm-ic { flex: none; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; background: var(--c); color: var(--ink, #fff); }
+.cm-ic svg { width: 21px; height: 21px; }
+.cm-tx { flex: 1; min-width: 0; }
+.cm-tx b { display: block; font-size: 13.5px; font-weight: 700; line-height: 1.65; color: var(--text-primary); }
+.cm-tx small { display: block; font-size: 11.5px; line-height: 1.6; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-dist { flex: none; font-size: 11.5px; font-weight: 700; color: var(--teal); white-space: nowrap; }
+.cm-go {
+  flex: none; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 13px; cursor: pointer;
+  background: rgba(0,201,167,0.16); color: var(--teal); display: grid; place-items: center;
+}
+.cm-go svg { width: 20px; height: 20px; }
+.cm-go:active { transform: scale(0.94); }
+.cm-go.busy { animation: cmPulse 0.9s ease-in-out infinite; }
+.cm-more {
+  margin: 2px 0 4px; padding: 9px; border-radius: 12px; border: 1px dashed var(--c, var(--teal)); background: transparent;
+  color: var(--text-light); font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.cm-empty { padding: 28px 10px; text-align: center; color: var(--text-muted); font-size: 13px; }

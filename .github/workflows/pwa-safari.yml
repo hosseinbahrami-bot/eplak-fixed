@@ -1,0 +1,60 @@
+# ============================================================================
+#  PWA ای‌پلاک داخل Safari واقعیِ iPhone (شبیه‌ساز روی macOS) — عکس از صفحه
+#
+#  آدرس PWA روی هاست (https://eplak.ir/eplak-fixed/) را داخل Safari یک شبیه‌ساز iPhone باز می‌کند و عکس
+#  می‌گیرد؛ نتیجه در بخش Artifacts همین اجرا (pwa-safari-evidence) است. فقط با تغییر همین فایل یا
+#  tools/safari-pwa.sh اجرا می‌شود (روی ساخت IPA و APK اثری ندارد).
+# ============================================================================
+name: PWA in iPhone Safari
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+    paths:
+      - 'tools/safari-pwa.sh'
+      - '.github/workflows/pwa-safari.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # فقط برای برچسبِ اختیاریِ عکس‌ها (پیام کامیت «[evidence]»)
+
+env:
+  PWA_LIVE_URL: https://eplak.ir/eplak-fixed/
+
+jobs:
+  safari:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v5
+
+      - name: باز کردن PWA در Safari شبیه‌ساز iPhone و عکس گرفتن
+        run: bash tools/safari-pwa.sh "$PWA_LIVE_URL" safari-evidence
+
+      - name: بارگذاری عکس‌ها
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-safari-evidence
+          path: safari-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: ارسال عکس‌ها به یک برچسب گیت (فقط وقتی پیام کامیت «[evidence]» دارد)
+        if: ${{ always() && contains(github.event.head_commit.message, '[evidence]') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          [ -d safari-evidence ] || exit 0
+          D="$RUNNER_TEMP/evidence-repo"; rm -rf "$D"; mkdir -p "$D"; cp -R safari-evidence/. "$D"/
+          cd "$D" || exit 0
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "safari pwa evidence (run ${GITHUB_RUN_NUMBER})"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/tags/safari-evidence-${GITHUB_RUN_NUMBER}"
+          exit 0

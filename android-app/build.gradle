@@ -9,6 +9,8 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        /* برای اعلان گوشی (FCM) — فقط وقتی google-services.json وجود داشته باشد اعمال می‌شود */
+        classpath 'com.google.gms:google-services:4.4.2'
     }
 }
 

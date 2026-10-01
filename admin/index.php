@@ -13,8 +13,8 @@ $statusCounts = $statusStats['counts'];
 $statusTotal = (int)$statusStats['total'];
 
 $chartSegments = [
-    ['key' => 'done',        'label' => 'انجام‌شده',     'color' => '#10b981', 'icon' => 'fa-circle-check'],
-    ['key' => 'in_progress', 'label' => 'در حال بررسی',  'color' => '#3b82f6', 'icon' => 'fa-spinner'],
+    ['key' => 'done',        'label' => 'انجام شد',     'color' => '#10b981', 'icon' => 'fa-circle-check'],
+    ['key' => 'in_progress', 'label' => 'در حال رسیدگی',  'color' => '#3b82f6', 'icon' => 'fa-spinner'],
     ['key' => 'pending',     'label' => 'در انتظار',     'color' => '#f59e0b', 'icon' => 'fa-clock'],
 ];
 $knownKeys = array_column($chartSegments, 'key');
@@ -54,7 +54,7 @@ foreach ($chartSegments as $i => $seg) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>پنل مدیریت ای‌پلاک</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
@@ -73,9 +73,11 @@ foreach ($chartSegments as $i => $seg) {
         <a href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
         <a href="departments.php"><i class="fas fa-sitemap"></i> <span>واحدها</span></a>
         <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+        <a href="places.php"><i class="fas fa-map-location-dot"></i> <span>اماکن شهری</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
         <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
         <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+        <a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
         <a href="logout.php"><i class="fas fa-sign-out-alt"></i> <span>خروج</span></a>
       </nav>
     </aside>
@@ -101,6 +103,20 @@ foreach ($chartSegments as $i => $seg) {
         <div class="card">
           <h3>تیکت‌های در انتظار</h3>
           <p><?= $stats['pending_tickets_count'] ?></p>
+        </div>
+        <div class="card">
+          <h3><i class="fas fa-paperclip"></i> گزارش‌های دارای عکس/فیلم</h3>
+          <p><?= (int) ($stats['reports_with_media'] ?? 0) ?></p>
+        </div>
+        <div class="card">
+          <h3><i class="fas fa-bell"></i> دستگاه‌های اعلان پس‌زمینه</h3>
+          <p><?= (int) ($stats['push_subscribers'] ?? 0) ?></p>
+          <a href="settings.php" style="font-size:12px;">تنظیمات و ارسال آزمایشی</a>
+        </div>
+        <div class="card">
+          <h3><i class="fas fa-newspaper"></i> مطالب اخبار و دانستنی‌ها</h3>
+          <p><?= (int) ($stats['news_count'] ?? 0) ?></p>
+          <a href="news.php" style="font-size:12px;">مدیریت مطالب</a>
         </div>
       </section>
 
@@ -216,12 +232,12 @@ foreach ($chartSegments as $i => $seg) {
           </a>
           <a class="export-btn" href="export.php?type=reports&amp;status=done">
             <i class="fa-solid fa-circle-check"></i>
-            <span>گزارش‌های انجام‌شده</span>
+            <span>گزارش‌های انجام شد</span>
             <em><?= (int)($statusCounts['done'] ?? 0) ?> مورد</em>
           </a>
           <a class="export-btn" href="export.php?type=reports&amp;status=in_progress">
             <i class="fa-solid fa-spinner"></i>
-            <span>گزارش‌های در حال بررسی</span>
+            <span>گزارش‌های در حال رسیدگی</span>
             <em><?= (int)($statusCounts['in_progress'] ?? 0) ?> مورد</em>
           </a>
           <a class="export-btn" href="export.php?type=reports&amp;status=pending">

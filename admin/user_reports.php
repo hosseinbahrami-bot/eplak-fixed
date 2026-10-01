@@ -15,8 +15,8 @@ $user = getUserByPhone($pdo, $userPhone);
 // محاسبه آمار
 $totalReports = count($reports);
 $pendingReports = count(array_filter($reports, fn($r) => $r['status'] === 'pending' || $r['status'] === 'در انتظار'));
-$doneReports = count(array_filter($reports, fn($r) => $r['status'] === 'done' || $r['status'] === 'انجام‌شده'));
-$inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in_progress' || $r['status'] === 'در حال بررسی'));
+$doneReports = count(array_filter($reports, fn($r) => $r['status'] === 'done' || $r['status'] === 'انجام شد'));
+$inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in_progress' || $r['status'] === 'در حال رسیدگی'));
 ?>
 <!doctype html>
 <html lang="fa" dir="rtl">
@@ -24,7 +24,7 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>گزارش‌های کاربر</title>
-  <link rel="stylesheet" href="assets/style.css?v=6">
+  <link rel="stylesheet" href="assets/style.css?v=9">
   <script src="assets/theme.js?v=7"></script>
   <script src="assets/persian-digits.js?v=6"></script>
   <link rel="stylesheet" href="assets/fontawesome/css/all.min.css">
@@ -42,9 +42,11 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
         <a href="tickets.php"><i class="fas fa-ticket-alt"></i> <span>تیکت‌ها</span></a>
         <a class="active" href="users.php"><i class="fas fa-users"></i> <span>کاربران</span></a>
                 <a href="news.php"><i class="fas fa-newspaper"></i> <span>اخبار و دانستنی‌ها</span></a>
+                <a href="places.php"><i class="fas fa-map-location-dot"></i> <span>اماکن شهری</span></a>
         <a href="notifications.php"><i class="fas fa-bell"></i> <span>ارسال اعلان</span></a>
 <a href="export.php"><i class="fas fa-file-excel"></i> <span>خروجی اکسل</span></a>
 <a href="settings.php"><i class="fas fa-cog"></i> <span>تنظیمات</span></a>
+<a href="version.php"><i class="fas fa-clipboard-check"></i> <span>بررسی نسخه</span></a>
       </nav>
     </aside>
     <main class="main">
@@ -109,11 +111,11 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
         </div>
         <div class="stat-item">
           <i class="fas fa-spinner" style="color: #2563eb;"></i>
-          <span>در حال بررسی: <strong><?= $inProgressReports ?></strong></span>
+          <span>در حال رسیدگی: <strong><?= $inProgressReports ?></strong></span>
         </div>
         <div class="stat-item">
           <i class="fas fa-check-circle" style="color: #16a34a;"></i>
-          <span>انجام‌شده: <strong><?= $doneReports ?></strong></span>
+          <span>انجام شد: <strong><?= $doneReports ?></strong></span>
         </div>
       </div>
 
@@ -129,8 +131,8 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
             <select id="filterStatus" class="filter-select" onchange="filterReports()">
               <option value="all">همه وضعیت‌ها</option>
               <option value="pending">در انتظار</option>
-              <option value="in_progress">در حال بررسی</option>
-              <option value="done">انجام‌شده</option>
+              <option value="in_progress">در حال رسیدگی</option>
+              <option value="done">انجام شد</option>
             </select>
           </div>
         </div>
@@ -168,19 +170,19 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
                         $statusMap = [
                             'pending' => ['class' => 'status-pending', 'text' => 'در انتظار'],
                             'در انتظار' => ['class' => 'status-pending', 'text' => 'در انتظار'],
-                            'in_progress' => ['class' => 'status-progress', 'text' => 'در حال بررسی'],
-                            'در حال بررسی' => ['class' => 'status-progress', 'text' => 'در حال بررسی'],
-                            'done' => ['class' => 'status-done', 'text' => 'انجام‌شده'],
-                            'انجام‌شده' => ['class' => 'status-done', 'text' => 'انجام‌شده'],
+                            'in_progress' => ['class' => 'status-progress', 'text' => 'در حال رسیدگی'],
+                            'در حال رسیدگی' => ['class' => 'status-progress', 'text' => 'در حال رسیدگی'],
+                            'done' => ['class' => 'status-done', 'text' => 'انجام شد'],
+                            'انجام شد' => ['class' => 'status-done', 'text' => 'انجام شد'],
                         ];
                         $status = $statusMap[$report['status']] ?? ['class' => 'status-pending', 'text' => $report['status']];
                       ?>
                       <span class="<?= $status['class'] ?>">
                         <?php if ($status['text'] === 'در انتظار'): ?>
                           <i class="fas fa-hourglass-half"></i>
-                        <?php elseif ($status['text'] === 'در حال بررسی'): ?>
+                        <?php elseif ($status['text'] === 'در حال رسیدگی'): ?>
                           <i class="fas fa-spinner fa-spin"></i>
-                        <?php elseif ($status['text'] === 'انجام‌شده'): ?>
+                        <?php elseif ($status['text'] === 'انجام شد'): ?>
                           <i class="fas fa-check-circle"></i>
                         <?php endif; ?>
                         <?= $status['text'] ?>
@@ -245,8 +247,8 @@ $inProgressReports = count(array_filter($reports, fn($r) => $r['status'] === 'in
         if (show && filterStatus !== 'all') {
           const statusMap = {
             'pending': ['pending', 'در انتظار'],
-            'in_progress': ['in_progress', 'در حال بررسی'],
-            'done': ['done', 'انجام‌شده']
+            'in_progress': ['in_progress', 'در حال رسیدگی'],
+            'done': ['done', 'انجام شد']
           };
           show = statusMap[filterStatus]?.includes(status) || false;
         }
